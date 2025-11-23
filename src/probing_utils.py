@@ -1,5 +1,6 @@
 import json
 from collections import defaultdict
+import os
 
 import numpy as np
 import pandas as pd
@@ -301,14 +302,61 @@ def extract_internal_reps_all_layers_and_tokens(model, input_output_ids_lst, pro
     return all_outputs_per_layer
 
 
-def load_model_and_validate_gpu(model_path, tokenizer_path=None):
-    if tokenizer_path is None:
-        tokenizer_path = model_path
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+# def load_model_and_validate_gpu(model_path, tokenizer_path=None):
+#     if tokenizer_path is None:
+#         tokenizer_path = model_path
+#     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+#     print("Started loading model")
+#     model = AutoModelForCausalLM.from_pretrained(model_path, device_map='auto',
+#                                                  torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
+#     assert ('cpu' not in model.hf_device_map.values())
+#     return model, tokenizer
+#
+
+def load_model_and_validate_gpu(model_path: str):
     print("Started loading model")
-    model = AutoModelForCausalLM.from_pretrained(model_path, device_map='auto',
-                                                 torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
-    assert ('cpu' not in model.hf_device_map.values())
+
+    # Optional override: LLMSKNOW_DEVICE=cpu|cuda|mps|auto
+    device_pref = os.getenv("LLMSKNOW_DEVICE", "auto").lower()
+
+    if device_pref == "cpu":
+        device = "cpu"
+    elif device_pref == "cuda":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    elif device_pref == "mps":
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+    else:
+        # auto: prefer CUDA, then MPS, then CPU
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+    # Choose dtype per device
+    if device == "cuda":
+        torch_dtype = torch.bfloat16  # CUDA can handle bfloat16
+        device_map = "cuda"
+    elif device == "mps":
+        torch_dtype = torch.float16   # IMPORTANT: no bfloat16 on MPS
+        device_map = "mps"
+    else:
+        torch_dtype = torch.float32   # safe on CPU
+        device_map = None             # load onto CPU
+
+    print(f"Loading {model_path} on {device} with dtype={torch_dtype}")
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        device_map=device_map,
+        torch_dtype=torch_dtype,
+    )
+    if device == "cpu":
+        model.to("cpu")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model.eval()
     return model, tokenizer
 
 
