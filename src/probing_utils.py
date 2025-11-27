@@ -96,35 +96,78 @@ def encode(prompt, tokenizer, model_name):
     return model_input
 
 
+# def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
+#     if 'instruct' in model_name.lower():
+#         messages = [
+#             {"role": "user", "content": prompt}
+#         ]
+#         model_input = tokenizer.apply_chat_template(messages, return_tensors="pt", **(tokenizer_args or {})).to('cuda')
+#     else: # non instruct model
+#         model_input = tokenizer(prompt, return_tensors='pt', **(tokenizer_args or {}))
+#         if "input_ids" in model_input:
+#             model_input = model_input["input_ids"].to('cuda')
+#     return model_input
+
+
 def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
-    if 'instruct' in model_name.lower():
-        messages = [
-            {"role": "user", "content": prompt}
-        ]
-        model_input = tokenizer.apply_chat_template(messages, return_tensors="pt", **(tokenizer_args or {})).to('cuda')
-    else: # non instruct model
-        model_input = tokenizer(prompt, return_tensors='pt', **(tokenizer_args or {}))
-        if "input_ids" in model_input:
-            model_input = model_input["input_ids"].to('cuda')
+    messages = [
+        {"role": "user", "content": prompt},
+    ]
+    model_input = tokenizer.apply_chat_template(
+        messages,
+        return_tensors="pt",
+        **(tokenizer_args or {}),
+    )
     return model_input
 
 
+
+# def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
+#              max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None):
+#
+#     if stop_token_id is not None:
+#         eos_token_id = stop_token_id
+#     else:
+#         eos_token_id = None
+#
+#     model_output = model.generate(model_input,
+#                                   max_new_tokens=max_new_tokens, output_hidden_states=output_hidden_states,
+#                                   output_scores=output_scores,
+#                                   return_dict_in_generate=True, do_sample=do_sample,
+#                                   temperature=temperature, top_k=top_k, top_p=top_p, eos_token_id=eos_token_id,
+#                                   **(additional_kwargs or {}))
+#
+#     return model_output
 def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
              max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None):
+
+    device = next(model.parameters()).device  # "cpu" if you force CPU above
+
+    if isinstance(model_input, dict):
+        model_input = {k: v.to(device) for k, v in model_input.items()}
+    else:
+        model_input = model_input.to(device)
 
     if stop_token_id is not None:
         eos_token_id = stop_token_id
     else:
         eos_token_id = None
 
-    model_output = model.generate(model_input,
-                                  max_new_tokens=max_new_tokens, output_hidden_states=output_hidden_states,
-                                  output_scores=output_scores,
-                                  return_dict_in_generate=True, do_sample=do_sample,
-                                  temperature=temperature, top_k=top_k, top_p=top_p, eos_token_id=eos_token_id,
-                                  **(additional_kwargs or {}))
-
+    model_output = model.generate(
+        model_input,
+        max_new_tokens=max_new_tokens,
+        output_hidden_states=output_hidden_states,
+        output_scores=output_scores,
+        return_dict_in_generate=True,
+        do_sample=do_sample,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        eos_token_id=eos_token_id,
+        **(additional_kwargs or {}),
+    )
     return model_output
+
 
 def get_indices_of_exact_answer(tokenizer, input_output_ids, exact_answer, model_name, prompt=None, output_ids=None):
 
@@ -312,49 +355,16 @@ def extract_internal_reps_all_layers_and_tokens(model, input_output_ids_lst, pro
 #     assert ('cpu' not in model.hf_device_map.values())
 #     return model, tokenizer
 #
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 def load_model_and_validate_gpu(model_path: str):
-    print("Started loading model")
-
-    # Optional override: LLMSKNOW_DEVICE=cpu|cuda|mps|auto
-    device_pref = os.getenv("LLMSKNOW_DEVICE", "auto").lower()
-
-    if device_pref == "cpu":
-        device = "cpu"
-    elif device_pref == "cuda":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    elif device_pref == "mps":
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
-    else:
-        # auto: prefer CUDA, then MPS, then CPU
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
-
-    # Choose dtype per device
-    if device == "cuda":
-        torch_dtype = torch.bfloat16  # CUDA can handle bfloat16
-        device_map = "cuda"
-    elif device == "mps":
-        torch_dtype = torch.float16   # IMPORTANT: no bfloat16 on MPS
-        device_map = "mps"
-    else:
-        torch_dtype = torch.float32   # safe on CPU
-        device_map = None             # load onto CPU
-
-    print(f"Loading {model_path} on {device} with dtype={torch_dtype}")
-
+    print("Started loading model on CPU")
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        device_map=device_map,
-        torch_dtype=torch_dtype,
+        torch_dtype=torch.float16,    # or float32 if you have lots of RAM
     )
-    if device == "cpu":
-        model.to("cpu")
-
+    model.to("cpu")
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     model.eval()
     return model, tokenizer
