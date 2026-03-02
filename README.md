@@ -1,5 +1,21 @@
 # LLMs Know More Than They Show: On the Intrinsic Representation of LLM Hallucinations
 
+
+
+cd /n/home12/ishapira/LLMsKnow
+
+source ../reward_modeling_alignment/itai_reward_env/bin/activate
+
+
+# Load .env and export all its variables
+
+set -a
+
+source .env
+
+set +a
+
+
 ## [Hadas Orgad](https://orgadhadas.github.io/), [Michael Toker](https://tokeron.github.io/), [Zorik Gekhman](https://zorikg.github.io/), [Roi Reichart](https://roireichart.com/), [Idan Szpektor](https://sites.google.com/site/idanszpektor), [Hadas Kotek](https://hkotek.com/), [Yonatan Belinkov](https://belinkov.com/)
 
 ## [arXiv](https://arxiv.org/abs/2410.02707) | [Website](https://llms-know.github.io/)
@@ -13,7 +29,7 @@ The code in this repo can be used to reproduce the results in the paper, by foll
 **(*) If you find any bugs, please open a Github issue - we are monitoring it and will fix it.**
 
 ## Dataset files
-Below we describe for each dataset what you need to do to run the scripts on it.
+Below we describe for each sodataset what you need to do to run the scripts on it.
 
 - **TriviaQA:** Requires `data/triviaqa-unfiltered/unfiltered-web-train.json` and `data/triviaqa-unfiltered/unfiltered-web-dev.json`,
 which can be downloaded from [here](https://nlp.cs.washington.edu/triviaqa/), download the unfiltered version.
