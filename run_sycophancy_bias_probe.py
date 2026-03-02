@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 from collections import defaultdict
 from datetime import datetime
@@ -75,6 +76,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--probe_train_max_samples", type=int, default=None)
 
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--hf_cache_dir",
+        type=str,
+        default=None,
+        help="HF model/tokenizer cache dir. If unset, uses HF_HUB_CACHE or HUGGINGFACE_HUB_CACHE env vars.",
+    )
     ap.add_argument("--out_dir", type=str, default="output/sycophancy_bias_probe")
     ap.add_argument("--run_name", type=str, default=None)
     return ap.parse_args()
@@ -216,13 +223,31 @@ def resolve_device(device_arg: str) -> str:
     return "cpu"
 
 
-def load_model_and_tokenizer(model_name: str, device: str, device_map_auto: bool):
+def resolve_hf_cache_dir(cli_cache_dir: Optional[str]) -> Optional[str]:
+    if cli_cache_dir:
+        return cli_cache_dir
+    env_cache = os.getenv("HF_HUB_CACHE") or os.getenv("HUGGINGFACE_HUB_CACHE")
+    if env_cache:
+        return env_cache
+    hf_home = os.getenv("HF_HOME")
+    if hf_home:
+        return str(Path(hf_home) / "hub")
+    return None
+
+
+def load_model_and_tokenizer(
+    model_name: str,
+    device: str,
+    device_map_auto: bool,
+    hf_cache_dir: Optional[str],
+):
     print(f"[model] loading model={model_name} on device={device}")
     if device == "cuda":
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=torch.float16,
             device_map="auto" if device_map_auto else None,
+            cache_dir=hf_cache_dir,
         )
         if not device_map_auto:
             model = model.to("cuda")
@@ -230,16 +255,18 @@ def load_model_and_tokenizer(model_name: str, device: str, device_map_auto: bool
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=torch.float32,
+            cache_dir=hf_cache_dir,
         )
         model = model.to("mps")
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=torch.float32,
+            cache_dir=hf_cache_dir,
         )
         model = model.to("cpu")
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, cache_dir=hf_cache_dir)
     model.eval()
     return model, tokenizer
 
@@ -602,6 +629,16 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
+    hf_cache_dir = resolve_hf_cache_dir(args.hf_cache_dir)
+    if hf_cache_dir:
+        Path(hf_cache_dir).mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("HF_HUB_CACHE", hf_cache_dir)
+        os.environ.setdefault("HUGGINGFACE_HUB_CACHE", hf_cache_dir)
+        os.environ.setdefault("TRANSFORMERS_CACHE", hf_cache_dir)
+        print(f"[cache] HF cache dir={hf_cache_dir}")
+    else:
+        print("[cache] HF cache dir not set (using library defaults)")
+
     data_files = ensure_sycophancy_eval_cached(
         data_dir=args.data_dir,
         repo_id=args.sycophancy_repo,
@@ -627,7 +664,12 @@ def main() -> None:
     print(f"[split] train_questions={len(train_groups)} test_questions={len(test_groups)}")
 
     device = resolve_device(args.device)
-    model, tokenizer = load_model_and_tokenizer(args.model, device=device, device_map_auto=args.device_map_auto)
+    model, tokenizer = load_model_and_tokenizer(
+        args.model,
+        device=device,
+        device_map_auto=args.device_map_auto,
+        hf_cache_dir=hf_cache_dir,
+    )
 
     train_records = sample_records_for_groups(
         model=model,
