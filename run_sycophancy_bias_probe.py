@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import pickle
 import random
 import socket
 import uuid
@@ -375,16 +376,31 @@ def select_best_layer_by_auc(
     seed: int,
     max_selection_samples: Optional[int],
     desc: str,
-) -> Tuple[Optional[int], Optional[float], Dict[int, Optional[float]]]:
+) -> Tuple[
+    Optional[int],
+    Optional[float],
+    Dict[int, Optional[float]],
+    Dict[int, Optional[LogisticRegression]],
+]:
     records = maybe_subsample(records, max_selection_samples, seed)
     if len(records) < 10:
         print(f"[probe:{desc}] too few samples for layer selection: {len(records)}")
-        return None, None, {layer: None for layer in layer_grid}
+        return (
+            None,
+            None,
+            {layer: None for layer in layer_grid},
+            {layer: None for layer in layer_grid},
+        )
 
     labels = np.array([int(r["correctness"]) for r in records], dtype=int)
     if len(np.unique(labels)) < 2:
         print(f"[probe:{desc}] only one class present in labels; skipping probe.")
-        return None, None, {layer: None for layer in layer_grid}
+        return (
+            None,
+            None,
+            {layer: None for layer in layer_grid},
+            {layer: None for layer in layer_grid},
+        )
 
     per_record_features: List[np.ndarray] = []
     for r in tqdm(records, desc=f"[probe:{desc}] extract all-layer features"):
@@ -409,9 +425,15 @@ def select_best_layer_by_auc(
     y_val = labels[val_idx]
     if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
         print(f"[probe:{desc}] train/val split collapsed to one class; skipping probe.")
-        return None, None, {layer: None for layer in layer_grid}
+        return (
+            None,
+            None,
+            {layer: None for layer in layer_grid},
+            {layer: None for layer in layer_grid},
+        )
 
     auc_per_layer: Dict[int, Optional[float]] = {}
+    clf_per_layer: Dict[int, Optional[LogisticRegression]] = {}
     best_layer = None
     best_auc = -1.0
 
@@ -424,8 +446,10 @@ def select_best_layer_by_auc(
             clf.fit(X_train, y_train)
             probs = clf.predict_proba(X_val)[:, 1]
             auc = roc_auc_score(y_val, probs)
+            clf_per_layer[layer] = clf
         except Exception:
             auc = None
+            clf_per_layer[layer] = None
         auc_per_layer[layer] = auc
         if auc is not None and auc > best_auc:
             best_auc = auc
@@ -433,10 +457,10 @@ def select_best_layer_by_auc(
 
     if best_layer is None:
         print(f"[probe:{desc}] no valid layer selected.")
-        return None, None, auc_per_layer
+        return None, None, auc_per_layer, clf_per_layer
 
     print(f"[probe:{desc}] best_layer={best_layer} dev_auc={best_auc:.4f}")
-    return best_layer, best_auc, auc_per_layer
+    return best_layer, best_auc, auc_per_layer, clf_per_layer
 
 
 def train_probe_for_layer(
@@ -954,6 +978,20 @@ def write_csv_atomic(path: Path, df: pd.DataFrame) -> None:
             tmp_path.unlink()
 
 
+def write_pickle_atomic(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
+    try:
+        with open(tmp_path, "wb") as f:
+            pickle.dump(payload, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
 def write_run_status(
     run_dir: Path,
     args: argparse.Namespace,
@@ -1299,7 +1337,7 @@ def main() -> None:
 
         # Probe trained only on neutral prompts (x).
         train_neutral = [r for r in train_records if r["template_type"] == "neutral"]
-        best_layer_x, best_auc_x, aucs_x = select_best_layer_by_auc(
+        best_layer_x, best_auc_x, aucs_x, layer_clfs_x = select_best_layer_by_auc(
             model=model,
             tokenizer=tokenizer,
             records=train_neutral,
@@ -1338,7 +1376,7 @@ def main() -> None:
         probe_bias_clfs: Dict[str, Optional[LogisticRegression]] = {}
         for btype in bias_types:
             train_bias = [r for r in train_records if r["template_type"] == btype]
-            best_layer_b, best_auc_b, aucs_b = select_best_layer_by_auc(
+            best_layer_b, best_auc_b, aucs_b, layer_clfs_b = select_best_layer_by_auc(
                 model=model,
                 tokenizer=tokenizer,
                 records=train_bias,
@@ -1375,6 +1413,43 @@ def main() -> None:
                 score_key="probe_xprime",
                 desc=f"bias:{btype}",
             )
+
+            # Save all per-layer selection probes for this bias type.
+            probe_models_dir = run_dir / "probe_models"
+            saved_layer_models: List[str] = []
+            for layer_id, clf_layer in layer_clfs_b.items():
+                if clf_layer is None:
+                    continue
+                path = probe_models_dir / f"probe_bias_{btype}__selection_layer_{int(layer_id)}.pkl"
+                write_pickle_atomic(path, clf_layer)
+                saved_layer_models.append(str(path))
+
+            # Save final retrained best probe.
+            saved_best_model = None
+            if clf_b is not None and best_layer_b is not None:
+                path = probe_models_dir / f"probe_bias_{btype}__best_retrained_layer_{int(best_layer_b)}.pkl"
+                write_pickle_atomic(path, clf_b)
+                saved_best_model = str(path)
+
+            probes_meta[f"probe_bias_{btype}"]["saved_selection_models"] = saved_layer_models
+            probes_meta[f"probe_bias_{btype}"]["saved_best_model"] = saved_best_model
+
+        # Save no-bias probe models after bias loop to ensure consistent output layout.
+        probe_models_dir = run_dir / "probe_models"
+        saved_x_layer_models: List[str] = []
+        for layer_id, clf_layer in layer_clfs_x.items():
+            if clf_layer is None:
+                continue
+            path = probe_models_dir / f"probe_no_bias__selection_layer_{int(layer_id)}.pkl"
+            write_pickle_atomic(path, clf_layer)
+            saved_x_layer_models.append(str(path))
+        saved_x_best_model = None
+        if clf_x is not None and best_layer_x is not None:
+            path = probe_models_dir / f"probe_no_bias__best_retrained_layer_{int(best_layer_x)}.pkl"
+            write_pickle_atomic(path, clf_x)
+            saved_x_best_model = str(path)
+        probes_meta["probe_no_bias"]["saved_selection_models"] = saved_x_layer_models
+        probes_meta["probe_no_bias"]["saved_best_model"] = saved_x_best_model
 
         tuple_rows = build_tuple_rows(all_records, model_name=args.model, bias_types=bias_types)
         tuples_df = pd.DataFrame(tuple_rows)
