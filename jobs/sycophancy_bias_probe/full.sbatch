@@ -14,8 +14,12 @@ REPO_DIR="/n/home12/ishapira/LLMsKnow"
 cd "$REPO_DIR"
 
 module load python/3.10.9-fasrc01
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate itai_ml_env
+source "$HOME/.bashrc"
+eval "$(conda shell.bash hook)"
+CONDA_ENV="itai_ml_env"
+
+echo "[env] conda=$(which conda)"
+conda run -n "$CONDA_ENV" python -c "import sys, numpy; print('[env] python=', sys.executable); print('[env] numpy=', numpy.__version__)"
 
 set -a
 source .env
@@ -35,7 +39,7 @@ export HF_HOME="$(dirname "$HUGGINGFACE_HUB_CACHE")/hf_home"
 
 mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
 
-python run_sycophancy_bias_probe.py \
+conda run --no-capture-output -n "$CONDA_ENV" python run_sycophancy_bias_probe.py \
   --model mistralai/Mistral-7B-Instruct-v0.2 \
   --device auto \
   --hf_cache_dir "$HUGGINGFACE_HUB_CACHE" \
