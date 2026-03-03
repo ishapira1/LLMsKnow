@@ -958,11 +958,21 @@ def assert_resume_compatible(run_dir: Path, args: argparse.Namespace) -> None:
         raise ValueError("\n".join(lines))
 
 
-def model_lock_path(base_out_dir: str, model_name: str) -> Path:
-    return Path(base_out_dir) / ".locks" / f"{model_slug(model_name)}.lock"
+def run_lock_path(run_dir: Path) -> Path:
+    return run_dir / ".run.lock"
 
 
-def acquire_model_lock(lock_path: Path, run_dir: Path) -> None:
+def _is_pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def acquire_run_lock(lock_path: Path, run_dir: Path) -> None:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_payload = {
         "pid": os.getpid(),
@@ -971,24 +981,60 @@ def acquire_model_lock(lock_path: Path, run_dir: Path) -> None:
         "run_dir": str(run_dir),
     }
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
-    try:
-        fd = os.open(lock_path, flags)
-    except FileExistsError as exc:
-        existing = "<unreadable>"
+    for _attempt in range(2):
         try:
-            existing = lock_path.read_text(encoding="utf-8")
-        except Exception:
-            pass
-        raise RuntimeError(
-            f"Lock exists at {lock_path}. Another run for this model may still be active.\n"
-            f"If this is stale, remove it manually.\nExisting lock metadata: {existing}"
-        ) from exc
+            fd = os.open(lock_path, flags)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(lock_payload, f, ensure_ascii=False, indent=2)
+            return
+        except FileExistsError as exc:
+            existing_text = "<unreadable>"
+            existing_payload: Optional[Dict[str, Any]] = None
+            try:
+                existing_text = lock_path.read_text(encoding="utf-8")
+                maybe = json.loads(existing_text)
+                if isinstance(maybe, dict):
+                    existing_payload = maybe
+            except Exception:
+                pass
 
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(lock_payload, f, ensure_ascii=False, indent=2)
+            stale = False
+            status_path = run_dir / "status.json"
+            if status_path.exists():
+                try:
+                    status_payload = json.loads(status_path.read_text(encoding="utf-8"))
+                    if isinstance(status_payload, dict):
+                        if str(status_payload.get("status")) in {"completed", "failed", "cancelled"}:
+                            stale = True
+                except Exception:
+                    pass
+
+            if not stale and existing_payload is not None:
+                try:
+                    existing_pid = int(existing_payload.get("pid"))
+                except Exception:
+                    existing_pid = None
+                existing_host = str(existing_payload.get("hostname", ""))
+                if existing_pid is not None and existing_host == socket.gethostname():
+                    if not _is_pid_alive(existing_pid):
+                        stale = True
+
+            if stale:
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+
+            raise RuntimeError(
+                f"Lock exists at {lock_path}. Another run with this run_name may still be active.\n"
+                f"If this is stale, remove it manually.\nExisting lock metadata: {existing_text}"
+            ) from exc
+
+    raise RuntimeError(f"Failed to acquire lock at {lock_path}.")
 
 
-def release_model_lock(lock_path: Path) -> None:
+def release_run_lock(lock_path: Path) -> None:
     try:
         lock_path.unlink()
     except FileNotFoundError:
@@ -1127,8 +1173,8 @@ def main() -> None:
 
     run_dir = make_run_dir(args.out_dir, args.model, args.run_name)
     assert_resume_compatible(run_dir, args)
-    lock_path = model_lock_path(args.out_dir, args.model)
-    acquire_model_lock(lock_path, run_dir)
+    lock_path = run_lock_path(run_dir)
+    acquire_run_lock(lock_path, run_dir)
     print(f"[run] run_dir={run_dir}")
     print(f"[run] lock_path={lock_path}")
 
@@ -1589,7 +1635,7 @@ def main() -> None:
         try:
             write_run_status(run_dir, args=args, status=run_status, lock_path=lock_path, error=run_error)
         finally:
-            release_model_lock(lock_path)
+            release_run_lock(lock_path)
 
 
 if __name__ == "__main__":
