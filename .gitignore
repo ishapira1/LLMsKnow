@@ -1,0 +1,7 @@
+
+# generated artifacts
+
+# Too large for GitHub, copied to local machine instead
+output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/**/sampling_records.jsonl
+output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/**/.sampling_records.jsonl.tmp*
+output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/**/sampled_responses.csv
