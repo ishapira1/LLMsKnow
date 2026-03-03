@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=syco_full
+#SBATCH --job-name=syco_full_V2
 #SBATCH --partition=gpu_requeue
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=80G
 #SBATCH --time=12:00:00
-#SBATCH --output=syco_full.%j.out
-#SBATCH --error=syco_full.%j.err
+#SBATCH --output=syco_full_V2.%j.out
+#SBATCH --error=syco_full_V2.%j.err
 
 set -euo pipefail
 
@@ -47,4 +47,4 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --n_draws 16 \
   --probe_layer_min 1 \
   --probe_layer_max 32 \
-  --run_name full_mistral7b_instruct
+  --run_name full_mistral7b_instruct_V2

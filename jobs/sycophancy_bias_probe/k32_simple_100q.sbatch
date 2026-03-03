@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=syco_k32_simple
+#SBATCH --job-name=syco_k32_simple_V2
 #SBATCH --partition=gpu_requeue
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=80G
 #SBATCH --time=12:00:00
-#SBATCH --output=syco_k32_simple.%j.out
-#SBATCH --error=syco_k32_simple.%j.err
+#SBATCH --output=syco_k32_simple_V2.%j.out
+#SBATCH --error=syco_k32_simple_V2.%j.err
 
 set -euo pipefail
 
@@ -49,4 +49,4 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --probe_layer_min 1 \
   --probe_layer_max 16 \
   --no_reuse_sampling_cache \
-  --run_name "k32_q100_incorrect_${SLURM_JOB_ID}"
+  --run_name "k32_q100_incorrect_V2_${SLURM_JOB_ID}"

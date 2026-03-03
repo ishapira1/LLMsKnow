@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=syco_fast_dirty
+#SBATCH --job-name=syco_fast_dirty_V2
 #SBATCH --partition=gpu_requeue
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=80G
 #SBATCH --time=12:00:00
-#SBATCH --output=syco_fast_dirty.%j.out
-#SBATCH --error=syco_fast_dirty.%j.err
+#SBATCH --output=syco_fast_dirty_V2.%j.out
+#SBATCH --error=syco_fast_dirty_V2.%j.err
 
 set -euo pipefail
 
@@ -50,4 +50,4 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --probe_layer_min 1 \
   --probe_layer_max 8 \
   --max_new_tokens 24 \
-  --run_name fast_dirty_mistral7b_instruct
+  --run_name fast_dirty_mistral7b_instruct_V2
