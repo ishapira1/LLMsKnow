@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "updated_at_utc": "2026-03-03T02:32:25Z",
+  "created_at_utc": "2026-03-03T01:59:15Z",
+  "model": "mistralai/Mistral-7B-Instruct-v0.2",
+  "run_name": "k32_q100_incorrect_63363469",
+  "run_dir": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/k32_q100_incorrect_63363469",
+  "pid": 426354,
+  "hostname": "holygpu8a29505.rc.fas.harvard.edu",
+  "lock_path": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/k32_q100_incorrect_63363469/.run.lock"
+}

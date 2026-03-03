@@ -53,7 +53,7 @@
   "n_records": 192,
   "is_complete": true,
   "stage": "sampling_complete",
-  "updated_at_utc": "2026-03-03T00:45:59Z",
+  "updated_at_utc": "2026-03-03T02:02:42Z",
   "source_cache_run_dir": null,
   "train_stats": {
     "split": "train",

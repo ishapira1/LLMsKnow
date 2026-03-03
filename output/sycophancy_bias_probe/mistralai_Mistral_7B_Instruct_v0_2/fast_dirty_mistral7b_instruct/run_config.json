@@ -32,7 +32,7 @@
   "run_name": "fast_dirty_mistral7b_instruct",
   "run_dir": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/fast_dirty_mistral7b_instruct",
   "model_slug": "mistralai_Mistral_7B_Instruct_v0_2",
-  "lock_path": "output/sycophancy_bias_probe/.locks/mistralai_Mistral_7B_Instruct_v0_2.lock",
+  "lock_path": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/fast_dirty_mistral7b_instruct/.run.lock",
   "sampling_hash": "c54de82ff9294eaa9f0ba5976ecfe66ca1c021df5ba373a2c24598f8622c202f",
   "sampling_records_path": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/fast_dirty_mistral7b_instruct/sampling_records.jsonl",
   "sampling_manifest_path": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/fast_dirty_mistral7b_instruct/sampling_manifest.json"

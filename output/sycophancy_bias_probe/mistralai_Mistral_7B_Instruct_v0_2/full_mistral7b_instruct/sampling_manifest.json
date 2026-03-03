@@ -1839,17 +1839,17 @@
     "expected_test_records": 23232
   },
   "expected_records": 116032,
-  "n_records": 6200,
+  "n_records": 6800,
   "is_complete": false,
   "stage": "sampling_train_in_progress",
-  "updated_at_utc": "2026-03-03T02:31:01Z",
+  "updated_at_utc": "2026-03-03T02:33:51Z",
   "source_cache_run_dir": null,
   "train_stats": {
     "split": "train",
-    "expected_records": 6208,
+    "expected_records": 6800,
     "reused_records": 0,
-    "generated_records": 6200,
-    "total_records": 6200
+    "generated_records": 6800,
+    "total_records": 6800
   },
   "test_stats": {
     "split": "test",
