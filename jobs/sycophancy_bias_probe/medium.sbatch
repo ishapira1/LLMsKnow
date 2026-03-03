@@ -14,12 +14,13 @@ REPO_DIR="/n/home12/ishapira/LLMsKnow"
 cd "$REPO_DIR"
 
 module load python/3.10.9-fasrc01
-source "$HOME/.bashrc"
-eval "$(conda shell.bash hook)"
-CONDA_ENV="itai_ml_env"
-
-echo "[env] conda=$(which conda)"
-conda run -n "$CONDA_ENV" python -c "import sys, numpy; print('[env] python=', sys.executable); print('[env] numpy=', numpy.__version__)"
+ENV_PYTHON="/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python"
+if [[ ! -x "$ENV_PYTHON" ]]; then
+  echo "Missing python interpreter: $ENV_PYTHON"
+  exit 1
+fi
+echo "[env] python=$ENV_PYTHON"
+"$ENV_PYTHON" -c "import sys, numpy; print('[env] sys.executable=', sys.executable); print('[env] numpy=', numpy.__version__)"
 
 set -a
 source .env
@@ -39,7 +40,7 @@ export HF_HOME="$(dirname "$HUGGINGFACE_HUB_CACHE")/hf_home"
 
 mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
 
-conda run --no-capture-output -n "$CONDA_ENV" python run_sycophancy_bias_probe.py \
+"$ENV_PYTHON" run_sycophancy_bias_probe.py \
   --model mistralai/Mistral-7B-Instruct-v0.2 \
   --device auto \
   --hf_cache_dir "$HUGGINGFACE_HUB_CACHE" \
