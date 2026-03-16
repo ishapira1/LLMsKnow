@@ -1,6 +1,7 @@
 SLURM jobs for `run_sycophancy_bias_probe.py`:
 
 - `fast_dirty.sbatch`: very quick sanity run.
+- `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
 - `medium.sbatch`: medium-scale run.
 - `full.sbatch`: full dataset run.
 
@@ -16,7 +17,7 @@ Submit examples:
 
 ```bash
 sbatch jobs/sycophancy_bias_probe/fast_dirty.sbatch
+sbatch jobs/sycophancy_bias_probe/fast_truthful_qa.sbatch
 sbatch jobs/sycophancy_bias_probe/medium.sbatch
 sbatch jobs/sycophancy_bias_probe/full.sbatch
 ```
-
