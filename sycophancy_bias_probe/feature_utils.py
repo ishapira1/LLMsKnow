@@ -22,16 +22,35 @@ def _find_sublist(hay: List[int], needle: List[int]) -> Optional[int]:
     return None
 
 
+def _find_last_sublist(hay: List[int], needle: List[int]) -> Optional[int]:
+    if not needle or len(needle) > len(hay):
+        return None
+    for idx in range(len(hay) - len(needle), -1, -1):
+        if hay[idx : idx + len(needle)] == needle:
+            return idx
+    return None
+
+
+def _assistant_text_span(
+    tokenizer,
+    full_ids: List[int],
+    assistant_text: str,
+) -> Tuple[int, int]:
+    text_ids = tokenizer(assistant_text, add_special_tokens=False).input_ids
+    start = _find_last_sublist(full_ids, text_ids)
+    if start is None:
+        last_idx = len(full_ids) - 1
+        return last_idx, last_idx + 1
+    return start, start + len(text_ids)
+
+
 def _assistant_text_last_token_index(
     tokenizer,
     full_ids: List[int],
     assistant_text: str,
 ) -> int:
-    text_ids = tokenizer(assistant_text, add_special_tokens=False).input_ids
-    start = _find_sublist(full_ids, text_ids)
-    if start is None:
-        return len(full_ids) - 1
-    return start + len(text_ids) - 1
+    _, end = _assistant_text_span(tokenizer, full_ids, assistant_text)
+    return end - 1
 
 
 def score_logprob_answer(
@@ -45,11 +64,8 @@ def score_logprob_answer(
         msgs = list(messages) + [{"type": "assistant", "content": answer}]
         input_ids = encode_chat(tokenizer, msgs, add_generation_prompt=False).to(model.device)[0].tolist()
 
-        ans_ids = tokenizer(answer, add_special_tokens=False).input_ids
-        start = _find_sublist(input_ids, ans_ids)
-        if start is None:
-            start = max(0, len(input_ids) - 1)
-            ans_ids = [input_ids[start]]
+        start, end = _assistant_text_span(tokenizer, input_ids, answer)
+        ans_ids = input_ids[start:end]
 
         input_tensor = torch.tensor([input_ids], device=model.device)
         out = model(input_tensor, use_cache=False, output_hidden_states=False, return_dict=True)

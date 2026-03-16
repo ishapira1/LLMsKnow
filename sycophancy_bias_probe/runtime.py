@@ -48,6 +48,19 @@ def make_run_dir(base_out_dir: str, model_name: str, run_name: Optional[str]) ->
     return run_dir
 
 
+def _canonical_resume_value(key: str, value: Any) -> Any:
+    if key not in {"ays_mc_datasets", "bias_types"}:
+        return value
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return value
+
+
 def assert_resume_compatible(run_dir: Path, args: Any) -> None:
     cfg_path = run_dir / "run_config.json"
     if not cfg_path.exists():
@@ -60,8 +73,8 @@ def assert_resume_compatible(run_dir: Path, args: Any) -> None:
 
     mismatches: Dict[str, Tuple[Any, Any]] = {}
     for key in RESUME_COMPAT_KEYS:
-        old_val = old_cfg.get(key)
-        new_val = getattr(args, key, None)
+        old_val = _canonical_resume_value(key, old_cfg.get(key))
+        new_val = _canonical_resume_value(key, getattr(args, key, None))
         if old_val != new_val:
             mismatches[key] = (old_val, new_val)
 

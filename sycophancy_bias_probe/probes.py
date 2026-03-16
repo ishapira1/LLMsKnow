@@ -9,6 +9,7 @@ from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
 from .correctness import record_is_usable_for_metrics as _record_is_usable_for_metrics
+from .feature_utils import _assistant_text_last_token_index
 from .feature_utils import get_hidden_feature_for_completion as _get_hidden_feature_for_completion
 from .logging_utils import log_status, tqdm_desc
 from .model_utils import encode_chat as _encode_chat
@@ -45,13 +46,7 @@ def get_hidden_feature_all_layers_for_completion(
     with torch.no_grad():
         msgs = list(messages) + [{"type": "assistant", "content": completion}]
         ids = _encode_chat(tokenizer, msgs, add_generation_prompt=False).to(model.device)[0].tolist()
-
-        ans_ids = tokenizer(completion, add_special_tokens=False).input_ids
-        start = find_sublist(ids, ans_ids)
-        if start is None:
-            last_idx = len(ids) - 1
-        else:
-            last_idx = start + len(ans_ids) - 1
+        last_idx = _assistant_text_last_token_index(tokenizer, ids, completion)
 
         input_tensor = torch.tensor([ids], device=model.device)
         out = model(input_tensor, use_cache=False, output_hidden_states=True, return_dict=True)

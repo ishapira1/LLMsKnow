@@ -91,6 +91,25 @@ class RuntimeContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 assert_resume_compatible(run_dir, mismatched_seed_args)
 
+    def test_assert_resume_compatible_canonicalizes_list_like_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = make_run_dir(tmpdir, "model", "resume_canonical_case")
+            args = make_args(
+                ays_mc_datasets="truthful_qa_mc, aqua_mc",
+                bias_types="incorrect_suggestion, doubt_correct, suggest_correct",
+            )
+            cfg_path = run_dir / "run_config.json"
+            write_json_atomic(
+                cfg_path,
+                {
+                    **{key: getattr(args, key, None) for key in RESUME_COMPAT_KEYS},
+                    "ays_mc_datasets": ["truthful_qa_mc", "aqua_mc"],
+                    "bias_types": ["incorrect_suggestion", "doubt_correct", "suggest_correct"],
+                },
+            )
+
+            assert_resume_compatible(run_dir, args)
+
     def test_lock_and_status_contract(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = make_run_dir(tmpdir, "model", "lock_case")
