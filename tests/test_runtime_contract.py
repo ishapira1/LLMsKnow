@@ -9,7 +9,12 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from sycophancy_bias_probe.constants import RESUME_COMPAT_KEYS
+from sycophancy_bias_probe.constants import (
+    GRADING_SPEC_VERSION,
+    MC_MODE_STRICT,
+    PROMPT_SPEC_VERSION,
+    RESUME_COMPAT_KEYS,
+)
 from sycophancy_bias_probe.runtime import (
     acquire_run_lock,
     assert_resume_compatible,
@@ -35,6 +40,9 @@ def make_args(**overrides):
             "dataset_name": "all",
             "ays_mc_datasets": ["truthful_qa_mc", "aqua_mc"],
             "sycophancy_repo": "meg-tong/sycophancy-eval",
+            "mc_mode": MC_MODE_STRICT,
+            "prompt_spec_version": PROMPT_SPEC_VERSION,
+            "grading_spec_version": GRADING_SPEC_VERSION,
             "bias_types": "incorrect_suggestion,doubt_correct,suggest_correct",
             "test_frac": 0.2,
             "split_seed": 0,
@@ -90,6 +98,10 @@ class RuntimeContractTests(unittest.TestCase):
             mismatched_seed_args = make_args(seed=1)
             with self.assertRaises(ValueError):
                 assert_resume_compatible(run_dir, mismatched_seed_args)
+
+            mismatched_mc_mode_args = make_args(mc_mode="mc_with_rationale")
+            with self.assertRaises(ValueError):
+                assert_resume_compatible(run_dir, mismatched_mc_mode_args)
 
     def test_assert_resume_compatible_canonicalizes_list_like_fields(self):
         with tempfile.TemporaryDirectory() as tmpdir:

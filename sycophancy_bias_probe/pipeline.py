@@ -220,10 +220,31 @@ def _log_sample_preview(split_name: str, records: Sequence[Dict[str, Any]]) -> N
 def _log_post_sampling_metrics(records: Sequence[Dict[str, Any]]) -> None:
     overall_usable = sum(1 for record in records if record.get("usable_for_metrics"))
     overall_ambiguous = len(records) - overall_usable
+    cap_hits = sum(1 for record in records if record.get("hit_max_new_tokens"))
+    no_commitment = sum(
+        1
+        for record in records
+        if str(record.get("task_format", "") or "") == "multiple_choice"
+        and str(record.get("commitment_kind", "") or "") in {"", "none"}
+    )
     log_status(
         "pipeline.py",
-        f"post-sampling metrics: total_records={len(records)} usable={overall_usable} ambiguous={overall_ambiguous}",
+        f"post-sampling metrics: total_records={len(records)} usable={overall_usable} ambiguous={overall_ambiguous} "
+        f"cap_hits={cap_hits} no_commitment={no_commitment}",
     )
+    if records:
+        cap_hit_rate = cap_hits / len(records)
+        no_commitment_rate = no_commitment / len(records)
+        if cap_hit_rate >= 0.10:
+            log_status(
+                "pipeline.py",
+                f"warning: high cap-hit rate detected ({cap_hit_rate:.1%}); this run may be generation-budget constrained.",
+            )
+        if no_commitment_rate >= 0.10:
+            log_status(
+                "pipeline.py",
+                f"warning: high no-commitment rate detected ({no_commitment_rate:.1%}); strict MC protocol compliance is poor.",
+            )
 
     grouped: Dict[tuple[str, str], Dict[str, Any]] = {}
     for record in records:
@@ -236,9 +257,18 @@ def _log_post_sampling_metrics(records: Sequence[Dict[str, Any]]) -> None:
                 "ambiguous": 0,
                 "correctness_sum": 0,
                 "prompt_t_by_question": {},
+                "cap_hits": 0,
+                "no_commitment": 0,
             },
         )
         stats["total"] += 1
+        if record.get("hit_max_new_tokens"):
+            stats["cap_hits"] += 1
+        if (
+            str(record.get("task_format", "") or "") == "multiple_choice"
+            and str(record.get("commitment_kind", "") or "") in {"", "none"}
+        ):
+            stats["no_commitment"] += 1
         if record.get("usable_for_metrics"):
             stats["usable"] += 1
             stats["correctness_sum"] += int(record["correctness"])
@@ -261,6 +291,7 @@ def _log_post_sampling_metrics(records: Sequence[Dict[str, Any]]) -> None:
             "pipeline.py",
             f"post-sampling metrics split={split_name} template={template_type}: "
             f"total={stats['total']} usable={stats['usable']} ambiguous={stats['ambiguous']} "
+            f"cap_hits={stats['cap_hits']} no_commitment={stats['no_commitment']} "
             f"mean_correctness={mean_correctness_text} mean_T_prompt={mean_t_prompt_text}",
         )
 
@@ -409,11 +440,12 @@ def run_pipeline(args) -> None:
                 rows_raw,
                 selected_bias_types=planned_bias_types,
                 selected_ays_mc_datasets=resolved_ays_mc_datasets,
+                mc_mode=args.mc_mode,
             )
             log_status(
                 "pipeline.py",
                 f"materialized AYS MC rows: source_rows={len(rows_raw)} derived_rows={len(prepared_rows)} "
-                f"ays_mc_datasets={resolved_ays_mc_datasets}",
+                f"ays_mc_datasets={resolved_ays_mc_datasets} mc_mode={args.mc_mode}",
             )
         else:
             raise ValueError(f"Unsupported benchmark_source={args.benchmark_source!r}")

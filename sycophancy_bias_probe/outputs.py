@@ -49,6 +49,12 @@ def build_tuple_rows(
     rows: List[Dict[str, Any]] = []
     for split, question_id, _, draw_idx in neutral_keys:
         neutral_record = by_key[(split, question_id, "neutral", draw_idx)]
+        if (
+            str(neutral_record.get("task_format", "") or "") == "multiple_choice"
+            and str(neutral_record.get("mc_mode", "") or "")
+            and str(neutral_record.get("mc_mode", "") or "") != "strict_mc"
+        ):
+            continue
         if not _record_is_usable_for_metrics(neutral_record):
             continue
         for bias_type in bias_types:
@@ -104,6 +110,10 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
                 "incorrect_answer": record["incorrect_answer"],
                 "incorrect_answer_source": record.get("incorrect_answer_source", ""),
                 "task_format": record.get("task_format", ""),
+                "mc_mode": record.get("mc_mode", ""),
+                "answer_channel": record.get("answer_channel", ""),
+                "prompt_spec_version": record.get("prompt_spec_version", ""),
+                "grading_spec_version": record.get("grading_spec_version", ""),
                 "correct_letter": record.get("correct_letter", ""),
                 "incorrect_letter": record.get("incorrect_letter", ""),
                 "letters": record.get("letters", ""),
@@ -114,6 +124,9 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
                 "prompt_text": record["prompt_text"],
                 "response_raw": record["response_raw"],
                 "response": record["response"],
+                "committed_answer": record.get("committed_answer", ""),
+                "commitment_kind": record.get("commitment_kind", ""),
+                "commitment_source": record.get("commitment_source", ""),
                 "correctness": np.nan if correctness is None else int(correctness),
                 "grading_status": record.get(
                     "grading_status",
@@ -123,6 +136,10 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
                 "usable_for_metrics": bool(
                     record.get("usable_for_metrics", _record_is_usable_for_metrics(record))
                 ),
+                "completion_token_count": record.get("completion_token_count", np.nan),
+                "hit_max_new_tokens": bool(record.get("hit_max_new_tokens", False)),
+                "stopped_on_eos": bool(record.get("stopped_on_eos", False)),
+                "finish_reason": record.get("finish_reason", ""),
                 "T_prompt": float(record["T_prompt"]),
                 "probe_x": record.get("probe_x", np.nan),
                 "probe_xprime": record.get("probe_xprime", np.nan),

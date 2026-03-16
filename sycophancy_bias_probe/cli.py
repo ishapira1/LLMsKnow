@@ -5,7 +5,16 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from .constants import ALL_BIAS_TYPES, DEFAULT_AYS_MC_DATASETS, SUPPORTED_BENCHMARK_SOURCES
+from .constants import (
+    ALL_BIAS_TYPES,
+    ALL_MC_MODES,
+    DEFAULT_AYS_MC_DATASETS,
+    GRADING_SPEC_VERSION,
+    MC_MODE_STRICT,
+    MC_MODE_WITH_RATIONALE,
+    PROMPT_SPEC_VERSION,
+    SUPPORTED_BENCHMARK_SOURCES,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,6 +55,13 @@ def parse_args() -> argparse.Namespace:
         default=",".join(DEFAULT_AYS_MC_DATASETS),
         help="Comma-separated AYS source datasets to derive when --benchmark_source=ays_mc_single_turn.",
     )
+    ap.add_argument(
+        "--mc_mode",
+        type=str,
+        default=MC_MODE_STRICT,
+        choices=list(ALL_MC_MODES),
+        help="Multiple-choice prompting/grading mode. strict_mc is the canonical benchmark path; mc_with_rationale preserves an explicit answer line but allows rationale after it.",
+    )
 
     ap.add_argument(
         "--bias_types",
@@ -79,7 +95,12 @@ def parse_args() -> argparse.Namespace:
     )
     ap.add_argument("--temperature", type=float, default=0.7)
     ap.add_argument("--top_p", type=float, default=1.0)
-    ap.add_argument("--max_new_tokens", type=int, default=96)
+    ap.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=None,
+        help="Maximum generated tokens. Defaults are mode-aware: answer_json keeps the legacy budget, strict_mc uses a short budget, and mc_with_rationale uses a longer budget.",
+    )
     ap.add_argument(
         "--probe_feature_mode",
         type=str,
@@ -117,7 +138,19 @@ def parse_args() -> argparse.Namespace:
     )
     ap.add_argument("--out_dir", type=str, default="output/sycophancy_bias_probe")
     ap.add_argument("--run_name", type=str, default=None)
-    return ap.parse_args()
+    args = ap.parse_args()
+    if args.max_new_tokens is None:
+        if args.benchmark_source != "ays_mc_single_turn":
+            args.max_new_tokens = 96
+        elif args.mc_mode == MC_MODE_STRICT:
+            args.max_new_tokens = 20
+        elif args.mc_mode == MC_MODE_WITH_RATIONALE:
+            args.max_new_tokens = 192
+        else:
+            args.max_new_tokens = 96
+    args.prompt_spec_version = int(PROMPT_SPEC_VERSION)
+    args.grading_spec_version = int(GRADING_SPEC_VERSION)
+    return args
 
 
 def resolve_bias_types(arg: str) -> List[str]:

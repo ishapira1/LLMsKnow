@@ -10,8 +10,14 @@ from .constants import (
     ALL_AYS_MC_DATASETS,
     AYS_MC_BRIEF_INSTRUCTION,
     BIAS_TEMPLATE_TO_TYPE,
+    GRADING_SPEC_VERSION,
+    MC_MODE_STRICT,
+    MC_MODE_WITH_RATIONALE,
+    MC_WITH_RATIONALE_OUTPUT_INSTRUCTION,
     NEUTRAL_TEMPLATE,
     PROMPT_TEMPLATE_BY_TYPE,
+    PROMPT_SPEC_VERSION,
+    STRICT_MC_OUTPUT_INSTRUCTION,
 )
 
 
@@ -99,11 +105,20 @@ def render_multiple_choice_question(base: Dict[str, Any]) -> str:
     return question
 
 
-def render_ays_mc_question_text(base: Dict[str, Any]) -> str:
+def _mc_output_instruction_for_mode(mc_mode: str) -> str:
+    normalized_mode = str(mc_mode or "").strip().lower()
+    if normalized_mode == MC_MODE_WITH_RATIONALE:
+        return MC_WITH_RATIONALE_OUTPUT_INSTRUCTION
+    if normalized_mode == MC_MODE_STRICT:
+        return STRICT_MC_OUTPUT_INSTRUCTION
+    return AYS_MC_BRIEF_INSTRUCTION
+
+
+def render_ays_mc_question_text(base: Dict[str, Any], mc_mode: str = MC_MODE_STRICT) -> str:
     question_text = render_multiple_choice_question(base)
     if not question_text:
         return ""
-    return f"{question_text}\n\n{AYS_MC_BRIEF_INSTRUCTION}"
+    return f"{question_text}\n\n{_mc_output_instruction_for_mode(mc_mode)}"
 
 
 def resolve_ays_mc_datasets(arg: str) -> List[str]:
@@ -241,6 +256,7 @@ def materialize_ays_mc_single_turn_rows(
     rows: Sequence[Dict[str, Any]],
     selected_bias_types: Sequence[str],
     selected_ays_mc_datasets: Sequence[str],
+    mc_mode: str = MC_MODE_STRICT,
 ) -> List[Dict[str, Any]]:
     wanted_types = ["neutral", *selected_bias_types]
     wanted_datasets = set(selected_ays_mc_datasets)
@@ -257,7 +273,7 @@ def materialize_ays_mc_single_turn_rows(
         letters = "".join(letter for letter, _ in option_items) or str(base.get("letters", "") or "").strip()
         answers_list = [option_text for _, option_text in option_items]
         correct_letter = str(base.get("correct_letter", "") or "").strip()
-        question_text = render_ays_mc_question_text(base)
+        question_text = render_ays_mc_question_text(base, mc_mode=mc_mode)
         correct_answer = _correct_answer_for_multiple_choice(base, option_map)
         incorrect_answer, incorrect_answer_source, incorrect_letter = _incorrect_answer_for_multiple_choice(
             base,
@@ -281,6 +297,10 @@ def materialize_ays_mc_single_turn_rows(
                 "letters": letters,
                 "answers_list": answers_list,
                 "task_format": "multiple_choice",
+                "mc_mode": mc_mode,
+                "answer_channel": "letter",
+                "prompt_spec_version": int(PROMPT_SPEC_VERSION),
+                "grading_spec_version": int(GRADING_SPEC_VERSION),
                 "benchmark_source": "ays_mc_single_turn",
             }
         )
@@ -307,6 +327,9 @@ def materialize_ays_mc_single_turn_rows(
                     "base": dict(derived_base),
                     "metadata": {
                         "prompt_template": prompt_template,
+                        "mc_mode": mc_mode,
+                        "answer_channel": "letter",
+                        "prompt_spec_version": int(PROMPT_SPEC_VERSION),
                         "benchmark_source": "ays_mc_single_turn",
                     },
                 }

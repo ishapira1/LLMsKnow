@@ -66,6 +66,9 @@ That hash is built from the sampling spec recorded in `sampling_manifest.json`, 
 - `sampling_spec_version`
 - `model`
 - `benchmark_source`
+- `mc_mode`
+- `prompt_spec_version`
+- `grading_spec_version`
 - `input_jsonl`
 - `dataset_name`
 - `ays_mc_datasets`
@@ -111,7 +114,10 @@ Important fields:
 - `template_type`: `neutral` or a bias type like `incorrect_suggestion`
 - `draw_idx`: repeated-sampling index for the same prompt
 - `task_format`: empty for the original freeform benchmark, or `multiple_choice` for AYS-derived MC rows
-- `correct_letter`, `letters`, `answer_options`, `answers_list`: preserved MC metadata when the source row came from the AYS-derived benchmark
+- `mc_mode`: `strict_mc` for the canonical metrics path, or `mc_with_rationale` for the auxiliary rationale-preserving path
+- `answer_channel`: canonical judged channel for the row, currently `letter` for strict MC rows
+- `prompt_spec_version`, `grading_spec_version`: protocol-version markers for prompt rendering and grading semantics
+- `correct_letter`, `incorrect_letter`, `letters`, `answer_options`, `answers_list`: preserved MC metadata when the source row came from the AYS-derived benchmark
 - `prompt_messages`: original chat-message structure
 - `prompt_text`: flattened prompt text
 - `prompt_template`: template string used to build the prompt
@@ -119,10 +125,17 @@ Important fields:
   - `question` is the original `base.question`
 - `response_raw`: full raw model completion
 - `response`: parsed short answer used for grading
+- `committed_answer`: committed answer extracted for grading, if any
+- `commitment_kind`: how the answer was committed, for example `letter`, `text`, `option_text`, `none`, or `ambiguous`
+- `commitment_source`: where the commitment came from, for example `explicit_answer_line`, `standalone_answer_line`, `full_output_scan`, or `first_line_fallback`
 - `correctness`: `1`, `0`, or null for ambiguous/unusable rows
 - `grading_status`: grading label
 - `grading_reason`: why the row was graded or marked ambiguous
 - `usable_for_metrics`: whether the row is eligible for probe training and accuracy metrics
+- `completion_token_count`: decoded completion length in tokens when available
+- `hit_max_new_tokens`: whether generation appears to have stopped because it hit the configured token budget
+- `stopped_on_eos`: whether the decoded continuation appears to end on EOS
+- `finish_reason`: generation stop reason such as `eos_token` or `length`
 - `T_prompt`: empirical prompt accuracy for this `(split, question_id, template_type)`
 - `probe_x`, `probe_xprime`: probe scores after probe training/scoring finishes
 
@@ -131,13 +144,14 @@ Important fields:
 The grading path is:
 
 1. Generate `response_raw`
-2. Extract a short answer into `response`
-3. Compare `response` against `gold_answers`
-4. Store:
+2. Extract a committed answer into `committed_answer` when possible
+3. Store the parsed/grading-facing representation in `response`
+4. Compare the committed answer against the row's gold target
+5. Store:
    - `correctness = 1` for correct
    - `correctness = 0` for incorrect
    - `correctness = null` for ambiguous/unusable
-5. Mark `usable_for_metrics`
+6. Mark `usable_for_metrics`
 
 Ambiguous rows are preserved in the raw outputs but excluded from:
 
@@ -145,7 +159,16 @@ Ambiguous rows are preserved in the raw outputs but excluded from:
 - tuple construction
 - probe training
 
-When `benchmark_source=ays_mc_single_turn`, the pipeline first materializes `are_you_sure.jsonl` multiple-choice rows into synthetic `answer.jsonl`-style prompts using the existing prompt templates. Grading then accepts either the correct option letter or the correct answer text.
+When `benchmark_source=ays_mc_single_turn`, the pipeline first materializes `are_you_sure.jsonl` multiple-choice rows into synthetic single-turn prompts.
+
+For `mc_mode=strict_mc`, the canonical metrics path is:
+
+- the prompt requires the model to commit with `Answer: <LETTER>`
+- only explicit letter commitments are scoreable
+- rows with no committed answer are marked ambiguous
+- rows that hit the token cap before committing are marked ambiguous with a truncation-specific reason
+
+`mc_with_rationale` preserves the same explicit answer contract but allows longer completions after the first answer line. `final_tuples.csv` only includes usable rows from the strict metrics path.
 
 ## Pair-level schema
 

@@ -49,6 +49,43 @@ def encode_chat(tokenizer, messages: List[Dict[str, Any]], add_generation_prompt
     return tokenizer(text, return_tensors="pt").input_ids
 
 
+def _eos_token_ids(tokenizer) -> List[int]:
+    eos_value = getattr(tokenizer, "eos_token_id", None)
+    if eos_value is None:
+        return []
+    if isinstance(eos_value, (list, tuple)):
+        return [int(token_id) for token_id in eos_value]
+    return [int(eos_value)]
+
+
+def _decode_generation_metadata(tokenizer, gen_ids, max_new_tokens: int) -> Dict[str, Any]:
+    token_ids = gen_ids.detach().cpu().tolist()
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    while token_ids and pad_token_id is not None and token_ids[-1] == pad_token_id:
+        token_ids.pop()
+
+    completion_token_count = len(token_ids)
+    eos_token_ids = set(_eos_token_ids(tokenizer))
+    stopped_on_eos = bool(token_ids and eos_token_ids and token_ids[-1] in eos_token_ids)
+    hit_max_new_tokens = completion_token_count >= int(max_new_tokens) and not stopped_on_eos
+    if stopped_on_eos:
+        finish_reason = "eos_token"
+    elif hit_max_new_tokens:
+        finish_reason = "length"
+    elif completion_token_count <= 0:
+        finish_reason = "empty"
+    else:
+        finish_reason = "unknown"
+
+    return {
+        "response_raw": tokenizer.decode(token_ids, skip_special_tokens=True).strip(),
+        "completion_token_count": completion_token_count,
+        "hit_max_new_tokens": hit_max_new_tokens,
+        "stopped_on_eos": stopped_on_eos,
+        "finish_reason": finish_reason,
+    }
+
+
 def generate_one(
     model,
     tokenizer,
@@ -56,7 +93,8 @@ def generate_one(
     max_new_tokens: int = 64,
     temperature: float = 0.0,
     top_p: float = 1.0,
-) -> str:
+    return_metadata: bool = False,
+):
     torch = _import_torch()
     with torch.no_grad():
         input_ids = encode_chat(tokenizer, messages, add_generation_prompt=True).to(model.device)
@@ -70,9 +108,13 @@ def generate_one(
             do_sample=do_sample,
             temperature=temperature if do_sample else None,
             top_p=top_p if do_sample else None,
+            return_dict_in_generate=True,
         )
-        gen_ids = out[0, input_ids.shape[1] :]
-        return tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        gen_ids = out.sequences[0, input_ids.shape[1] :]
+        metadata = _decode_generation_metadata(tokenizer, gen_ids, max_new_tokens=max_new_tokens)
+        if return_metadata:
+            return metadata
+        return metadata["response_raw"]
 
 
 def _clear_device_cache(device: Any) -> None:
@@ -111,7 +153,8 @@ def generate_many(
     top_p: float = 1.0,
     batch_size: int = 1,
     safe_fallback: bool = True,
-) -> List[str]:
+    return_metadata: bool = False,
+) -> List[Any]:
     if n <= 0:
         return []
 
@@ -125,6 +168,7 @@ def generate_many(
                 max_new_tokens=max_new_tokens,
                 temperature=temperature,
                 top_p=top_p,
+                return_metadata=return_metadata,
             )
             for _ in range(n)
         ]
@@ -150,10 +194,16 @@ def generate_many(
                     do_sample=do_sample,
                     temperature=temperature if do_sample else None,
                     top_p=top_p if do_sample else None,
+                    return_dict_in_generate=True,
                 )
                 for row in range(chunk):
-                    gen_ids = out[row, input_len:]
-                    outputs.append(tokenizer.decode(gen_ids, skip_special_tokens=True).strip())
+                    gen_ids = out.sequences[row, input_len:]
+                    metadata = _decode_generation_metadata(
+                        tokenizer,
+                        gen_ids,
+                        max_new_tokens=max_new_tokens,
+                    )
+                    outputs.append(metadata if return_metadata else metadata["response_raw"])
             except Exception as exc:
                 if not safe_fallback or not _should_fallback_to_sequential(exc):
                     raise
@@ -172,6 +222,7 @@ def generate_many(
                             max_new_tokens=max_new_tokens,
                             temperature=temperature,
                             top_p=top_p,
+                            return_metadata=return_metadata,
                         )
                     )
 

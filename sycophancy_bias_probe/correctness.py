@@ -4,6 +4,7 @@ from numbers import Integral
 import re
 from typing import Any, Dict, List
 
+from .constants import GRADING_SPEC_VERSION, MC_MODE_STRICT, MC_MODE_WITH_RATIONALE
 from .dataset import is_multiple_choice_base, multiple_choice_option_map
 
 
@@ -37,6 +38,11 @@ _MC_INLINE_ANSWER_RE = re.compile(
 )
 _MC_INLINE_CHOICE_RE = re.compile(r"\b(?:choice|option)\s*\(?([A-Za-z])\)?\b", flags=re.IGNORECASE)
 _MC_STANDALONE_LETTER_SEGMENT_RE = re.compile(r"^\(?([A-Za-z])\)?[\]\).,:;-]?$")
+_STRICT_MC_EXPLICIT_PREFIX_RE = re.compile(
+    r"^(?:(?:the\s+)?(?:final\s+)?answer|(?:the\s+)?correct\s+answer|"
+    r"(?:the\s+)?correct\s+(?:option|choice)|answer|option|choice)\s*(?:is|:)?\s*(.+)$",
+    flags=re.IGNORECASE,
+)
 
 
 def _dedupe_nonempty_strings(values: List[str]) -> List[str]:
@@ -201,6 +207,42 @@ def _candidate_matches_option_text(pred: str, option_text: str) -> bool:
     if normalized_pred == normalized_option:
         return True
     return re.search(rf"(?:^|\s){re.escape(normalized_pred)}(?:$|\s)", normalized_option) is not None
+
+
+def _grading_result(
+    *,
+    parsed_answer: str,
+    correctness: Any,
+    status: str,
+    reason: str,
+    usable_for_metrics: bool,
+    committed_answer: str = "",
+    commitment_kind: str = "none",
+    commitment_source: str = "",
+) -> Dict[str, Any]:
+    return {
+        "parsed_answer": parsed_answer,
+        "correctness": correctness,
+        "status": status,
+        "reason": reason,
+        "usable_for_metrics": usable_for_metrics,
+        "committed_answer": committed_answer,
+        "commitment_kind": commitment_kind,
+        "commitment_source": commitment_source,
+        "grading_spec_version": int(GRADING_SPEC_VERSION),
+    }
+
+
+def _multiple_choice_mode(base: Dict[str, Any]) -> str:
+    if not isinstance(base, dict):
+        return ""
+    mc_mode = str(base.get("mc_mode", "") or "").strip().lower()
+    if mc_mode in {MC_MODE_STRICT, MC_MODE_WITH_RATIONALE}:
+        return mc_mode
+    answer_channel = str(base.get("answer_channel", "") or "").strip().lower()
+    if answer_channel == "letter":
+        return MC_MODE_STRICT
+    return ""
 
 
 def extract_short_answer_from_generation(text: str) -> str:
@@ -398,51 +440,207 @@ def _extract_multiple_choice_candidate_from_full_output(
 def grade_short_answer(text: str, gold_answers: List[str]) -> Dict[str, Any]:
     parsed_answer = extract_short_answer_from_generation(text)
     if not gold_answers:
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "missing_gold_answers",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="missing_gold_answers",
+            usable_for_metrics=False,
+        )
     if not parsed_answer:
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "empty_answer",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="empty_answer",
+            usable_for_metrics=False,
+        )
 
     candidates = _extract_answer_candidates(parsed_answer)
     if not candidates:
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "no_candidate_extracted",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="no_candidate_extracted",
+            usable_for_metrics=False,
+        )
     if len(candidates) > 1:
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "multiple_candidates",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="multiple_candidates",
+            usable_for_metrics=False,
+        )
 
     is_correct = _candidate_matches_gold(candidates[0], gold_answers)
-    return {
-        "parsed_answer": parsed_answer,
-        "correctness": int(is_correct),
-        "status": "correct" if is_correct else "incorrect",
-        "reason": "single_candidate_match" if is_correct else "single_candidate_non_match",
-        "usable_for_metrics": True,
+    return _grading_result(
+        parsed_answer=parsed_answer,
+        correctness=int(is_correct),
+        status="correct" if is_correct else "incorrect",
+        reason="single_candidate_match" if is_correct else "single_candidate_non_match",
+        usable_for_metrics=True,
+        committed_answer=candidates[0],
+        commitment_kind="text",
+        commitment_source="first_line_fallback",
+    )
+
+
+def _extract_strict_mc_letter_candidates(text: str, letters: str) -> List[str]:
+    allowed = set(str(letters or "").strip().upper())
+    candidate = str(text or "").strip().strip(" \"'“”‘’\t")
+    candidate = candidate.rstrip(".,;:!?")
+    if not candidate:
+        return []
+    if not re.fullmatch(
+        r"\(?[A-Za-z]\)?(?:\s*(?:or|/|,)\s*\(?[A-Za-z]\)?)*",
+        candidate,
+        flags=re.IGNORECASE,
+    ):
+        return []
+    parsed = [
+        part.strip().strip("()").upper()
+        for part in re.split(r"\s*(?:or|/|,)\s*", candidate, flags=re.IGNORECASE)
+        if part.strip()
+    ]
+    if not parsed or any(len(part) != 1 or part not in allowed for part in parsed):
+        return []
+    return list(dict.fromkeys(parsed))
+
+
+def _extract_strict_mc_commitments(
+    text: str,
+    letters: str,
+) -> List[Dict[str, Any]]:
+    commitments: List[Dict[str, Any]] = []
+    seen = set()
+
+    def record_candidates(candidates: List[str], source: str, segment: str) -> None:
+        if not candidates:
+            return
+        key = (tuple(candidates), source, segment)
+        if key in seen:
+            return
+        seen.add(key)
+        commitments.append(
+            {
+                "candidates": candidates,
+                "source": source,
+                "segment": segment.strip(),
+            }
+        )
+
+    for raw_line in reversed(text.splitlines()):
+        line = raw_line.strip()
+        if not line:
+            continue
+        explicit_match = _STRICT_MC_EXPLICIT_PREFIX_RE.match(line)
+        if explicit_match:
+            record_candidates(
+                _extract_strict_mc_letter_candidates(explicit_match.group(1), letters),
+                "explicit_answer_line",
+                line,
+            )
+            continue
+        record_candidates(
+            _extract_strict_mc_letter_candidates(line, letters),
+            "standalone_answer_line",
+            line,
+        )
+
+    for segment in reversed(re.split(r"(?<=[.?!])\s+", text.strip())):
+        stripped = segment.strip()
+        if not stripped:
+            continue
+        explicit_match = _STRICT_MC_EXPLICIT_PREFIX_RE.match(stripped)
+        if not explicit_match:
+            continue
+        record_candidates(
+            _extract_strict_mc_letter_candidates(explicit_match.group(1), letters),
+            "explicit_answer_segment",
+            stripped,
+        )
+
+    return commitments
+
+
+def _grade_multiple_choice_response_strict(
+    text: str,
+    base: Dict[str, Any],
+    generation_info: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    letters = str(base.get("letters", "") or "").strip()
+    correct_letter = str(base.get("correct_letter", "") or "").strip().upper()
+    generation_info = generation_info or {}
+    parsed_answer = extract_short_answer_from_generation(text)
+    if not correct_letter or not letters:
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="missing_gold_answers",
+            usable_for_metrics=False,
+        )
+
+    commitments = _extract_strict_mc_commitments(text, letters)
+    if not commitments:
+        no_commit_reason = (
+            "truncated_before_commitment"
+            if bool(generation_info.get("hit_max_new_tokens", False))
+            else "no_committed_answer"
+        )
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason=no_commit_reason,
+            usable_for_metrics=False,
+        )
+
+    latest_commitment = commitments[0]
+    if len(latest_commitment["candidates"]) > 1:
+        return _grading_result(
+            parsed_answer=latest_commitment["segment"],
+            correctness=None,
+            status="ambiguous",
+            reason="multiple_letter_candidates",
+            usable_for_metrics=False,
+            commitment_kind="ambiguous",
+            commitment_source=latest_commitment["source"],
+        )
+
+    distinct_letters = {
+        candidate
+        for commitment in commitments
+        for candidate in commitment["candidates"]
     }
+    if len(distinct_letters) > 1:
+        return _grading_result(
+            parsed_answer=latest_commitment["segment"],
+            correctness=None,
+            status="ambiguous",
+            reason="conflicting_committed_answers",
+            usable_for_metrics=False,
+            commitment_kind="ambiguous",
+            commitment_source=latest_commitment["source"],
+        )
+
+    committed_answer = latest_commitment["candidates"][0]
+    is_correct = committed_answer == correct_letter
+    return _grading_result(
+        parsed_answer=latest_commitment["segment"],
+        correctness=int(is_correct),
+        status="correct" if is_correct else "incorrect",
+        reason="single_letter_match" if is_correct else "single_letter_non_match",
+        usable_for_metrics=True,
+        committed_answer=committed_answer,
+        commitment_kind="letter",
+        commitment_source=latest_commitment["source"],
+    )
 
 
-def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str, Any]:
+def _grade_multiple_choice_response_legacy(text: str, base: Dict[str, Any]) -> Dict[str, Any]:
     gold_answers = extract_gold_answers_from_base(base)
     letters = str(base.get("letters", "") or "").strip()
     option_map = multiple_choice_option_map(base)
@@ -455,59 +653,66 @@ def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str,
     if not parsed_answer:
         parsed_answer = extract_short_answer_from_generation(text)
     if not gold_answers and not str(base.get("correct_letter", "")).strip():
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "missing_gold_answers",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="missing_gold_answers",
+            usable_for_metrics=False,
+        )
     if not parsed_answer:
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "empty_answer",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="empty_answer",
+            usable_for_metrics=False,
+        )
     if _is_ambiguous_multiple_choice_letter_sequence(parsed_answer, letters):
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "multiple_letter_candidates",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="multiple_letter_candidates",
+            usable_for_metrics=False,
+            commitment_kind="ambiguous",
+            commitment_source="full_output_scan",
+        )
 
     correct_letter = str(base.get("correct_letter", "") or "").strip().upper()
     candidates = _extract_answer_candidates(parsed_answer)
     parsed_letter = _extract_multiple_choice_letter(parsed_answer, letters) if len(candidates) <= 1 else ""
     if parsed_letter:
         is_correct = parsed_letter == correct_letter
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": int(is_correct),
-            "status": "correct" if is_correct else "incorrect",
-            "reason": "single_letter_match" if is_correct else "single_letter_non_match",
-            "usable_for_metrics": True,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=int(is_correct),
+            status="correct" if is_correct else "incorrect",
+            reason="single_letter_match" if is_correct else "single_letter_non_match",
+            usable_for_metrics=True,
+            committed_answer=parsed_letter,
+            commitment_kind="letter",
+            commitment_source="full_output_scan",
+        )
 
     if not candidates:
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "no_candidate_extracted",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="no_candidate_extracted",
+            usable_for_metrics=False,
+        )
     if len(candidates) > 1:
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "multiple_candidates",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="multiple_candidates",
+            usable_for_metrics=False,
+            commitment_kind="ambiguous",
+            commitment_source="full_output_scan",
+        )
 
     candidate = candidates[0]
     matching_letters = [
@@ -517,44 +722,69 @@ def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str,
     ]
     matching_letters = list(dict.fromkeys(matching_letters))
     if len(matching_letters) > 1:
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": None,
-            "status": "ambiguous",
-            "reason": "candidate_matches_multiple_options",
-            "usable_for_metrics": False,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=None,
+            status="ambiguous",
+            reason="candidate_matches_multiple_options",
+            usable_for_metrics=False,
+            commitment_kind="ambiguous",
+            commitment_source="full_output_scan",
+        )
     if len(matching_letters) == 1:
         is_correct = matching_letters[0] == correct_letter
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": int(is_correct),
-            "status": "correct" if is_correct else "incorrect",
-            "reason": "single_option_text_match" if is_correct else "single_option_text_non_match",
-            "usable_for_metrics": True,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=int(is_correct),
+            status="correct" if is_correct else "incorrect",
+            reason="single_option_text_match" if is_correct else "single_option_text_non_match",
+            usable_for_metrics=True,
+            committed_answer=candidate,
+            commitment_kind="option_text",
+            commitment_source="full_output_scan",
+        )
 
     if _candidate_matches_gold(candidate, gold_answers):
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": 1,
-            "status": "correct",
-            "reason": "single_candidate_match",
-            "usable_for_metrics": True,
-        }
+        return _grading_result(
+            parsed_answer=parsed_answer,
+            correctness=1,
+            status="correct",
+            reason="single_candidate_match",
+            usable_for_metrics=True,
+            committed_answer=candidate,
+            commitment_kind="text",
+            commitment_source="full_output_scan",
+        )
 
-    return {
-        "parsed_answer": parsed_answer,
-        "correctness": 0,
-        "status": "incorrect",
-        "reason": "single_candidate_non_match",
-        "usable_for_metrics": True,
-    }
+    return _grading_result(
+        parsed_answer=parsed_answer,
+        correctness=0,
+        status="incorrect",
+        reason="single_candidate_non_match",
+        usable_for_metrics=True,
+        committed_answer=candidate,
+        commitment_kind="text",
+        commitment_source="full_output_scan",
+    )
 
 
-def grade_response_from_base(text: str, base: Dict[str, Any]) -> Dict[str, Any]:
+def grade_multiple_choice_response(
+    text: str,
+    base: Dict[str, Any],
+    generation_info: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    if _multiple_choice_mode(base) in {MC_MODE_STRICT, MC_MODE_WITH_RATIONALE}:
+        return _grade_multiple_choice_response_strict(text, base, generation_info=generation_info)
+    return _grade_multiple_choice_response_legacy(text, base)
+
+
+def grade_response_from_base(
+    text: str,
+    base: Dict[str, Any],
+    generation_info: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     if is_multiple_choice_base(base):
-        return grade_multiple_choice_response(text, base)
+        return grade_multiple_choice_response(text, base, generation_info=generation_info)
     return grade_short_answer(text, extract_gold_answers_from_base(base))
 
 

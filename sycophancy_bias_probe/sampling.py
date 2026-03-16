@@ -21,6 +21,24 @@ from .model_utils import generate_many as _generate_many
 from .runtime import model_slug
 
 
+def _generation_record_from_output(output: Any) -> Dict[str, Any]:
+    if isinstance(output, dict):
+        return {
+            "response_raw": str(output.get("response_raw", "") or ""),
+            "completion_token_count": output.get("completion_token_count"),
+            "hit_max_new_tokens": bool(output.get("hit_max_new_tokens", False)),
+            "stopped_on_eos": bool(output.get("stopped_on_eos", False)),
+            "finish_reason": str(output.get("finish_reason", "") or ""),
+        }
+    return {
+        "response_raw": str(output or ""),
+        "completion_token_count": None,
+        "hit_max_new_tokens": False,
+        "stopped_on_eos": False,
+        "finish_reason": "",
+    }
+
+
 def sample_record_key_values(
     split: str,
     question_id: str,
@@ -120,7 +138,17 @@ def refresh_sample_records_for_groups(
         prompt_template = (row.get("metadata", {}) or {}).get("prompt_template", "")
         base = row.get("base", {}) or {}
         gold_answers = _extract_gold_answers_from_base(base)
-        grading = _grade_response_from_base(str(record.get("response_raw", "")), base)
+        generation_info = {
+            "completion_token_count": record.get("completion_token_count"),
+            "hit_max_new_tokens": record.get("hit_max_new_tokens"),
+            "stopped_on_eos": record.get("stopped_on_eos"),
+            "finish_reason": record.get("finish_reason"),
+        }
+        grading = _grade_response_from_base(
+            str(record.get("response_raw", "")),
+            base,
+            generation_info=generation_info,
+        )
 
         refreshed_record.update(
             {
@@ -129,6 +157,10 @@ def refresh_sample_records_for_groups(
                 "dataset": str(group.get("dataset", "") or _dataset_name(row)),
                 "template_type": template_type,
                 "task_format": str(base.get("task_format", "") or ""),
+                "mc_mode": str(base.get("mc_mode", "") or ""),
+                "answer_channel": str(base.get("answer_channel", "") or ""),
+                "prompt_spec_version": base.get("prompt_spec_version"),
+                "grading_spec_version": grading.get("grading_spec_version", base.get("grading_spec_version")),
                 "correct_letter": str(base.get("correct_letter", "") or ""),
                 "incorrect_letter": str(base.get("incorrect_letter", "") or ""),
                 "letters": str(base.get("letters", "") or ""),
@@ -143,10 +175,17 @@ def refresh_sample_records_for_groups(
                 "incorrect_answer_source": str(base.get("incorrect_answer_source", "") or ""),
                 "gold_answers": gold_answers,
                 "response": grading["parsed_answer"],
+                "committed_answer": grading.get("committed_answer", ""),
+                "commitment_kind": grading.get("commitment_kind", ""),
+                "commitment_source": grading.get("commitment_source", ""),
                 "correctness": grading["correctness"],
                 "grading_status": grading["status"],
                 "grading_reason": grading["reason"],
                 "usable_for_metrics": grading["usable_for_metrics"],
+                "completion_token_count": record.get("completion_token_count"),
+                "hit_max_new_tokens": bool(record.get("hit_max_new_tokens", False)),
+                "stopped_on_eos": bool(record.get("stopped_on_eos", False)),
+                "finish_reason": str(record.get("finish_reason", "") or ""),
             }
         )
         refreshed.append(refreshed_record)
@@ -170,6 +209,9 @@ def build_sampling_spec(
         "sampling_spec_version": int(SAMPLING_SPEC_VERSION),
         "model": args.model,
         "benchmark_source": str(getattr(args, "benchmark_source", "answer_json") or "answer_json"),
+        "mc_mode": str(getattr(args, "mc_mode", "") or ""),
+        "prompt_spec_version": int(getattr(args, "prompt_spec_version", 0) or 0),
+        "grading_spec_version": int(getattr(args, "grading_spec_version", 0) or 0),
         "input_jsonl": args.input_jsonl,
         "dataset_name": str(getattr(args, "dataset_name", "all") or "all"),
         "ays_mc_datasets": list(getattr(args, "ays_mc_datasets", []))
@@ -314,6 +356,10 @@ def sample_records_for_groups(
             prompt_text = as_prompt_text(prompt_messages)
             prompt_template = (row.get("metadata", {}) or {}).get("prompt_template", "")
             task_format = str(base.get("task_format", "") or "")
+            mc_mode = str(base.get("mc_mode", "") or "")
+            answer_channel = str(base.get("answer_channel", "") or "")
+            prompt_spec_version = base.get("prompt_spec_version")
+            grading_spec_version = base.get("grading_spec_version")
             correct_letter = str(base.get("correct_letter", "") or "")
             incorrect_letter = str(base.get("incorrect_letter", "") or "")
             letters = str(base.get("letters", "") or "")
@@ -342,9 +388,16 @@ def sample_records_for_groups(
                 top_p=top_p,
                 batch_size=batch_size,
                 safe_fallback=True,
+                return_metadata=True,
             )
-            for draw_idx, response_raw in zip(missing_draws, generated_outputs):
-                grading = _grade_response_from_base(response_raw, base)
+            for draw_idx, generated_output in zip(missing_draws, generated_outputs):
+                generation_record = _generation_record_from_output(generated_output)
+                response_raw = generation_record["response_raw"]
+                grading = _grade_response_from_base(
+                    response_raw,
+                    base,
+                    generation_info=generation_record,
+                )
 
                 key = sample_record_key_values(split_name, group["question_id"], template_type, draw_idx)
                 records_by_key[key] = {
@@ -354,6 +407,10 @@ def sample_records_for_groups(
                     "dataset": dataset,
                     "template_type": template_type,
                     "task_format": task_format,
+                    "mc_mode": mc_mode,
+                    "answer_channel": answer_channel,
+                    "prompt_spec_version": prompt_spec_version,
+                    "grading_spec_version": grading.get("grading_spec_version", grading_spec_version),
                     "correct_letter": correct_letter,
                     "incorrect_letter": incorrect_letter,
                     "letters": letters,
@@ -370,10 +427,17 @@ def sample_records_for_groups(
                     "draw_idx": draw_idx,
                     "response_raw": response_raw,
                     "response": grading["parsed_answer"],
+                    "committed_answer": grading.get("committed_answer", ""),
+                    "commitment_kind": grading.get("commitment_kind", ""),
+                    "commitment_source": grading.get("commitment_source", ""),
                     "correctness": grading["correctness"],
                     "grading_status": grading["status"],
                     "grading_reason": grading["reason"],
                     "usable_for_metrics": grading["usable_for_metrics"],
+                    "completion_token_count": generation_record.get("completion_token_count"),
+                    "hit_max_new_tokens": generation_record.get("hit_max_new_tokens", False),
+                    "stopped_on_eos": generation_record.get("stopped_on_eos", False),
+                    "finish_reason": generation_record.get("finish_reason", ""),
                 }
                 rec_id += 1
                 generated += 1

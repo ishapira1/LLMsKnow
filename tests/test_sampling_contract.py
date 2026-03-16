@@ -8,6 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from sycophancy_bias_probe.constants import (
+    GRADING_SPEC_VERSION,
+    MC_MODE_STRICT,
+    PROMPT_SPEC_VERSION,
+    SAMPLING_SPEC_VERSION,
+)
 from sycophancy_bias_probe.runtime import model_slug
 from sycophancy_bias_probe.sampling import (
     add_empirical_t,
@@ -32,6 +38,9 @@ def make_args(**overrides):
         "dataset_name": "all",
         "ays_mc_datasets": ["truthful_qa_mc", "aqua_mc"],
         "sycophancy_repo": "meg-tong/sycophancy-eval",
+        "mc_mode": MC_MODE_STRICT,
+        "prompt_spec_version": PROMPT_SPEC_VERSION,
+        "grading_spec_version": GRADING_SPEC_VERSION,
         "seed": 0,
         "n_draws": 4,
         "sample_batch_size": 4,
@@ -119,10 +128,13 @@ class SamplingContractTests(unittest.TestCase):
             expected_val=4,
             expected_test=4,
         )
-        self.assertEqual(spec["sampling_spec_version"], 5)
+        self.assertEqual(spec["sampling_spec_version"], SAMPLING_SPEC_VERSION)
         self.assertEqual(spec["benchmark_source"], "answer_json")
         self.assertEqual(spec["dataset_name"], "all")
         self.assertEqual(spec["ays_mc_datasets"], ["truthful_qa_mc", "aqua_mc"])
+        self.assertEqual(spec["mc_mode"], MC_MODE_STRICT)
+        self.assertEqual(spec["prompt_spec_version"], PROMPT_SPEC_VERSION)
+        self.assertEqual(spec["grading_spec_version"], GRADING_SPEC_VERSION)
         self.assertEqual(spec["seed"], 0)
         self.assertEqual(spec["sample_batch_size"], 4)
         self.assertEqual(spec["train_question_ids"], ["q_1", "q_2"])
@@ -301,6 +313,10 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual(refreshed[0]["incorrect_answer_source"], "")
         self.assertEqual(refreshed[0]["question"], group["question"])
         self.assertEqual(refreshed[0]["prompt_template"], "{question}")
+        self.assertEqual(refreshed[0]["commitment_kind"], "text")
+        self.assertEqual(refreshed[0]["commitment_source"], "first_line_fallback")
+        self.assertIn("grading_spec_version", refreshed[0])
+        self.assertFalse(refreshed[0]["hit_max_new_tokens"])
 
     def test_sample_records_for_groups_reuses_existing_and_generates_missing(self):
         groups = [make_group("q_1")]
@@ -325,22 +341,55 @@ class SamplingContractTests(unittest.TestCase):
             }
         ]
 
-        def fake_generate_many(model, tokenizer, messages, n, max_new_tokens, temperature, top_p, batch_size, safe_fallback):
+        def fake_generate_many(
+            model,
+            tokenizer,
+            messages,
+            n,
+            max_new_tokens,
+            temperature,
+            top_p,
+            batch_size,
+            safe_fallback,
+            return_metadata,
+        ):
             prompt = messages[0]["content"]
             if "I think the answer is London" in prompt:
-                return ["London"] * n
-            return ["Paris"] * n
+                return [
+                    {
+                        "response_raw": "London",
+                        "completion_token_count": 4,
+                        "hit_max_new_tokens": False,
+                        "stopped_on_eos": True,
+                        "finish_reason": "eos_token",
+                    }
+                    for _ in range(n)
+                ]
+            return [
+                {
+                    "response_raw": "Paris",
+                    "completion_token_count": 4,
+                    "hit_max_new_tokens": False,
+                    "stopped_on_eos": True,
+                    "finish_reason": "eos_token",
+                }
+                for _ in range(n)
+            ]
 
         with patch("sycophancy_bias_probe.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])), patch(
             "sycophancy_bias_probe.sampling._generate_many", side_effect=fake_generate_many
         ), patch(
             "sycophancy_bias_probe.sampling._grade_response_from_base",
-            side_effect=lambda text, base: {
+            side_effect=lambda text, base, generation_info=None: {
                 "parsed_answer": text,
                 "correctness": int(text in set(base.get("answer", []))),
                 "status": "correct" if text in set(base.get("answer", [])) else "incorrect",
                 "reason": "test",
                 "usable_for_metrics": True,
+                "committed_answer": text,
+                "commitment_kind": "text",
+                "commitment_source": "unit_test",
+                "grading_spec_version": GRADING_SPEC_VERSION,
             },
         ):
             records, stats = sample_records_for_groups(
@@ -374,7 +423,65 @@ class SamplingContractTests(unittest.TestCase):
         self.assertTrue(all(record["dataset"] == "truthful_qa" for record in records))
         self.assertTrue(all(record.get("incorrect_answer_source", "") == "" for record in records))
         self.assertTrue(all(record.get("usable_for_metrics", True) for record in records))
+        generated_records = [record for record in records if record["record_id"] != 0]
+        self.assertEqual(len(generated_records), 3)
+        self.assertTrue(all(record.get("completion_token_count") == 4 for record in generated_records))
+        self.assertTrue(all(record.get("finish_reason", "") == "eos_token" for record in generated_records))
+        self.assertTrue(all(record.get("commitment_kind", "") == "text" for record in generated_records))
         self.assertEqual(max(record["record_id"] for record in records), 3)
+
+    def test_refresh_sample_records_marks_strict_mc_truncation_as_ambiguous(self):
+        group = {
+            "question_id": "q_mc",
+            "dataset": "aqua_mc",
+            "question": "Which value is correct?",
+            "correct_answer": "9",
+            "incorrect_answer": "7",
+            "rows_by_type": {
+                "neutral": {
+                    "base": {
+                        "dataset": "aqua_mc",
+                        "question": "Which value is correct?\n(A) 7\n(B) 8\n(C) 9\n(D) 10",
+                        "task_format": "multiple_choice",
+                        "mc_mode": MC_MODE_STRICT,
+                        "answer_channel": "letter",
+                        "prompt_spec_version": PROMPT_SPEC_VERSION,
+                        "grading_spec_version": GRADING_SPEC_VERSION,
+                        "correct_letter": "C",
+                        "incorrect_letter": "A",
+                        "letters": "ABCD",
+                        "answers": "(A) 7\n(B) 8\n(C) 9\n(D) 10",
+                        "answers_list": ["7", "8", "9", "10"],
+                        "correct_answer": "9",
+                        "incorrect_answer": "7",
+                    },
+                    "prompt": [{"type": "human", "content": "Question"}],
+                    "metadata": {"prompt_template": "{question}"},
+                }
+            },
+        }
+        cached_record = {
+            "record_id": 0,
+            "question_id": "q_mc",
+            "split": "test",
+            "dataset": "aqua_mc",
+            "template_type": "neutral",
+            "draw_idx": 0,
+            "response_raw": "We can set up the equation and then",
+            "hit_max_new_tokens": True,
+            "finish_reason": "length",
+            "completion_token_count": 20,
+        }
+
+        refreshed = refresh_sample_records_for_groups([cached_record], [group], split_name="test")
+        self.assertEqual(len(refreshed), 1)
+        self.assertEqual(refreshed[0]["grading_status"], "ambiguous")
+        self.assertEqual(refreshed[0]["grading_reason"], "truncated_before_commitment")
+        self.assertFalse(refreshed[0]["usable_for_metrics"])
+        self.assertEqual(refreshed[0]["mc_mode"], MC_MODE_STRICT)
+        self.assertEqual(refreshed[0]["commitment_kind"], "none")
+        self.assertTrue(refreshed[0]["hit_max_new_tokens"])
+        self.assertEqual(refreshed[0]["finish_reason"], "length")
 
 
 if __name__ == "__main__":
