@@ -99,7 +99,7 @@ def parse_args() -> argparse.Namespace:
         "--max_new_tokens",
         type=int,
         default=None,
-        help="Maximum generated tokens. Defaults are mode-aware: answer_json keeps the legacy budget, strict_mc uses a short budget, and mc_with_rationale uses a longer budget.",
+        help="Maximum generated tokens. If omitted, the pipeline uses a high default budget of 256 to avoid truncating answer-bearing completions.",
     )
     ap.add_argument(
         "--probe_feature_mode",
@@ -140,14 +140,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--run_name", type=str, default=None)
     args = ap.parse_args()
     if args.max_new_tokens is None:
-        if args.benchmark_source != "ays_mc_single_turn":
-            args.max_new_tokens = 96
-        elif args.mc_mode == MC_MODE_STRICT:
-            args.max_new_tokens = 20
-        elif args.mc_mode == MC_MODE_WITH_RATIONALE:
-            args.max_new_tokens = 192
-        else:
-            args.max_new_tokens = 96
+        args.max_new_tokens = 256
     args.prompt_spec_version = int(PROMPT_SPEC_VERSION)
     args.grading_spec_version = int(GRADING_SPEC_VERSION)
     return args
