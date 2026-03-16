@@ -105,6 +105,7 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
                 "incorrect_answer_source": record.get("incorrect_answer_source", ""),
                 "task_format": record.get("task_format", ""),
                 "correct_letter": record.get("correct_letter", ""),
+                "incorrect_letter": record.get("incorrect_letter", ""),
                 "letters": record.get("letters", ""),
                 "answer_options": record.get("answer_options", ""),
                 "answers_list": json.dumps(record.get("answers_list", []), ensure_ascii=False),

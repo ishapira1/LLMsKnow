@@ -198,6 +198,7 @@ class OutputContractTests(unittest.TestCase):
                 "incorrect_answer_source",
                 "task_format",
                 "correct_letter",
+                "incorrect_letter",
                 "letters",
                 "answer_options",
                 "answers_list",

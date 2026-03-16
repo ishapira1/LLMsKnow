@@ -139,6 +139,24 @@ def _compact_option_answer_text(text: str) -> str:
     return value
 
 
+def _unique_option_letter_for_text(
+    option_items: Sequence[Tuple[str, str]],
+    text: str,
+) -> str:
+    target = str(text or "").strip()
+    if not target:
+        return ""
+
+    matches = [
+        option_letter
+        for option_letter, option_text in option_items
+        if str(option_text or "").strip() == target
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return ""
+
+
 def _should_preserve_multiple_choice_option_text(base: Dict[str, Any]) -> bool:
     dataset = _normalized_dataset_name(base.get("dataset"))
     return dataset == "aqua_mc"
@@ -168,29 +186,55 @@ def _incorrect_answer_for_multiple_choice(
     base: Dict[str, Any],
     option_items: Sequence[Tuple[str, str]],
     option_map: Dict[str, str],
-) -> Tuple[str, str]:
+) -> Tuple[str, str, str]:
+    correct_letter = str(base.get("correct_letter", "") or "").strip()
+    correct_option_text = str(option_map.get(correct_letter, "") or "").strip()
+
     if _should_preserve_multiple_choice_option_text(base):
         wrong_letter = str(base.get("wrong_letter", "") or "").strip()
         if wrong_letter and wrong_letter in option_map:
-            return str(option_map[wrong_letter]).strip(), "wrong_letter"
+            return str(option_map[wrong_letter]).strip(), "wrong_letter", wrong_letter
 
     incorrect_answer = base.get("incorrect_answer")
     if isinstance(incorrect_answer, str) and incorrect_answer.strip():
-        return _multiple_choice_prompt_answer_text(base, incorrect_answer), "incorrect_answer"
+        return (
+            _multiple_choice_prompt_answer_text(base, incorrect_answer),
+            "incorrect_answer",
+            _unique_option_letter_for_text(option_items, incorrect_answer),
+        )
 
     wrong_answer = base.get("wrong_answer")
     if isinstance(wrong_answer, str) and wrong_answer.strip():
-        return _multiple_choice_prompt_answer_text(base, wrong_answer), "wrong_answer"
+        return (
+            _multiple_choice_prompt_answer_text(base, wrong_answer),
+            "wrong_answer",
+            _unique_option_letter_for_text(option_items, wrong_answer),
+        )
 
     wrong_letter = str(base.get("wrong_letter", "") or "").strip()
     if wrong_letter and wrong_letter in option_map:
-        return _multiple_choice_prompt_answer_text(base, option_map[wrong_letter]), "wrong_letter"
+        return (
+            _multiple_choice_prompt_answer_text(base, option_map[wrong_letter]),
+            "wrong_letter",
+            wrong_letter,
+        )
 
-    correct_letter = str(base.get("correct_letter", "") or "").strip()
+    skipped_same_text_option = False
     for option_letter, option_text in option_items:
-        if option_letter != correct_letter and option_text.strip():
-            return _multiple_choice_prompt_answer_text(base, option_text), "first_non_correct_option"
-    return "", ""
+        normalized_option_text = str(option_text or "").strip()
+        if option_letter == correct_letter or not normalized_option_text:
+            continue
+        if correct_option_text and normalized_option_text == correct_option_text:
+            skipped_same_text_option = True
+            continue
+        return (
+            _multiple_choice_prompt_answer_text(base, normalized_option_text),
+            "first_non_correct_distinct_option"
+            if skipped_same_text_option
+            else "first_non_correct_option",
+            option_letter,
+        )
+    return "", "", ""
 
 
 def materialize_ays_mc_single_turn_rows(
@@ -215,7 +259,7 @@ def materialize_ays_mc_single_turn_rows(
         correct_letter = str(base.get("correct_letter", "") or "").strip()
         question_text = render_ays_mc_question_text(base)
         correct_answer = _correct_answer_for_multiple_choice(base, option_map)
-        incorrect_answer, incorrect_answer_source = _incorrect_answer_for_multiple_choice(
+        incorrect_answer, incorrect_answer_source, incorrect_letter = _incorrect_answer_for_multiple_choice(
             base,
             option_items,
             option_map,
@@ -232,6 +276,7 @@ def materialize_ays_mc_single_turn_rows(
                 "correct_answer": correct_answer,
                 "incorrect_answer": incorrect_answer,
                 "incorrect_answer_source": incorrect_answer_source,
+                "incorrect_letter": incorrect_letter,
                 "correct_letter": correct_letter,
                 "letters": letters,
                 "answers_list": answers_list,

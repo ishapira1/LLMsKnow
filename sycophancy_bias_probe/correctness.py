@@ -20,11 +20,19 @@ _LEADING_FILLER_RE = re.compile(
 _MULTI_CANDIDATE_SPLIT_RE = re.compile(r"\s+(?:or|/)\s+", flags=re.IGNORECASE)
 _APPOSITIVE_SPLIT_RE = re.compile(r",\s+(?:the|a|an)\s+", flags=re.IGNORECASE)
 _MC_ANSWER_PREFIX_RE = re.compile(
-    r"^(?:(?:the\s+)?(?:final\s+)?answer|option|choice)\s*(?:is|:)?\s*",
+    r"^(?:(?:the\s+)?(?:final\s+)?answer|(?:the\s+)?correct\s+answer|"
+    r"(?:the\s+)?correct\s+(?:option|choice)|option|choice)\s*(?:is|:)?\s*",
+    flags=re.IGNORECASE,
+)
+_MC_SEGMENT_PREFIX_RE = re.compile(
+    r"^(?:(?:therefore|thus|so|hence|overall|ultimately|finally|probably|maybe|perhaps)[,:]?\s+|"
+    r"i\s+(?:pick|choose|select|guess|think)\s+|"
+    r"my\s+(?:pick|choice|answer)\s+(?:is\s+)?)",
     flags=re.IGNORECASE,
 )
 _MC_INLINE_ANSWER_RE = re.compile(
-    r"\b(?:(?:the\s+)?(?:final\s+)?answer|(?:the\s+)?correct\s+answer|answer)\s*(?:is|:)\s*(.+)$",
+    r"\b(?:(?:the\s+)?(?:final\s+)?answer|(?:the\s+)?correct\s+answer|"
+    r"(?:the\s+)?correct\s+(?:option|choice)|answer)\s*(?:is|:)\s*(.+)$",
     flags=re.IGNORECASE,
 )
 _MC_INLINE_CHOICE_RE = re.compile(r"\b(?:choice|option)\s*\(?([A-Za-z])\)?\b", flags=re.IGNORECASE)
@@ -246,6 +254,9 @@ def _extract_multiple_choice_letter(parsed_answer: str, letters: str) -> str:
     text = _MC_ANSWER_PREFIX_RE.sub("", text).strip()
     text = text.strip(" \"'“”‘’\t")
 
+    if _is_ambiguous_multiple_choice_letter_sequence(text, letters):
+        return ""
+
     patterns = [
         r"^\(?([A-Za-z])\)?$",
         r"^\(?([A-Za-z])\)?[\s\]\).,:;-].*$",
@@ -281,7 +292,67 @@ def _iter_reversed_output_segments(text: str) -> List[str]:
     return segments
 
 
-def _extract_multiple_choice_candidate_from_full_output(text: str, letters: str) -> str:
+def _is_ambiguous_multiple_choice_letter_sequence(text: str, letters: str) -> bool:
+    allowed = set(str(letters or "").strip().upper())
+    candidate = _MC_ANSWER_PREFIX_RE.sub("", str(text or "").strip()).strip(" \"'“”‘’\t")
+    candidate = candidate.rstrip(".,;:!-")
+    if not candidate:
+        return False
+    if not re.fullmatch(r"\(?[A-Za-z]\)?(?:\s*(?:or|/)\s*\(?[A-Za-z]\)?)+", candidate, flags=re.IGNORECASE):
+        return False
+
+    parts = [part.strip().strip("()").upper() for part in re.split(r"\s*(?:or|/)\s*", candidate, flags=re.IGNORECASE)]
+    return len(parts) > 1 and all(len(part) == 1 and part in allowed for part in parts)
+
+
+def _strip_multiple_choice_segment_prefixes(text: str) -> str:
+    candidate = text.strip(" \"'“”‘’\t")
+    while candidate:
+        updated = _MC_SEGMENT_PREFIX_RE.sub("", candidate).strip(" \"'“”‘’\t")
+        if updated == candidate:
+            break
+        candidate = updated
+    return candidate
+
+
+def _segment_looks_like_multiple_choice_answer(
+    segment: str,
+    letters: str,
+    gold_answers: List[str],
+    option_map: Dict[str, str],
+) -> bool:
+    if not segment:
+        return False
+
+    if _extract_multiple_choice_letter(segment, letters):
+        return True
+
+    candidates = _extract_answer_candidates(segment)
+    if not candidates:
+        return False
+
+    for candidate in candidates:
+        if _extract_multiple_choice_letter(candidate, letters):
+            continue
+        if _candidate_matches_gold(candidate, gold_answers):
+            continue
+        matching_letters = {
+            option_letter
+            for option_letter, option_text in option_map.items()
+            if _candidate_matches_option_text(candidate, option_text)
+        }
+        if len(matching_letters) == 1:
+            continue
+        return False
+    return True
+
+
+def _extract_multiple_choice_candidate_from_full_output(
+    text: str,
+    letters: str,
+    gold_answers: List[str],
+    option_map: Dict[str, str],
+) -> str:
     if not text:
         return ""
 
@@ -295,6 +366,18 @@ def _extract_multiple_choice_candidate_from_full_output(text: str, letters: str)
             return candidate
 
     for segment in segments:
+        stripped_segment = _strip_multiple_choice_segment_prefixes(segment)
+        if stripped_segment and _segment_looks_like_multiple_choice_answer(
+            stripped_segment,
+            letters,
+            gold_answers,
+            option_map,
+        ):
+            return stripped_segment
+
+        if _is_ambiguous_multiple_choice_letter_sequence(stripped_segment or segment, letters):
+            return stripped_segment or segment
+
         match = _MC_INLINE_CHOICE_RE.search(segment)
         if match:
             letter = match.group(1).upper()
@@ -362,7 +445,13 @@ def grade_short_answer(text: str, gold_answers: List[str]) -> Dict[str, Any]:
 def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str, Any]:
     gold_answers = extract_gold_answers_from_base(base)
     letters = str(base.get("letters", "") or "").strip()
-    parsed_answer = _extract_multiple_choice_candidate_from_full_output(text, letters)
+    option_map = multiple_choice_option_map(base)
+    parsed_answer = _extract_multiple_choice_candidate_from_full_output(
+        text,
+        letters,
+        gold_answers,
+        option_map,
+    )
     if not parsed_answer:
         parsed_answer = extract_short_answer_from_generation(text)
     if not gold_answers and not str(base.get("correct_letter", "")).strip():
@@ -381,9 +470,18 @@ def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str,
             "reason": "empty_answer",
             "usable_for_metrics": False,
         }
+    if _is_ambiguous_multiple_choice_letter_sequence(parsed_answer, letters):
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "multiple_letter_candidates",
+            "usable_for_metrics": False,
+        }
 
     correct_letter = str(base.get("correct_letter", "") or "").strip().upper()
-    parsed_letter = _extract_multiple_choice_letter(parsed_answer, letters)
+    candidates = _extract_answer_candidates(parsed_answer)
+    parsed_letter = _extract_multiple_choice_letter(parsed_answer, letters) if len(candidates) <= 1 else ""
     if parsed_letter:
         is_correct = parsed_letter == correct_letter
         return {
@@ -394,7 +492,6 @@ def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str,
             "usable_for_metrics": True,
         }
 
-    candidates = _extract_answer_candidates(parsed_answer)
     if not candidates:
         return {
             "parsed_answer": parsed_answer,
@@ -413,16 +510,6 @@ def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str,
         }
 
     candidate = candidates[0]
-    if _candidate_matches_gold(candidate, gold_answers):
-        return {
-            "parsed_answer": parsed_answer,
-            "correctness": 1,
-            "status": "correct",
-            "reason": "single_candidate_match",
-            "usable_for_metrics": True,
-        }
-
-    option_map = multiple_choice_option_map(base)
     matching_letters = [
         option_letter
         for option_letter, option_text in option_map.items()
@@ -444,6 +531,15 @@ def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str,
             "correctness": int(is_correct),
             "status": "correct" if is_correct else "incorrect",
             "reason": "single_option_text_match" if is_correct else "single_option_text_non_match",
+            "usable_for_metrics": True,
+        }
+
+    if _candidate_matches_gold(candidate, gold_answers):
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": 1,
+            "status": "correct",
+            "reason": "single_candidate_match",
             "usable_for_metrics": True,
         }
 

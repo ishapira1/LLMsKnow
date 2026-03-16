@@ -130,6 +130,7 @@ def refresh_sample_records_for_groups(
                 "template_type": template_type,
                 "task_format": str(base.get("task_format", "") or ""),
                 "correct_letter": str(base.get("correct_letter", "") or ""),
+                "incorrect_letter": str(base.get("incorrect_letter", "") or ""),
                 "letters": str(base.get("letters", "") or ""),
                 "answer_options": str(base.get("answers", "") or ""),
                 "answers_list": list(base.get("answers_list", []) or []),
@@ -314,6 +315,7 @@ def sample_records_for_groups(
             prompt_template = (row.get("metadata", {}) or {}).get("prompt_template", "")
             task_format = str(base.get("task_format", "") or "")
             correct_letter = str(base.get("correct_letter", "") or "")
+            incorrect_letter = str(base.get("incorrect_letter", "") or "")
             letters = str(base.get("letters", "") or "")
             answer_options = str(base.get("answers", "") or "")
             answers_list = list(base.get("answers_list", []) or [])
@@ -353,6 +355,7 @@ def sample_records_for_groups(
                     "template_type": template_type,
                     "task_format": task_format,
                     "correct_letter": correct_letter,
+                    "incorrect_letter": incorrect_letter,
                     "letters": letters,
                     "answer_options": answer_options,
                     "answers_list": answers_list,
