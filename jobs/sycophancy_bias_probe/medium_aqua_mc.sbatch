@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=medium_aqua_mc_mistral7b_instruct_v0_2_v3
+#SBATCH --job-name=medium_aqua_mc_mistral7b_instruct_v0_2_v4
 #SBATCH --partition=gpu_requeue
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
@@ -48,8 +48,10 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --input_jsonl are_you_sure.jsonl \
   --dataset_name aqua_mc \
   --ays_mc_datasets aqua_mc \
+  --mc_mode strict_mc \
   --max_questions 300 \
   --n_draws 16 \
   --probe_layer_min 1 \
   --probe_layer_max 16 \
-  --run_name medium_aqua_mc_mistral7b_instruct_V3
+  --max_new_tokens 20 \
+  --run_name medium_aqua_mc_mistral7b_instruct_V4
