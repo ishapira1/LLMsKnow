@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=syco_medium_V2
+#SBATCH --job-name=medium_mistral7b_instruct_v0_2_v3
 #SBATCH --partition=gpu_requeue
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=80G
 #SBATCH --time=12:00:00
-#SBATCH --output=syco_medium_V2.%j.out
-#SBATCH --error=syco_medium_V2.%j.err
+#SBATCH --output=jobs/sycophancy_bias_probe/logs/%x.%j.out
+#SBATCH --error=jobs/sycophancy_bias_probe/logs/%x.%j.err
 
 set -euo pipefail
 
@@ -48,4 +48,4 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --n_draws 16 \
   --probe_layer_min 1 \
   --probe_layer_max 16 \
-  --run_name medium_mistral7b_instruct_V2
+  --run_name medium_mistral7b_instruct_V3

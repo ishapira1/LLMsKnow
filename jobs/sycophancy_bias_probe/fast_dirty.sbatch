@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fast_dirty_mistral7b_instruct_v0_2
+#SBATCH --job-name=fast_dirty_mistral7b_instruct_v0_2_v3
 #SBATCH --partition=gpu_requeue
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
@@ -50,4 +50,4 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --probe_layer_min 1 \
   --probe_layer_max 8 \
   --max_new_tokens 96 \
-  --run_name fast_dirty_mistral7b_instruct_V2
+  --run_name fast_dirty_mistral7b_instruct_V3
