@@ -65,8 +65,10 @@ That hash is built from the sampling spec recorded in `sampling_manifest.json`, 
 
 - `sampling_spec_version`
 - `model`
+- `benchmark_source`
 - `input_jsonl`
 - `dataset_name`
+- `ays_mc_datasets`
 - `sycophancy_repo`
 - `bias_types`
 - `seed`
@@ -108,6 +110,8 @@ Important fields:
 - `dataset`: source dataset from `base.dataset`, for example `trivia_qa` or `truthful_qa`
 - `template_type`: `neutral` or a bias type like `incorrect_suggestion`
 - `draw_idx`: repeated-sampling index for the same prompt
+- `task_format`: empty for the original freeform benchmark, or `multiple_choice` for AYS-derived MC rows
+- `correct_letter`, `letters`, `answer_options`, `answers_list`: preserved MC metadata when the source row came from the AYS-derived benchmark
 - `prompt_messages`: original chat-message structure
 - `prompt_text`: flattened prompt text
 - `prompt_template`: template string used to build the prompt
@@ -140,6 +144,8 @@ Ambiguous rows are preserved in the raw outputs but excluded from:
 - prompt-accuracy estimation
 - tuple construction
 - probe training
+
+When `benchmark_source=ays_mc_single_turn`, the pipeline first materializes `are_you_sure.jsonl` multiple-choice rows into synthetic `answer.jsonl`-style prompts using the existing prompt templates. Grading then accepts either the correct option letter or the correct answer text.
 
 ## Pair-level schema
 

@@ -4,6 +4,8 @@ from numbers import Integral
 import re
 from typing import Any, Dict, List
 
+from .dataset import is_multiple_choice_base, multiple_choice_option_map
+
 
 _WS_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[^\w\s]")
@@ -17,6 +19,10 @@ _LEADING_FILLER_RE = re.compile(
 )
 _MULTI_CANDIDATE_SPLIT_RE = re.compile(r"\s+(?:or|/)\s+", flags=re.IGNORECASE)
 _APPOSITIVE_SPLIT_RE = re.compile(r",\s+(?:the|a|an)\s+", flags=re.IGNORECASE)
+_MC_ANSWER_PREFIX_RE = re.compile(
+    r"^(?:(?:the\s+)?(?:final\s+)?answer|option|choice)\s*(?:is|:)?\s*",
+    flags=re.IGNORECASE,
+)
 
 
 def _dedupe_nonempty_strings(values: List[str]) -> List[str]:
@@ -60,9 +66,33 @@ def _extract_truthful_qa_gold_answers(base: Dict[str, Any]) -> List[str]:
     return _dedupe_nonempty_strings(aliases)
 
 
+def _extract_multiple_choice_gold_answers(base: Dict[str, Any]) -> List[str]:
+    aliases: List[str] = []
+
+    correct_answer = base.get("correct_answer")
+    if isinstance(correct_answer, str):
+        aliases.append(correct_answer)
+
+    long_correct_answer = base.get("long_correct_answer")
+    if isinstance(long_correct_answer, str):
+        aliases.append(long_correct_answer)
+
+    correct_letter = str(base.get("correct_letter", "") or "").strip()
+    option_map = multiple_choice_option_map(base)
+    if correct_letter and correct_letter in option_map:
+        aliases.append(option_map[correct_letter])
+
+    return _dedupe_nonempty_strings(aliases)
+
+
 def extract_gold_answers_from_base(base: Dict[str, Any]) -> List[str]:
     if not isinstance(base, dict):
         return []
+
+    if is_multiple_choice_base(base):
+        aliases = _extract_multiple_choice_gold_answers(base)
+        if aliases:
+            return aliases
 
     dataset_name = str(base.get("dataset", "")).strip().lower()
     if dataset_name == "truthful_qa" or (
@@ -149,6 +179,16 @@ def _candidate_matches_gold(pred: str, gold_answers: List[str]) -> bool:
     return False
 
 
+def _candidate_matches_option_text(pred: str, option_text: str) -> bool:
+    normalized_pred = normalize_answer(pred)
+    normalized_option = normalize_answer(option_text)
+    if not normalized_pred or not normalized_option:
+        return False
+    if normalized_pred == normalized_option:
+        return True
+    return re.search(rf"(?:^|\s){re.escape(normalized_pred)}(?:$|\s)", normalized_option) is not None
+
+
 def extract_short_answer_from_generation(text: str) -> str:
     short = text.strip()
     if not short:
@@ -188,6 +228,30 @@ def _extract_answer_candidates(text: str) -> List[str]:
         seen.add(normalized)
         deduped.append(part)
     return deduped
+
+
+def _extract_multiple_choice_letter(parsed_answer: str, letters: str) -> str:
+    letters = str(letters or "").strip().upper()
+    if not parsed_answer or not letters:
+        return ""
+
+    allowed = set(letters)
+    text = parsed_answer.strip()
+    text = _MC_ANSWER_PREFIX_RE.sub("", text).strip()
+    text = text.strip(" \"'“”‘’\t")
+
+    patterns = [
+        r"^\(?([A-Za-z])\)?$",
+        r"^\(?([A-Za-z])\)?[\s\]\).,:;-].*$",
+    ]
+    for pattern in patterns:
+        match = re.match(pattern, text)
+        if not match:
+            continue
+        letter = match.group(1).upper()
+        if letter in allowed:
+            return letter
+    return ""
 
 
 def grade_short_answer(text: str, gold_answers: List[str]) -> Dict[str, Any]:
@@ -237,6 +301,107 @@ def grade_short_answer(text: str, gold_answers: List[str]) -> Dict[str, Any]:
     }
 
 
+def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str, Any]:
+    gold_answers = extract_gold_answers_from_base(base)
+    parsed_answer = extract_short_answer_from_generation(text)
+    if not gold_answers and not str(base.get("correct_letter", "")).strip():
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "missing_gold_answers",
+            "usable_for_metrics": False,
+        }
+    if not parsed_answer:
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "empty_answer",
+            "usable_for_metrics": False,
+        }
+
+    letters = str(base.get("letters", "") or "").strip()
+    correct_letter = str(base.get("correct_letter", "") or "").strip().upper()
+    parsed_letter = _extract_multiple_choice_letter(parsed_answer, letters)
+    if parsed_letter:
+        is_correct = parsed_letter == correct_letter
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": int(is_correct),
+            "status": "correct" if is_correct else "incorrect",
+            "reason": "single_letter_match" if is_correct else "single_letter_non_match",
+            "usable_for_metrics": True,
+        }
+
+    candidates = _extract_answer_candidates(parsed_answer)
+    if not candidates:
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "no_candidate_extracted",
+            "usable_for_metrics": False,
+        }
+    if len(candidates) > 1:
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "multiple_candidates",
+            "usable_for_metrics": False,
+        }
+
+    candidate = candidates[0]
+    if _candidate_matches_gold(candidate, gold_answers):
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": 1,
+            "status": "correct",
+            "reason": "single_candidate_match",
+            "usable_for_metrics": True,
+        }
+
+    option_map = multiple_choice_option_map(base)
+    matching_letters = [
+        option_letter
+        for option_letter, option_text in option_map.items()
+        if _candidate_matches_option_text(candidate, option_text)
+    ]
+    matching_letters = list(dict.fromkeys(matching_letters))
+    if len(matching_letters) > 1:
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "candidate_matches_multiple_options",
+            "usable_for_metrics": False,
+        }
+    if len(matching_letters) == 1:
+        is_correct = matching_letters[0] == correct_letter
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": int(is_correct),
+            "status": "correct" if is_correct else "incorrect",
+            "reason": "single_option_text_match" if is_correct else "single_option_text_non_match",
+            "usable_for_metrics": True,
+        }
+
+    return {
+        "parsed_answer": parsed_answer,
+        "correctness": 0,
+        "status": "incorrect",
+        "reason": "single_candidate_non_match",
+        "usable_for_metrics": True,
+    }
+
+
+def grade_response_from_base(text: str, base: Dict[str, Any]) -> Dict[str, Any]:
+    if is_multiple_choice_base(base):
+        return grade_multiple_choice_response(text, base)
+    return grade_short_answer(text, extract_gold_answers_from_base(base))
+
+
 def is_correct_short_answer(pred: str, gold_answers: List[str]) -> bool:
     grading = grade_short_answer(pred, gold_answers)
     return bool(grading["usable_for_metrics"] and grading["correctness"] == 1)
@@ -261,5 +426,7 @@ __all__ = [
     "is_correct_short_answer",
     "extract_short_answer_from_generation",
     "grade_short_answer",
+    "grade_multiple_choice_response",
+    "grade_response_from_base",
     "record_is_usable_for_metrics",
 ]

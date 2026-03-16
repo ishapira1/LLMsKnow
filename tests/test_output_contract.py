@@ -189,6 +189,11 @@ class OutputContractTests(unittest.TestCase):
                 "question",
                 "correct_answer",
                 "incorrect_answer",
+                "task_format",
+                "correct_letter",
+                "letters",
+                "answer_options",
+                "answers_list",
                 "gold_answers",
                 "prompt_template",
                 "prompt_text",
@@ -205,6 +210,7 @@ class OutputContractTests(unittest.TestCase):
         )
         self.assertEqual(samples_df.iloc[0]["model_name"], "mistralai/Mistral-7B-Instruct-v0.2")
         self.assertEqual(samples_df.iloc[0]["dataset"], "trivia_qa")
+        self.assertEqual(samples_df.iloc[0]["task_format"], "")
         self.assertEqual(json.loads(samples_df.iloc[0]["gold_answers"]), ["Paris"])
 
     def test_summary_df_schema_aggregation_and_empty_case(self):

@@ -30,8 +30,10 @@ def make_args(**overrides):
     payload.update(
         {
             "model": "mistralai/Mistral-7B-Instruct-v0.2",
+            "benchmark_source": "answer_json",
             "input_jsonl": "answer.jsonl",
             "dataset_name": "all",
+            "ays_mc_datasets": ["truthful_qa_mc", "aqua_mc"],
             "sycophancy_repo": "meg-tong/sycophancy-eval",
             "bias_types": "incorrect_suggestion,doubt_correct,suggest_correct",
             "test_frac": 0.2,

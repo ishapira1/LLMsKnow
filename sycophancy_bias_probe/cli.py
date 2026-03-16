@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from .constants import ALL_BIAS_TYPES
+from .constants import ALL_BIAS_TYPES, DEFAULT_AYS_MC_DATASETS, SUPPORTED_BENCHMARK_SOURCES
 
 
 def parse_args() -> argparse.Namespace:
@@ -16,10 +16,22 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda", "mps"])
     ap.add_argument("--device_map_auto", action="store_true")
 
+    ap.add_argument(
+        "--benchmark_source",
+        type=str,
+        default="answer_json",
+        choices=list(SUPPORTED_BENCHMARK_SOURCES),
+        help="Which benchmark construction to run. 'answer_json' uses answer.jsonl as-is; 'ays_mc_single_turn' derives single-turn bias prompts from the multiple-choice AYS source.",
+    )
     ap.add_argument("--data_dir", type=str, default="data/sycophancy-eval")
     ap.add_argument("--sycophancy_repo", type=str, default="meg-tong/sycophancy-eval")
     ap.add_argument("--force_download_sycophancy", action="store_true")
-    ap.add_argument("--input_jsonl", type=str, default="answer.jsonl", choices=["answer.jsonl"])
+    ap.add_argument(
+        "--input_jsonl",
+        type=str,
+        default="answer.jsonl",
+        choices=["answer.jsonl", "are_you_sure.jsonl"],
+    )
     ap.add_argument(
         "--dataset_name",
         "--dataset_type",
@@ -27,6 +39,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="all",
         help="Filter to a specific source dataset from base.dataset (for example truthful_qa). Use 'all' to keep every dataset.",
+    )
+    ap.add_argument(
+        "--ays_mc_datasets",
+        type=str,
+        default=",".join(DEFAULT_AYS_MC_DATASETS),
+        help="Comma-separated AYS source datasets to derive when --benchmark_source=ays_mc_single_turn.",
     )
 
     ap.add_argument(
@@ -110,6 +128,10 @@ def resolve_bias_types(arg: str) -> List[str]:
     if not choices:
         raise ValueError("At least one bias type is required.")
     return choices
+
+
+def resolve_csv_choices(arg: str) -> List[str]:
+    return [x.strip() for x in arg.split(",") if x.strip()]
 
 
 def resolve_device(device_arg: str) -> str:

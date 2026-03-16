@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .constants import BIAS_TEMPLATE_TO_TYPE, NEUTRAL_TEMPLATE
+from .constants import (
+    ALL_AYS_MC_DATASETS,
+    BIAS_TEMPLATE_TO_TYPE,
+    NEUTRAL_TEMPLATE,
+    PROMPT_TEMPLATE_BY_TYPE,
+)
+
+
+_MC_OPTION_LINE_RE = re.compile(r"^\s*\(([A-Za-z])\)\s*(.*?)\s*$")
 
 
 def as_prompt_text(messages: Any) -> str:
@@ -30,6 +39,191 @@ def dataset_name(row: Dict[str, Any]) -> str:
 
 def unique_dataset_names(rows: Sequence[Dict[str, Any]]) -> List[str]:
     return sorted({name for row in rows if (name := dataset_name(row))})
+
+
+def multiple_choice_option_items(base: Dict[str, Any]) -> List[Tuple[str, str]]:
+    if not isinstance(base, dict):
+        return []
+
+    letters = str(base.get("letters", "") or "").strip()
+    answers_list = base.get("answers_list")
+    if letters and isinstance(answers_list, list) and len(answers_list) >= len(letters):
+        items = []
+        for letter, answer_text in zip(letters, answers_list):
+            if isinstance(answer_text, str) and answer_text.strip():
+                items.append((letter, answer_text.strip()))
+        if items:
+            return items
+
+    if letters and all(isinstance(base.get(letter), str) and str(base.get(letter)).strip() for letter in letters):
+        return [(letter, str(base[letter]).strip()) for letter in letters]
+
+    answers_text = base.get("answers")
+    if isinstance(answers_text, str):
+        items = []
+        for line in answers_text.splitlines():
+            match = _MC_OPTION_LINE_RE.match(line)
+            if not match:
+                continue
+            option_letter = match.group(1).strip()
+            option_text = match.group(2).strip()
+            if option_letter and option_text:
+                items.append((option_letter, option_text))
+        if items:
+            return items
+
+    return []
+
+
+def multiple_choice_option_map(base: Dict[str, Any]) -> Dict[str, str]:
+    return {letter: option_text for letter, option_text in multiple_choice_option_items(base)}
+
+
+def is_multiple_choice_base(base: Dict[str, Any]) -> bool:
+    if not isinstance(base, dict):
+        return False
+    if str(base.get("task_format", "")).strip().lower() == "multiple_choice":
+        return True
+    dataset = str(base.get("dataset", "")).strip().lower()
+    return dataset in set(ALL_AYS_MC_DATASETS)
+
+
+def render_multiple_choice_question(base: Dict[str, Any]) -> str:
+    question = str(base.get("question", "") or "").strip()
+    answers_text = str(base.get("answers", "") or "").strip()
+    if question and answers_text:
+        normalized_answers = answers_text.lstrip()
+        if normalized_answers and normalized_answers not in question:
+            return f"{question}\n{normalized_answers}"
+    return question
+
+
+def resolve_ays_mc_datasets(arg: str) -> List[str]:
+    choices = [x.strip() for x in str(arg or "").split(",") if x.strip()]
+    invalid = [choice for choice in choices if choice not in ALL_AYS_MC_DATASETS]
+    if invalid:
+        raise ValueError(
+            f"Unknown AYS MC datasets: {invalid}. Valid: {list(ALL_AYS_MC_DATASETS)}"
+        )
+    if not choices:
+        raise ValueError("At least one AYS MC dataset is required.")
+    return choices
+
+
+def _compact_option_answer_text(text: str) -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+
+    for separator in (" is ", " are ", " was ", " were ", " means ", " refers to "):
+        if separator not in value:
+            continue
+        prefix = value.split(separator, 1)[0].strip(" .")
+        if (
+            prefix
+            and len(prefix.split()) <= 8
+            and not prefix.lower().startswith(("the ", "a ", "an "))
+        ):
+            return prefix
+        suffix = value.rsplit(separator, 1)[1].strip(" .")
+        if suffix and len(suffix.split()) <= 8:
+            return suffix
+    return value
+
+
+def _correct_answer_for_multiple_choice(base: Dict[str, Any], option_map: Dict[str, str]) -> str:
+    correct_answer = base.get("correct_answer")
+    if isinstance(correct_answer, str) and correct_answer.strip():
+        return _compact_option_answer_text(correct_answer)
+    correct_letter = str(base.get("correct_letter", "") or "").strip()
+    return _compact_option_answer_text(option_map.get(correct_letter, ""))
+
+
+def _incorrect_answer_for_multiple_choice(
+    base: Dict[str, Any],
+    option_items: Sequence[Tuple[str, str]],
+    option_map: Dict[str, str],
+) -> str:
+    incorrect_answer = base.get("incorrect_answer")
+    if isinstance(incorrect_answer, str) and incorrect_answer.strip():
+        return _compact_option_answer_text(incorrect_answer)
+
+    wrong_answer = base.get("wrong_answer")
+    if isinstance(wrong_answer, str) and wrong_answer.strip():
+        return _compact_option_answer_text(wrong_answer)
+
+    wrong_letter = str(base.get("wrong_letter", "") or "").strip()
+    if wrong_letter and wrong_letter in option_map:
+        return _compact_option_answer_text(option_map[wrong_letter])
+
+    correct_letter = str(base.get("correct_letter", "") or "").strip()
+    for option_letter, option_text in option_items:
+        if option_letter != correct_letter and option_text.strip():
+            return _compact_option_answer_text(option_text)
+    return ""
+
+
+def materialize_ays_mc_single_turn_rows(
+    rows: Sequence[Dict[str, Any]],
+    selected_bias_types: Sequence[str],
+    selected_ays_mc_datasets: Sequence[str],
+) -> List[Dict[str, Any]]:
+    wanted_types = ["neutral", *selected_bias_types]
+    wanted_datasets = set(selected_ays_mc_datasets)
+    materialized: List[Dict[str, Any]] = []
+
+    for row in rows:
+        base = row.get("base", {}) or {}
+        dataset = str(base.get("dataset", "") or "").strip()
+        if dataset not in wanted_datasets:
+            continue
+
+        option_items = multiple_choice_option_items(base)
+        option_map = {letter: option_text for letter, option_text in option_items}
+        letters = "".join(letter for letter, _ in option_items) or str(base.get("letters", "") or "").strip()
+        answers_list = [option_text for _, option_text in option_items]
+        correct_letter = str(base.get("correct_letter", "") or "").strip()
+        question_text = render_multiple_choice_question(base)
+        correct_answer = _correct_answer_for_multiple_choice(base, option_map)
+        incorrect_answer = _incorrect_answer_for_multiple_choice(base, option_items, option_map)
+
+        if not question_text or not correct_letter or not correct_answer or not incorrect_answer:
+            continue
+
+        derived_base = dict(base)
+        derived_base.update(
+            {
+                "dataset": dataset,
+                "question": question_text,
+                "correct_answer": correct_answer,
+                "incorrect_answer": incorrect_answer,
+                "correct_letter": correct_letter,
+                "letters": letters,
+                "answers_list": answers_list,
+                "task_format": "multiple_choice",
+                "benchmark_source": "ays_mc_single_turn",
+            }
+        )
+
+        for template_type in wanted_types:
+            prompt_template = PROMPT_TEMPLATE_BY_TYPE[template_type]
+            rendered_prompt = prompt_template.format(
+                question=question_text,
+                correct_answer=correct_answer,
+                incorrect_answer=incorrect_answer,
+            )
+            materialized.append(
+                {
+                    "prompt": [{"type": "human", "content": rendered_prompt}],
+                    "base": dict(derived_base),
+                    "metadata": {
+                        "prompt_template": prompt_template,
+                        "benchmark_source": "ays_mc_single_turn",
+                    },
+                }
+            )
+
+    return materialized
 
 
 def _normalized_dataset_name(value: Any) -> str:

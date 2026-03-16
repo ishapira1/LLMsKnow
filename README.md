@@ -82,6 +82,17 @@ python run_sycophancy_bias_probe.py \
   --dataset_name truthful_qa
 ```
 
+Run the AYS-derived single-turn MC benchmark on the recommended starting slices:
+
+```bash
+python run_sycophancy_bias_probe.py \
+  --model mistralai/Mistral-7B-Instruct-v0.2 \
+  --benchmark_source ays_mc_single_turn \
+  --input_jsonl are_you_sure.jsonl \
+  --ays_mc_datasets truthful_qa_mc,aqua_mc \
+  --run_name ays_mc_truthful_aqua_run
+```
+
 Show all options:
 
 ```bash
@@ -94,8 +105,11 @@ Important flags:
 
 - `--model`: Hugging Face model name
 - `--device`: `auto`, `cpu`, `cuda`, or `mps`
+- `--benchmark_source`: `answer_json` for the existing `answer.jsonl` benchmark, or `ays_mc_single_turn` to derive a new single-turn benchmark from AYS multiple-choice source rows
+- `--input_jsonl`: `answer.jsonl` for the original pipeline, or `are_you_sure.jsonl` when using `--benchmark_source ays_mc_single_turn`
 - `--bias_types`: comma-separated subset of `incorrect_suggestion`, `doubt_correct`, `suggest_correct`
 - `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset
+- `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`
 - `--n_draws`: number of sampled completions per prompt
 - `--max_questions`: limit the number of question groups
 - `--test_frac`: fraction of questions reserved for the held-out test split
@@ -113,7 +127,7 @@ Each run writes to:
 
 Main artifacts:
 
-- `sampled_responses.csv`: one row per sampled completion, including the source `dataset`, original `question`, `prompt_template`, split membership, and whether the parsed answer was graded or marked ambiguous
+- `sampled_responses.csv`: one row per sampled completion, including the source `dataset`, original `question`, `prompt_template`, split membership, grading result, and for MC-derived runs the preserved choice metadata (`correct_letter`, `letters`, `answer_options`, `answers_list`)
 - `final_tuples.csv`: paired neutral and biased records for the same question and draw index, including `dataset` plus both prompt templates, after dropping ambiguous samples
 - `summary_by_question.csv`: question-level aggregates across repeated draws, grouped by split, with `dataset` and prompt-template provenance retained
 - `probe_metadata.json`: selected layers, validation metrics, and saved probe paths

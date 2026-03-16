@@ -12,7 +12,14 @@ from tqdm.auto import tqdm
 from script import ensure_sycophancy_eval_cached, read_jsonl
 
 from .cli import load_env_file, resolve_bias_types, resolve_device, resolve_hf_cache_dir
-from .dataset import build_question_groups, deduplicate_rows, split_groups_train_val_test, unique_dataset_names
+from .dataset import (
+    build_question_groups,
+    deduplicate_rows,
+    materialize_ays_mc_single_turn_rows,
+    resolve_ays_mc_datasets,
+    split_groups_train_val_test,
+    unique_dataset_names,
+)
 from .logging_utils import clear_run_logging, configure_run_logging, log_status, tqdm_desc
 from .outputs import build_summary_df, build_tuple_rows, to_samples_df, to_tuples_df
 from .probes import score_records_with_probe, select_best_layer_by_auc, train_probe_for_layer
@@ -343,9 +350,12 @@ def run_pipeline(args) -> None:
             + json.dumps(vars(args), ensure_ascii=False, sort_keys=True, default=str),
         )
         planned_bias_types = resolve_bias_types(args.bias_types)
+        resolved_ays_mc_datasets = resolve_ays_mc_datasets(args.ays_mc_datasets)
+        args.ays_mc_datasets = resolved_ays_mc_datasets
         log_status(
             "pipeline.py",
-            f"execution plan: model={args.model} bias_types={planned_bias_types} "
+            f"execution plan: model={args.model} benchmark_source={args.benchmark_source} "
+            f"bias_types={planned_bias_types} "
             f"dataset_name={args.dataset_name} "
             f"draws={args.n_draws} temperature={args.temperature} top_p={args.top_p} "
             f"max_new_tokens={args.max_new_tokens} smoke_test={args.smoke_test}",
@@ -384,7 +394,31 @@ def run_pipeline(args) -> None:
         )
         rows_raw = read_jsonl(input_path)
 
-        rows = deduplicate_rows(rows_raw)
+        if args.benchmark_source == "answer_json":
+            if args.input_jsonl != "answer.jsonl":
+                raise ValueError(
+                    "--benchmark_source=answer_json requires --input_jsonl=answer.jsonl."
+                )
+            prepared_rows = rows_raw
+        elif args.benchmark_source == "ays_mc_single_turn":
+            if args.input_jsonl != "are_you_sure.jsonl":
+                raise ValueError(
+                    "--benchmark_source=ays_mc_single_turn requires --input_jsonl=are_you_sure.jsonl."
+                )
+            prepared_rows = materialize_ays_mc_single_turn_rows(
+                rows_raw,
+                selected_bias_types=planned_bias_types,
+                selected_ays_mc_datasets=resolved_ays_mc_datasets,
+            )
+            log_status(
+                "pipeline.py",
+                f"materialized AYS MC rows: source_rows={len(rows_raw)} derived_rows={len(prepared_rows)} "
+                f"ays_mc_datasets={resolved_ays_mc_datasets}",
+            )
+        else:
+            raise ValueError(f"Unsupported benchmark_source={args.benchmark_source!r}")
+
+        rows = deduplicate_rows(prepared_rows)
         available_dataset_names = unique_dataset_names(rows)
         wanted_dataset_name = str(getattr(args, "dataset_name", "all") or "all").strip() or "all"
         if wanted_dataset_name.lower() != "all" and not any(
@@ -402,7 +436,7 @@ def run_pipeline(args) -> None:
         )
         log_status(
             "pipeline.py",
-            f"dataset stats: raw_rows={len(rows_raw)} dedup_rows={len(rows)} "
+            f"dataset stats: raw_rows={len(rows_raw)} prepared_rows={len(prepared_rows)} dedup_rows={len(rows)} "
             f"valid_groups={len(groups)} dataset_name={wanted_dataset_name} "
             f"available_datasets={available_dataset_names} bias_types={planned_bias_types}",
         )

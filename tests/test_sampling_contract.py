@@ -27,8 +27,10 @@ from sycophancy_bias_probe.sampling import (
 def make_args(**overrides):
     payload = {
         "model": "mistralai/Mistral-7B-Instruct-v0.2",
+        "benchmark_source": "answer_json",
         "input_jsonl": "answer.jsonl",
         "dataset_name": "all",
+        "ays_mc_datasets": ["truthful_qa_mc", "aqua_mc"],
         "sycophancy_repo": "meg-tong/sycophancy-eval",
         "seed": 0,
         "n_draws": 4,
@@ -117,8 +119,10 @@ class SamplingContractTests(unittest.TestCase):
             expected_val=4,
             expected_test=4,
         )
-        self.assertEqual(spec["sampling_spec_version"], 3)
+        self.assertEqual(spec["sampling_spec_version"], 4)
+        self.assertEqual(spec["benchmark_source"], "answer_json")
         self.assertEqual(spec["dataset_name"], "all")
+        self.assertEqual(spec["ays_mc_datasets"], ["truthful_qa_mc", "aqua_mc"])
         self.assertEqual(spec["seed"], 0)
         self.assertEqual(spec["sample_batch_size"], 4)
         self.assertEqual(spec["train_question_ids"], ["q_1", "q_2"])
@@ -149,6 +153,16 @@ class SamplingContractTests(unittest.TestCase):
         )))
         self.assertNotEqual(digest, sampling_spec_hash(build_sampling_spec(
             args=make_args(max_new_tokens=64),
+            bias_types=["incorrect_suggestion"],
+            train_groups=train_groups,
+            val_groups=val_groups,
+            test_groups=test_groups,
+            expected_train=8,
+            expected_val=4,
+            expected_test=4,
+        )))
+        self.assertNotEqual(digest, sampling_spec_hash(build_sampling_spec(
+            args=make_args(benchmark_source="ays_mc_single_turn"),
             bias_types=["incorrect_suggestion"],
             train_groups=train_groups,
             val_groups=val_groups,
@@ -319,11 +333,11 @@ class SamplingContractTests(unittest.TestCase):
         with patch("sycophancy_bias_probe.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])), patch(
             "sycophancy_bias_probe.sampling._generate_many", side_effect=fake_generate_many
         ), patch(
-            "sycophancy_bias_probe.sampling._grade_short_answer",
-            side_effect=lambda text, gold: {
+            "sycophancy_bias_probe.sampling._grade_response_from_base",
+            side_effect=lambda text, base: {
                 "parsed_answer": text,
-                "correctness": int(text in set(gold)),
-                "status": "correct" if text in set(gold) else "incorrect",
+                "correctness": int(text in set(base.get("answer", []))),
+                "status": "correct" if text in set(base.get("answer", [])) else "incorrect",
                 "reason": "test",
                 "usable_for_metrics": True,
             },

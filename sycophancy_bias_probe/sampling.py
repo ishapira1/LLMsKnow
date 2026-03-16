@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 
 from .correctness import (
     extract_gold_answers_from_base as _extract_gold_answers_from_base,
-    grade_short_answer as _grade_short_answer,
+    grade_response_from_base as _grade_response_from_base,
     record_is_usable_for_metrics as _record_is_usable_for_metrics,
 )
 from .constants import SAMPLING_SPEC_VERSION
@@ -120,7 +120,7 @@ def refresh_sample_records_for_groups(
         prompt_template = (row.get("metadata", {}) or {}).get("prompt_template", "")
         base = row.get("base", {}) or {}
         gold_answers = _extract_gold_answers_from_base(base)
-        grading = _grade_short_answer(str(record.get("response_raw", "")), gold_answers)
+        grading = _grade_response_from_base(str(record.get("response_raw", "")), base)
 
         refreshed_record.update(
             {
@@ -128,6 +128,11 @@ def refresh_sample_records_for_groups(
                 "question_id": group["question_id"],
                 "dataset": str(group.get("dataset", "") or _dataset_name(row)),
                 "template_type": template_type,
+                "task_format": str(base.get("task_format", "") or ""),
+                "correct_letter": str(base.get("correct_letter", "") or ""),
+                "letters": str(base.get("letters", "") or ""),
+                "answer_options": str(base.get("answers", "") or ""),
+                "answers_list": list(base.get("answers_list", []) or []),
                 "prompt_messages": prompt_messages,
                 "prompt_text": prompt_text,
                 "prompt_template": prompt_template,
@@ -162,8 +167,12 @@ def build_sampling_spec(
     return {
         "sampling_spec_version": int(SAMPLING_SPEC_VERSION),
         "model": args.model,
+        "benchmark_source": str(getattr(args, "benchmark_source", "answer_json") or "answer_json"),
         "input_jsonl": args.input_jsonl,
         "dataset_name": str(getattr(args, "dataset_name", "all") or "all"),
+        "ays_mc_datasets": list(getattr(args, "ays_mc_datasets", []))
+        if isinstance(getattr(args, "ays_mc_datasets", []), list)
+        else [x.strip() for x in str(getattr(args, "ays_mc_datasets", "")).split(",") if x.strip()],
         "sycophancy_repo": args.sycophancy_repo,
         "bias_types": list(bias_types),
         "seed": int(getattr(args, "seed", 0)),
@@ -302,6 +311,11 @@ def sample_records_for_groups(
             dataset = str(group.get("dataset", "") or _dataset_name(row))
             prompt_text = as_prompt_text(prompt_messages)
             prompt_template = (row.get("metadata", {}) or {}).get("prompt_template", "")
+            task_format = str(base.get("task_format", "") or "")
+            correct_letter = str(base.get("correct_letter", "") or "")
+            letters = str(base.get("letters", "") or "")
+            answer_options = str(base.get("answers", "") or "")
+            answers_list = list(base.get("answers_list", []) or [])
             missing_draws: List[int] = []
             for draw_idx in range(n_draws):
                 key = sample_record_key_values(split_name, group["question_id"], template_type, draw_idx)
@@ -327,7 +341,7 @@ def sample_records_for_groups(
                 safe_fallback=True,
             )
             for draw_idx, response_raw in zip(missing_draws, generated_outputs):
-                grading = _grade_short_answer(response_raw, gold_answers)
+                grading = _grade_response_from_base(response_raw, base)
 
                 key = sample_record_key_values(split_name, group["question_id"], template_type, draw_idx)
                 records_by_key[key] = {
@@ -336,6 +350,11 @@ def sample_records_for_groups(
                     "split": split_name,
                     "dataset": dataset,
                     "template_type": template_type,
+                    "task_format": task_format,
+                    "correct_letter": correct_letter,
+                    "letters": letters,
+                    "answer_options": answer_options,
+                    "answers_list": answers_list,
                     "prompt_messages": prompt_messages,
                     "prompt_text": prompt_text,
                     "prompt_template": prompt_template,
