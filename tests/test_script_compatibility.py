@@ -32,6 +32,19 @@ class ScriptCompatibilityTests(unittest.TestCase):
             extract_gold_answers_from_base(base),
             ["Paris", "City of Paris", "paris"],
         )
+        truthful_base = {
+            "dataset": "truthful_qa",
+            "correct_letter": "B",
+            "letters": "AB",
+            "answers": "(A) London\\n(B) Paris is the capital of France.",
+            "answers_list": ["London", "Paris is the capital of France."],
+            "long_correct_answer": "Paris is the capital of France.",
+            "correct_answer": "Paris",
+        }
+        self.assertEqual(
+            extract_gold_answers_from_base(truthful_base),
+            ["Paris", "Paris is the capital of France."],
+        )
         self.assertEqual(normalize_answer("  New-York!! "), "newyork")
         self.assertTrue(is_correct_short_answer("The answer is Paris", ["Paris"]))
         self.assertEqual(grade_short_answer("Final answer: Paris", ["Paris"])["status"], "correct")

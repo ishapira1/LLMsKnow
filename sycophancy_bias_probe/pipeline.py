@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 from script import ensure_sycophancy_eval_cached, read_jsonl
 
 from .cli import load_env_file, resolve_bias_types, resolve_device, resolve_hf_cache_dir
-from .dataset import build_question_groups, deduplicate_rows, split_groups_train_val_test
+from .dataset import build_question_groups, deduplicate_rows, split_groups_train_val_test, unique_dataset_names
 from .logging_utils import clear_run_logging, configure_run_logging, log_status, tqdm_desc
 from .outputs import build_summary_df, build_tuple_rows, to_samples_df, to_tuples_df
 from .probes import score_records_with_probe, select_best_layer_by_auc, train_probe_for_layer
@@ -36,6 +36,7 @@ from .sampling import (
     enumerate_expected_sample_keys,
     load_sampling_cache_candidate,
     normalize_sample_records,
+    refresh_sample_records_for_groups,
     sample_records_for_groups,
     sampling_spec_hash,
     sort_sample_records,
@@ -345,6 +346,7 @@ def run_pipeline(args) -> None:
         log_status(
             "pipeline.py",
             f"execution plan: model={args.model} bias_types={planned_bias_types} "
+            f"dataset_name={args.dataset_name} "
             f"draws={args.n_draws} temperature={args.temperature} top_p={args.top_p} "
             f"max_new_tokens={args.max_new_tokens} smoke_test={args.smoke_test}",
         )
@@ -383,12 +385,33 @@ def run_pipeline(args) -> None:
         rows_raw = read_jsonl(input_path)
 
         rows = deduplicate_rows(rows_raw)
-        groups = build_question_groups(rows, selected_bias_types=planned_bias_types)
+        available_dataset_names = unique_dataset_names(rows)
+        wanted_dataset_name = str(getattr(args, "dataset_name", "all") or "all").strip() or "all"
+        if wanted_dataset_name.lower() != "all" and not any(
+            dataset.lower() == wanted_dataset_name.lower() for dataset in available_dataset_names
+        ):
+            raise ValueError(
+                f"--dataset_name={wanted_dataset_name!r} did not match any dataset in {input_path}. "
+                f"Available datasets: {available_dataset_names}"
+            )
+
+        groups = build_question_groups(
+            rows,
+            selected_bias_types=planned_bias_types,
+            selected_dataset_name=wanted_dataset_name,
+        )
         log_status(
             "pipeline.py",
             f"dataset stats: raw_rows={len(rows_raw)} dedup_rows={len(rows)} "
-            f"valid_groups={len(groups)} bias_types={planned_bias_types}",
+            f"valid_groups={len(groups)} dataset_name={wanted_dataset_name} "
+            f"available_datasets={available_dataset_names} bias_types={planned_bias_types}",
         )
+
+        if not groups:
+            raise ValueError(
+                f"No complete question groups found for dataset_name={wanted_dataset_name!r} "
+                f"with bias_types={planned_bias_types}."
+            )
 
         if args.max_questions is not None:
             rng = random.Random(args.split_seed)
@@ -493,6 +516,12 @@ def run_pipeline(args) -> None:
             split_name: sort_sample_records([r for r in cached_records if r.get("split") == split_name])
             for split_name in ("train", "val", "test")
         }
+        for split_name in ("train", "val", "test"):
+            split_records[split_name] = refresh_sample_records_for_groups(
+                split_records[split_name],
+                split_groups_map[split_name],
+                split_name=split_name,
+            )
         split_sampling_stats: Dict[str, Dict[str, int]] = {
             split_name: {
                 "split": split_name,

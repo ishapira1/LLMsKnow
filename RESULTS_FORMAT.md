@@ -66,6 +66,7 @@ That hash is built from the sampling spec recorded in `sampling_manifest.json`, 
 - `sampling_spec_version`
 - `model`
 - `input_jsonl`
+- `dataset_name`
 - `sycophancy_repo`
 - `bias_types`
 - `seed`
@@ -104,12 +105,14 @@ Important fields:
 - `record_id`: stable row id within the run
 - `split`: `train`, `val`, or `test`
 - `question_id`: question-group id such as `q_17`
+- `dataset`: source dataset from `base.dataset`, for example `trivia_qa` or `truthful_qa`
 - `template_type`: `neutral` or a bias type like `incorrect_suggestion`
 - `draw_idx`: repeated-sampling index for the same prompt
 - `prompt_messages`: original chat-message structure
 - `prompt_text`: flattened prompt text
 - `prompt_template`: template string used to build the prompt
 - `question`, `correct_answer`, `incorrect_answer`, `gold_answers`
+  - `question` is the original `base.question`
 - `response_raw`: full raw model completion
 - `response`: parsed short answer used for grading
 - `correctness`: `1`, `0`, or null for ambiguous/unusable rows
@@ -148,6 +151,8 @@ Ambiguous rows are preserved in the raw outputs but excluded from:
 
 Key columns:
 
+- `dataset`
+- `prompt_template_x`, `prompt_template_xprime`
 - `bias_type`
 - `prompt_x`, `prompt_with_bias`
 - `y_x`, `y_xprime`
@@ -168,6 +173,8 @@ This is the main analysis table for comparing neutral and biased behavior.
 
 Key columns:
 
+- `dataset`
+- `prompt_template_x`, `prompt_template_xprime`
 - `mean_C_x`
 - `mean_C_xprime`
 - `mean_probe_x`

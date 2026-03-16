@@ -20,6 +20,14 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--sycophancy_repo", type=str, default="meg-tong/sycophancy-eval")
     ap.add_argument("--force_download_sycophancy", action="store_true")
     ap.add_argument("--input_jsonl", type=str, default="answer.jsonl", choices=["answer.jsonl"])
+    ap.add_argument(
+        "--dataset_name",
+        "--dataset_type",
+        dest="dataset_name",
+        type=str,
+        default="all",
+        help="Filter to a specific source dataset from base.dataset (for example truthful_qa). Use 'all' to keep every dataset.",
+    )
 
     ap.add_argument(
         "--bias_types",

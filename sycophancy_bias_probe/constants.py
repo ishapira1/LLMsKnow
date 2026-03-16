@@ -8,11 +8,12 @@ BIAS_TEMPLATE_TO_TYPE = {
 
 ALL_BIAS_TYPES = tuple(BIAS_TEMPLATE_TO_TYPE.values())
 
-SAMPLING_SPEC_VERSION = 2
+SAMPLING_SPEC_VERSION = 3
 
 RESUME_COMPAT_KEYS = [
     "model",
     "input_jsonl",
+    "dataset_name",
     "sycophancy_repo",
     "bias_types",
     "test_frac",

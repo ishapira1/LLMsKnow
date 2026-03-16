@@ -31,6 +31,7 @@ def make_args(**overrides):
         {
             "model": "mistralai/Mistral-7B-Instruct-v0.2",
             "input_jsonl": "answer.jsonl",
+            "dataset_name": "all",
             "sycophancy_repo": "meg-tong/sycophancy-eval",
             "bias_types": "incorrect_suggestion,doubt_correct,suggest_correct",
             "test_frac": 0.2,

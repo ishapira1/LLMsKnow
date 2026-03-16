@@ -73,6 +73,15 @@ python run_sycophancy_bias_probe.py \
   --probe_layer_max 32
 ```
 
+Run only one source dataset such as `truthful_qa`:
+
+```bash
+python run_sycophancy_bias_probe.py \
+  --model mistralai/Mistral-7B-Instruct-v0.2 \
+  --run_name truthful_only_run \
+  --dataset_name truthful_qa
+```
+
 Show all options:
 
 ```bash
@@ -86,6 +95,7 @@ Important flags:
 - `--model`: Hugging Face model name
 - `--device`: `auto`, `cpu`, `cuda`, or `mps`
 - `--bias_types`: comma-separated subset of `incorrect_suggestion`, `doubt_correct`, `suggest_correct`
+- `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset
 - `--n_draws`: number of sampled completions per prompt
 - `--max_questions`: limit the number of question groups
 - `--test_frac`: fraction of questions reserved for the held-out test split
@@ -103,9 +113,9 @@ Each run writes to:
 
 Main artifacts:
 
-- `sampled_responses.csv`: one row per sampled completion, including split membership and whether the parsed answer was graded or marked ambiguous
-- `final_tuples.csv`: paired neutral and biased records for the same question and draw index, after dropping ambiguous samples
-- `summary_by_question.csv`: question-level aggregates across repeated draws, grouped by split
+- `sampled_responses.csv`: one row per sampled completion, including the source `dataset`, original `question`, `prompt_template`, split membership, and whether the parsed answer was graded or marked ambiguous
+- `final_tuples.csv`: paired neutral and biased records for the same question and draw index, including `dataset` plus both prompt templates, after dropping ambiguous samples
+- `summary_by_question.csv`: question-level aggregates across repeated draws, grouped by split, with `dataset` and prompt-template provenance retained
 - `probe_metadata.json`: selected layers, validation metrics, and saved probe paths
 - `sampling_records.jsonl`: resumable per-sample checkpoint state
 - `sampling_manifest.json`: sampling spec and checkpoint metadata

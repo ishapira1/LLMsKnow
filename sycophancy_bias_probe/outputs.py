@@ -13,10 +13,13 @@ SUMMARY_COLUMNS = [
     "model_name",
     "split",
     "question_id",
+    "dataset",
     "bias_type",
     "question",
     "correct_answer",
     "incorrect_answer",
+    "prompt_template_x",
+    "prompt_template_xprime",
     "prompt_x",
     "prompt_with_bias",
     "T_x",
@@ -57,6 +60,7 @@ def build_tuple_rows(
                     "model_name": model_name,
                     "split": split,
                     "question_id": question_id,
+                    "dataset": neutral_record.get("dataset", ""),
                     "bias_type": bias_type,
                     "draw_idx": draw_idx,
                     "question": neutral_record["question"],
@@ -92,6 +96,7 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
                 "record_id": record["record_id"],
                 "split": record["split"],
                 "question_id": record["question_id"],
+                "dataset": record.get("dataset", ""),
                 "template_type": record["template_type"],
                 "draw_idx": record["draw_idx"],
                 "question": record["question"],
@@ -127,12 +132,19 @@ def build_summary_df(tuples_df: pd.DataFrame) -> pd.DataFrame:
     if len(tuples_df) == 0:
         return pd.DataFrame(columns=SUMMARY_COLUMNS)
 
+    working_df = tuples_df.copy()
+    for column_name in ("dataset", "prompt_template_x", "prompt_template_xprime"):
+        if column_name not in working_df.columns:
+            working_df[column_name] = ""
+
     return (
-        tuples_df.groupby(["model_name", "split", "question_id", "bias_type"], as_index=False)
+        working_df.groupby(["model_name", "split", "question_id", "dataset", "bias_type"], as_index=False)
         .agg(
             question=("question", "first"),
             correct_answer=("correct_answer", "first"),
             incorrect_answer=("incorrect_answer", "first"),
+            prompt_template_x=("prompt_template_x", "first"),
+            prompt_template_xprime=("prompt_template_xprime", "first"),
             prompt_x=("prompt_x", "first"),
             prompt_with_bias=("prompt_with_bias", "first"),
             T_x=("T_x", "first"),

@@ -20,12 +20,36 @@ def as_prompt_text(messages: Any) -> str:
     return "\n".join([chunk for chunk in chunks if chunk])
 
 
-def question_key(row: Dict[str, Any]) -> Tuple[str, str, str]:
+def dataset_name(row: Dict[str, Any]) -> str:
     base = row.get("base", {}) or {}
+    value = base.get("dataset")
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def unique_dataset_names(rows: Sequence[Dict[str, Any]]) -> List[str]:
+    return sorted({name for row in rows if (name := dataset_name(row))})
+
+
+def _normalized_dataset_name(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _matches_dataset_name(row: Dict[str, Any], selected_dataset_name: str) -> bool:
+    wanted = _normalized_dataset_name(selected_dataset_name)
+    if not wanted or wanted == "all":
+        return True
+    return _normalized_dataset_name(dataset_name(row)) == wanted
+
+
+def question_key(row: Dict[str, Any]) -> Tuple[str, str, str, str]:
+    base = row.get("base", {}) or {}
+    dataset = dataset_name(row)
     question = str(base.get("question", "")).strip()
     correct_answer = str(base.get("correct_answer", "")).strip()
     incorrect_answer = str(base.get("incorrect_answer", "")).strip()
-    return question, correct_answer, incorrect_answer
+    return dataset, question, correct_answer, incorrect_answer
 
 
 def template_type(row: Dict[str, Any]) -> Optional[str]:
@@ -72,9 +96,12 @@ def deduplicate_rows(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def build_question_groups(
     rows: Sequence[Dict[str, Any]],
     selected_bias_types: Sequence[str],
+    selected_dataset_name: str = "all",
 ) -> List[Dict[str, Any]]:
-    grouped: Dict[Tuple[str, str, str], Dict[str, Dict[str, Any]]] = defaultdict(dict)
+    grouped: Dict[Tuple[str, str, str, str], Dict[str, Dict[str, Any]]] = defaultdict(dict)
     for row in rows:
+        if not _matches_dataset_name(row, selected_dataset_name):
+            continue
         row_template_type = template_type(row)
         if row_template_type is None:
             continue
@@ -88,10 +115,11 @@ def build_question_groups(
             continue
         if not all(bias_type in rows_by_type for bias_type in selected_bias_types):
             continue
-        question, correct_answer, incorrect_answer = key
+        dataset, question, correct_answer, incorrect_answer = key
         groups.append(
             {
                 "question_id": f"q_{idx}",
+                "dataset": dataset,
                 "question": question,
                 "correct_answer": correct_answer,
                 "incorrect_answer": incorrect_answer,

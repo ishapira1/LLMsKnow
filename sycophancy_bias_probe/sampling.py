@@ -15,7 +15,7 @@ from .correctness import (
     record_is_usable_for_metrics as _record_is_usable_for_metrics,
 )
 from .constants import SAMPLING_SPEC_VERSION
-from .dataset import as_prompt_text
+from .dataset import as_prompt_text, dataset_name as _dataset_name
 from .logging_utils import log_status, tqdm_desc
 from .model_utils import generate_many as _generate_many
 from .runtime import model_slug
@@ -94,6 +94,59 @@ def normalize_sample_records(
     return sort_sample_records(list(by_key.values()))
 
 
+def refresh_sample_records_for_groups(
+    records: Sequence[Dict[str, Any]],
+    groups: Sequence[Dict[str, Any]],
+    split_name: str,
+) -> List[Dict[str, Any]]:
+    group_by_question_id = {
+        str(group.get("question_id", "")): group
+        for group in groups
+    }
+    refreshed: List[Dict[str, Any]] = []
+
+    for record in records:
+        refreshed_record = dict(record)
+        group = group_by_question_id.get(str(record.get("question_id", "")))
+        template_type = str(record.get("template_type", ""))
+        row = None if group is None else group.get("rows_by_type", {}).get(template_type)
+        if group is None or row is None:
+            refreshed_record["split"] = split_name
+            refreshed.append(refreshed_record)
+            continue
+
+        prompt_messages = row.get("prompt", [])
+        prompt_text = as_prompt_text(prompt_messages)
+        prompt_template = (row.get("metadata", {}) or {}).get("prompt_template", "")
+        base = row.get("base", {}) or {}
+        gold_answers = _extract_gold_answers_from_base(base)
+        grading = _grade_short_answer(str(record.get("response_raw", "")), gold_answers)
+
+        refreshed_record.update(
+            {
+                "split": split_name,
+                "question_id": group["question_id"],
+                "dataset": str(group.get("dataset", "") or _dataset_name(row)),
+                "template_type": template_type,
+                "prompt_messages": prompt_messages,
+                "prompt_text": prompt_text,
+                "prompt_template": prompt_template,
+                "question": group["question"],
+                "correct_answer": group["correct_answer"],
+                "incorrect_answer": group["incorrect_answer"],
+                "gold_answers": gold_answers,
+                "response": grading["parsed_answer"],
+                "correctness": grading["correctness"],
+                "grading_status": grading["status"],
+                "grading_reason": grading["reason"],
+                "usable_for_metrics": grading["usable_for_metrics"],
+            }
+        )
+        refreshed.append(refreshed_record)
+
+    return sort_sample_records(refreshed)
+
+
 def build_sampling_spec(
     args: argparse.Namespace,
     bias_types: Sequence[str],
@@ -110,6 +163,7 @@ def build_sampling_spec(
         "sampling_spec_version": int(SAMPLING_SPEC_VERSION),
         "model": args.model,
         "input_jsonl": args.input_jsonl,
+        "dataset_name": str(getattr(args, "dataset_name", "all") or "all"),
         "sycophancy_repo": args.sycophancy_repo,
         "bias_types": list(bias_types),
         "seed": int(getattr(args, "seed", 0)),
@@ -245,6 +299,7 @@ def sample_records_for_groups(
             if not isinstance(prompt_messages, list) or not prompt_messages:
                 continue
 
+            dataset = str(group.get("dataset", "") or _dataset_name(row))
             prompt_text = as_prompt_text(prompt_messages)
             prompt_template = (row.get("metadata", {}) or {}).get("prompt_template", "")
             missing_draws: List[int] = []
@@ -279,6 +334,7 @@ def sample_records_for_groups(
                     "record_id": rec_id,
                     "question_id": group["question_id"],
                     "split": split_name,
+                    "dataset": dataset,
                     "template_type": template_type,
                     "prompt_messages": prompt_messages,
                     "prompt_text": prompt_text,

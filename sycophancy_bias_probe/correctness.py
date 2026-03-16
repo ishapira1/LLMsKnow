@@ -19,11 +19,69 @@ _MULTI_CANDIDATE_SPLIT_RE = re.compile(r"\s+(?:or|/)\s+", flags=re.IGNORECASE)
 _APPOSITIVE_SPLIT_RE = re.compile(r",\s+(?:the|a|an)\s+", flags=re.IGNORECASE)
 
 
+def _dedupe_nonempty_strings(values: List[str]) -> List[str]:
+    deduped: List[str] = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        deduped.append(text)
+    return deduped
+
+
+def _extract_truthful_qa_gold_answers(base: Dict[str, Any]) -> List[str]:
+    aliases: List[str] = []
+
+    correct_answer = base.get("correct_answer")
+    if isinstance(correct_answer, str):
+        aliases.append(correct_answer)
+
+    long_correct_answer = base.get("long_correct_answer")
+    if isinstance(long_correct_answer, str):
+        aliases.append(long_correct_answer)
+
+    letters = base.get("letters")
+    correct_letter = base.get("correct_letter")
+    answers_list = base.get("answers_list")
+    if (
+        isinstance(letters, str)
+        and isinstance(correct_letter, str)
+        and isinstance(answers_list, list)
+        and correct_letter in letters
+    ):
+        idx = letters.index(correct_letter)
+        if 0 <= idx < len(answers_list) and isinstance(answers_list[idx], str):
+            aliases.append(answers_list[idx])
+
+    return _dedupe_nonempty_strings(aliases)
+
+
 def extract_gold_answers_from_base(base: Dict[str, Any]) -> List[str]:
     if not isinstance(base, dict):
         return []
 
-    for key in ["answers", "answer", "gold", "label", "target", "gold_answer", "ground_truth"]:
+    dataset_name = str(base.get("dataset", "")).strip().lower()
+    if dataset_name == "truthful_qa" or (
+        "answers_list" in base and "correct_letter" in base and "letters" in base
+    ):
+        aliases = _extract_truthful_qa_gold_answers(base)
+        if aliases:
+            return aliases
+
+    if dataset_name == "trivia_qa" and isinstance(base.get("answer"), list):
+        aliases = [item for item in base["answer"] if isinstance(item, str)]
+        correct_answer = base.get("correct_answer")
+        if isinstance(correct_answer, str):
+            aliases.append(correct_answer)
+        aliases = _dedupe_nonempty_strings(aliases)
+        if aliases:
+            return aliases
+
+    for key in ["answer", "gold", "label", "target", "gold_answer", "ground_truth", "answers"]:
         if key not in base:
             continue
         value = base[key]
@@ -39,9 +97,9 @@ def extract_gold_answers_from_base(base: Dict[str, Any]) -> List[str]:
                 aliases.extend(
                     [alias for alias in value["normalized_aliases"] if isinstance(alias, str)]
                 )
-            aliases = [alias for alias in aliases if alias]
+            aliases = _dedupe_nonempty_strings(aliases)
             if aliases:
-                return list(dict.fromkeys(aliases))
+                return aliases
         if isinstance(value, list):
             aliases = []
             for item in value:
@@ -52,14 +110,15 @@ def extract_gold_answers_from_base(base: Dict[str, Any]) -> List[str]:
                         aliases.append(item["value"])
                     if "aliases" in item and isinstance(item["aliases"], list):
                         aliases.extend([alias for alias in item["aliases"] if isinstance(alias, str)])
-            aliases = [alias for alias in aliases if alias]
+            aliases = _dedupe_nonempty_strings(aliases)
             if aliases:
-                return list(dict.fromkeys(aliases))
+                return aliases
 
     if "answer_aliases" in base and isinstance(base["answer_aliases"], list):
-        aliases = [alias for alias in base["answer_aliases"] if isinstance(alias, str) and alias]
+        aliases = [alias for alias in base["answer_aliases"] if isinstance(alias, str)]
+        aliases = _dedupe_nonempty_strings(aliases)
         if aliases:
-            return list(dict.fromkeys(aliases))
+            return aliases
 
     return []
 
