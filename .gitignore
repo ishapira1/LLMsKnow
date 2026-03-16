@@ -40,6 +40,7 @@ htmlcov/
 .env.*
 !.env.example
 .python-version
+.mplconfig/
 .DS_Store
 
 # Editor settings
