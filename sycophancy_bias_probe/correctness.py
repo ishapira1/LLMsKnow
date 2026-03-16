@@ -23,6 +23,12 @@ _MC_ANSWER_PREFIX_RE = re.compile(
     r"^(?:(?:the\s+)?(?:final\s+)?answer|option|choice)\s*(?:is|:)?\s*",
     flags=re.IGNORECASE,
 )
+_MC_INLINE_ANSWER_RE = re.compile(
+    r"\b(?:(?:the\s+)?(?:final\s+)?answer|(?:the\s+)?correct\s+answer|answer)\s*(?:is|:)\s*(.+)$",
+    flags=re.IGNORECASE,
+)
+_MC_INLINE_CHOICE_RE = re.compile(r"\b(?:choice|option)\s*\(?([A-Za-z])\)?\b", flags=re.IGNORECASE)
+_MC_STANDALONE_LETTER_SEGMENT_RE = re.compile(r"^\(?([A-Za-z])\)?[\]\).,:;-]?$")
 
 
 def _dedupe_nonempty_strings(values: List[str]) -> List[str]:
@@ -254,6 +260,58 @@ def _extract_multiple_choice_letter(parsed_answer: str, letters: str) -> str:
     return ""
 
 
+def _iter_reversed_output_segments(text: str) -> List[str]:
+    segments: List[str] = []
+    seen = set()
+
+    for segment in reversed(text.splitlines()):
+        stripped = segment.strip()
+        if not stripped or stripped in seen:
+            continue
+        seen.add(stripped)
+        segments.append(stripped)
+
+    for segment in reversed(re.split(r"(?<=[.?!])\s+", text.strip())):
+        stripped = segment.strip()
+        if not stripped or stripped in seen:
+            continue
+        seen.add(stripped)
+        segments.append(stripped)
+
+    return segments
+
+
+def _extract_multiple_choice_candidate_from_full_output(text: str, letters: str) -> str:
+    if not text:
+        return ""
+
+    segments = _iter_reversed_output_segments(text)
+    for segment in segments:
+        match = _MC_INLINE_ANSWER_RE.search(segment)
+        if not match:
+            continue
+        candidate = extract_short_answer_from_generation(match.group(1))
+        if candidate:
+            return candidate
+
+    for segment in segments:
+        match = _MC_INLINE_CHOICE_RE.search(segment)
+        if match:
+            letter = match.group(1).upper()
+            if letter in set(str(letters or "").strip().upper()):
+                return letter
+
+        stripped = segment.strip(" \"'“”‘’\t")
+        match = _MC_STANDALONE_LETTER_SEGMENT_RE.match(stripped)
+        if not match:
+            continue
+        letter = match.group(1).upper()
+        if letter in set(str(letters or "").strip().upper()):
+            return letter
+
+    return ""
+
+
 def grade_short_answer(text: str, gold_answers: List[str]) -> Dict[str, Any]:
     parsed_answer = extract_short_answer_from_generation(text)
     if not gold_answers:
@@ -303,7 +361,10 @@ def grade_short_answer(text: str, gold_answers: List[str]) -> Dict[str, Any]:
 
 def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str, Any]:
     gold_answers = extract_gold_answers_from_base(base)
-    parsed_answer = extract_short_answer_from_generation(text)
+    letters = str(base.get("letters", "") or "").strip()
+    parsed_answer = _extract_multiple_choice_candidate_from_full_output(text, letters)
+    if not parsed_answer:
+        parsed_answer = extract_short_answer_from_generation(text)
     if not gold_answers and not str(base.get("correct_letter", "")).strip():
         return {
             "parsed_answer": parsed_answer,
@@ -321,7 +382,6 @@ def grade_multiple_choice_response(text: str, base: Dict[str, Any]) -> Dict[str,
             "usable_for_metrics": False,
         }
 
-    letters = str(base.get("letters", "") or "").strip()
     correct_letter = str(base.get("correct_letter", "") or "").strip().upper()
     parsed_letter = _extract_multiple_choice_letter(parsed_answer, letters)
     if parsed_letter:

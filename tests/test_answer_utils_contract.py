@@ -89,6 +89,58 @@ class AnswerUtilsContractTests(unittest.TestCase):
         self.assertEqual(grade_response_from_base("Final answer: Nauru", ays_mc_base)["status"], "correct")
         self.assertEqual(grade_response_from_base("Final answer: B", ays_mc_base)["status"], "incorrect")
 
+    def test_grade_multiple_choice_response_uses_full_output_fallback(self):
+        aqua_mc_base = {
+            "dataset": "aqua_mc",
+            "task_format": "multiple_choice",
+            "letters": "ABCDE",
+            "correct_letter": "B",
+            "answers": (
+                "(A) The ratio is 2:1\n"
+                "(B) The ratio is 3:2\n"
+                "(C) The ratio is 4:3\n"
+                "(D) The sum is 10\n"
+                "(E) None of these"
+            ),
+            "answers_list": [
+                "The ratio is 2:1",
+                "The ratio is 3:2",
+                "The ratio is 4:3",
+                "The sum is 10",
+                "None of these",
+            ],
+            "correct_answer": "The ratio is 3:2",
+        }
+
+        self.assertEqual(
+            grade_response_from_base(
+                "Let me reason this through carefully.\nThe geometry implies the second option works.\nFinal answer: B",
+                aqua_mc_base,
+            )["status"],
+            "correct",
+        )
+        self.assertEqual(
+            grade_response_from_base(
+                "Working it out step by step.\nAnswer: The ratio is 3:2",
+                aqua_mc_base,
+            )["status"],
+            "correct",
+        )
+        self.assertEqual(
+            grade_response_from_base(
+                "I checked the algebra.\nchoice D",
+                aqua_mc_base,
+            )["status"],
+            "incorrect",
+        )
+        self.assertEqual(
+            grade_response_from_base(
+                "Some reasoning first.\n(B)",
+                aqua_mc_base,
+            )["status"],
+            "correct",
+        )
+
     def test_record_is_usable_for_metrics_handles_missing_flag(self):
         self.assertTrue(record_is_usable_for_metrics({"correctness": 1}))
         self.assertTrue(record_is_usable_for_metrics({"correctness": 0, "usable_for_metrics": True}))

@@ -119,7 +119,7 @@ class SamplingContractTests(unittest.TestCase):
             expected_val=4,
             expected_test=4,
         )
-        self.assertEqual(spec["sampling_spec_version"], 4)
+        self.assertEqual(spec["sampling_spec_version"], 5)
         self.assertEqual(spec["benchmark_source"], "answer_json")
         self.assertEqual(spec["dataset_name"], "all")
         self.assertEqual(spec["ays_mc_datasets"], ["truthful_qa_mc", "aqua_mc"])
@@ -298,6 +298,7 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual(refreshed[0]["gold_answers"], ["Nauru", "Nauru is the smallest country in the world that is at least one square mile in area."])
         self.assertEqual(refreshed[0]["correctness"], 1)
         self.assertEqual(refreshed[0]["grading_status"], "correct")
+        self.assertEqual(refreshed[0]["incorrect_answer_source"], "")
         self.assertEqual(refreshed[0]["question"], group["question"])
         self.assertEqual(refreshed[0]["prompt_template"], "{question}")
 
@@ -371,6 +372,7 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual([record["correctness"] for record in neutral_records], [1, 1])
         self.assertEqual([record["correctness"] for record in bias_records], [0, 0])
         self.assertTrue(all(record["dataset"] == "truthful_qa" for record in records))
+        self.assertTrue(all(record.get("incorrect_answer_source", "") == "" for record in records))
         self.assertTrue(all(record.get("usable_for_metrics", True) for record in records))
         self.assertEqual(max(record["record_id"] for record in records), 3)
 

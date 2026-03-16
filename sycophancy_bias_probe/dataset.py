@@ -139,36 +139,58 @@ def _compact_option_answer_text(text: str) -> str:
     return value
 
 
+def _should_preserve_multiple_choice_option_text(base: Dict[str, Any]) -> bool:
+    dataset = _normalized_dataset_name(base.get("dataset"))
+    return dataset == "aqua_mc"
+
+
+def _multiple_choice_prompt_answer_text(base: Dict[str, Any], text: str) -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    if _should_preserve_multiple_choice_option_text(base):
+        return value
+    return _compact_option_answer_text(value)
+
+
 def _correct_answer_for_multiple_choice(base: Dict[str, Any], option_map: Dict[str, str]) -> str:
+    correct_letter = str(base.get("correct_letter", "") or "").strip()
+    if _should_preserve_multiple_choice_option_text(base) and correct_letter and correct_letter in option_map:
+        return str(option_map.get(correct_letter, "") or "").strip()
+
     correct_answer = base.get("correct_answer")
     if isinstance(correct_answer, str) and correct_answer.strip():
-        return _compact_option_answer_text(correct_answer)
-    correct_letter = str(base.get("correct_letter", "") or "").strip()
-    return _compact_option_answer_text(option_map.get(correct_letter, ""))
+        return _multiple_choice_prompt_answer_text(base, correct_answer)
+    return _multiple_choice_prompt_answer_text(base, option_map.get(correct_letter, ""))
 
 
 def _incorrect_answer_for_multiple_choice(
     base: Dict[str, Any],
     option_items: Sequence[Tuple[str, str]],
     option_map: Dict[str, str],
-) -> str:
+) -> Tuple[str, str]:
+    if _should_preserve_multiple_choice_option_text(base):
+        wrong_letter = str(base.get("wrong_letter", "") or "").strip()
+        if wrong_letter and wrong_letter in option_map:
+            return str(option_map[wrong_letter]).strip(), "wrong_letter"
+
     incorrect_answer = base.get("incorrect_answer")
     if isinstance(incorrect_answer, str) and incorrect_answer.strip():
-        return _compact_option_answer_text(incorrect_answer)
+        return _multiple_choice_prompt_answer_text(base, incorrect_answer), "incorrect_answer"
 
     wrong_answer = base.get("wrong_answer")
     if isinstance(wrong_answer, str) and wrong_answer.strip():
-        return _compact_option_answer_text(wrong_answer)
+        return _multiple_choice_prompt_answer_text(base, wrong_answer), "wrong_answer"
 
     wrong_letter = str(base.get("wrong_letter", "") or "").strip()
     if wrong_letter and wrong_letter in option_map:
-        return _compact_option_answer_text(option_map[wrong_letter])
+        return _multiple_choice_prompt_answer_text(base, option_map[wrong_letter]), "wrong_letter"
 
     correct_letter = str(base.get("correct_letter", "") or "").strip()
     for option_letter, option_text in option_items:
         if option_letter != correct_letter and option_text.strip():
-            return _compact_option_answer_text(option_text)
-    return ""
+            return _multiple_choice_prompt_answer_text(base, option_text), "first_non_correct_option"
+    return "", ""
 
 
 def materialize_ays_mc_single_turn_rows(
@@ -193,7 +215,11 @@ def materialize_ays_mc_single_turn_rows(
         correct_letter = str(base.get("correct_letter", "") or "").strip()
         question_text = render_ays_mc_question_text(base)
         correct_answer = _correct_answer_for_multiple_choice(base, option_map)
-        incorrect_answer = _incorrect_answer_for_multiple_choice(base, option_items, option_map)
+        incorrect_answer, incorrect_answer_source = _incorrect_answer_for_multiple_choice(
+            base,
+            option_items,
+            option_map,
+        )
 
         if not question_text or not correct_letter or not correct_answer or not incorrect_answer:
             continue
@@ -205,6 +231,7 @@ def materialize_ays_mc_single_turn_rows(
                 "question": question_text,
                 "correct_answer": correct_answer,
                 "incorrect_answer": incorrect_answer,
+                "incorrect_answer_source": incorrect_answer_source,
                 "correct_letter": correct_letter,
                 "letters": letters,
                 "answers_list": answers_list,

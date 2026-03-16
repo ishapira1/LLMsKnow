@@ -20,7 +20,7 @@ ALL_AYS_MC_DATASETS = ("truthful_qa_mc", "aqua_mc", "mmlu_mc_cot", "math_mc_cot"
 DEFAULT_AYS_MC_DATASETS = ("truthful_qa_mc", "aqua_mc")
 SUPPORTED_BENCHMARK_SOURCES = ("answer_json", "ays_mc_single_turn")
 
-SAMPLING_SPEC_VERSION = 4
+SAMPLING_SPEC_VERSION = 5
 
 RESUME_COMPAT_KEYS = [
     "model",
