@@ -15,9 +15,9 @@ from sycophancy_bias_probe.probes import (
 )
 
 
-def make_records(n: int = 20):
+def make_records(n: int = 20, offset: int = 0):
     records = []
-    for idx in range(n):
+    for idx in range(offset, offset + n):
         correctness = idx % 2
         records.append(
             {
@@ -64,7 +64,8 @@ class ProbeContractTests(unittest.TestCase):
         self.assertEqual(maybe_subsample(records, max_samples=None, seed=7), records)
 
     def test_select_best_layer_by_auc_contract(self):
-        records = make_records(20)
+        train_records = make_records(10)
+        val_records = make_records(10, offset=100)
 
         def fake_all_layer_features(model, tokenizer, messages, answer, layer_grid):
             idx = int(answer.split()[-1])
@@ -83,9 +84,9 @@ class ProbeContractTests(unittest.TestCase):
             best_layer, best_auc, auc_per_layer, clf_per_layer = select_best_layer_by_auc(
                 model=None,
                 tokenizer=None,
-                records=records,
+                train_records=train_records,
+                val_records=val_records,
                 layer_grid=[1, 2],
-                val_frac=0.25,
                 seed=0,
                 max_selection_samples=None,
                 desc="test",

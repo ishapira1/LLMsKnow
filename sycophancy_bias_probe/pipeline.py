@@ -10,7 +10,7 @@ import numpy as np
 from script import ensure_sycophancy_eval_cached, read_jsonl
 
 from .cli import load_env_file, resolve_bias_types, resolve_device, resolve_hf_cache_dir
-from .dataset import build_question_groups, deduplicate_rows, split_groups
+from .dataset import build_question_groups, deduplicate_rows, split_groups_train_val_test
 from .outputs import build_summary_df, build_tuple_rows, to_samples_df, to_tuples_df
 from .probes import score_records_with_probe, select_best_layer_by_auc, train_probe_for_layer
 from .runtime import (
@@ -92,10 +92,8 @@ def _next_record_id(*groups_of_records: Sequence[Dict[str, Any]]) -> int:
 def _persist_sampling_state(
     *,
     stage: str,
-    train_state: Sequence[Dict[str, Any]],
-    test_state: Sequence[Dict[str, Any]],
-    train_stats: Dict[str, int],
-    test_stats: Dict[str, int],
+    split_states: Dict[str, Sequence[Dict[str, Any]]],
+    split_stats: Dict[str, Dict[str, int]],
     expected_all_keys: Set[tuple[str, str, str, int]],
     expected_total_records: int,
     sampling_records_path: Path,
@@ -104,7 +102,10 @@ def _persist_sampling_state(
     sampling_spec: Dict[str, Any],
     cached_source_run: Optional[Path],
 ) -> None:
-    combined = normalize_sample_records(list(train_state) + list(test_state), expected_all_keys)
+    combined_input: List[Dict[str, Any]] = []
+    for split_name in ("train", "val", "test"):
+        combined_input.extend(list(split_states.get(split_name, [])))
+    combined = normalize_sample_records(combined_input, expected_all_keys)
     write_jsonl_atomic(sampling_records_path, combined)
     manifest = {
         "sampling_hash": sampling_hash,
@@ -115,8 +116,10 @@ def _persist_sampling_state(
         "stage": stage,
         "updated_at_utc": utc_now_iso(),
         "source_cache_run_dir": str(cached_source_run) if cached_source_run is not None else None,
-        "train_stats": train_stats,
-        "test_stats": test_stats,
+        "split_stats": split_stats,
+        "train_stats": split_stats.get("train"),
+        "val_stats": split_stats.get("val"),
+        "test_stats": split_stats.get("test"),
     }
     write_json_atomic(sampling_manifest_path, manifest)
 
@@ -183,12 +186,26 @@ def run_pipeline(args) -> None:
             groups = groups[: args.max_questions]
             print(f"[data] restricted to max_questions={args.max_questions} -> {len(groups)} groups")
 
-        train_groups, test_groups = split_groups(groups, test_frac=args.test_frac, seed=args.split_seed)
-        print(f"[split] train_questions={len(train_groups)} test_questions={len(test_groups)}")
+        train_groups, val_groups, test_groups = split_groups_train_val_test(
+            groups,
+            test_frac=args.test_frac,
+            val_frac=args.probe_val_frac,
+            seed=args.split_seed,
+        )
+        print(
+            f"[split] train_questions={len(train_groups)} "
+            f"val_questions={len(val_groups)} test_questions={len(test_groups)}"
+        )
 
         expected_train_keys = enumerate_expected_sample_keys(
             train_groups,
             split_name="train",
+            bias_types=bias_types,
+            n_draws=args.n_draws,
+        )
+        expected_val_keys = enumerate_expected_sample_keys(
+            val_groups,
+            split_name="val",
             bias_types=bias_types,
             n_draws=args.n_draws,
         )
@@ -198,15 +215,17 @@ def run_pipeline(args) -> None:
             bias_types=bias_types,
             n_draws=args.n_draws,
         )
-        expected_all_keys = expected_train_keys | expected_test_keys
+        expected_all_keys = expected_train_keys | expected_val_keys | expected_test_keys
         expected_total_records = len(expected_all_keys)
 
         sampling_spec = build_sampling_spec(
             args=args,
             bias_types=bias_types,
             train_groups=train_groups,
+            val_groups=val_groups,
             test_groups=test_groups,
             expected_train=len(expected_train_keys),
+            expected_val=len(expected_val_keys),
             expected_test=len(expected_test_keys),
         )
         sampling_hash = sampling_spec_hash(sampling_spec)
@@ -214,6 +233,7 @@ def run_pipeline(args) -> None:
         sampling_manifest_path = run_dir / "sampling_manifest.json"
         print(
             f"[sample] expected_train={len(expected_train_keys)} "
+            f"expected_val={len(expected_val_keys)} "
             f"expected_test={len(expected_test_keys)} total={expected_total_records} "
             f"sampling_hash={sampling_hash[:12]}"
         )
@@ -240,29 +260,35 @@ def run_pipeline(args) -> None:
         else:
             print("[sample] reusable sampling cache disabled by flag.")
 
-        train_records = sort_sample_records([r for r in cached_records if r.get("split") == "train"])
-        test_records = sort_sample_records([r for r in cached_records if r.get("split") == "test"])
-        train_sampling_stats: Dict[str, int] = {
-            "split": "train",
-            "expected_records": len(expected_train_keys),
-            "reused_records": len(train_records),
-            "generated_records": 0,
-            "total_records": len(train_records),
+        split_expected_keys = {
+            "train": expected_train_keys,
+            "val": expected_val_keys,
+            "test": expected_test_keys,
         }
-        test_sampling_stats: Dict[str, int] = {
-            "split": "test",
-            "expected_records": len(expected_test_keys),
-            "reused_records": len(test_records),
-            "generated_records": 0,
-            "total_records": len(test_records),
+        split_groups_map = {
+            "train": train_groups,
+            "val": val_groups,
+            "test": test_groups,
+        }
+        split_records: Dict[str, List[Dict[str, Any]]] = {
+            split_name: sort_sample_records([r for r in cached_records if r.get("split") == split_name])
+            for split_name in ("train", "val", "test")
+        }
+        split_sampling_stats: Dict[str, Dict[str, int]] = {
+            split_name: {
+                "split": split_name,
+                "expected_records": len(split_expected_keys[split_name]),
+                "reused_records": len(split_records[split_name]),
+                "generated_records": 0,
+                "total_records": len(split_records[split_name]),
+            }
+            for split_name in ("train", "val", "test")
         }
 
         _persist_sampling_state(
             stage="sampling_start",
-            train_state=train_records,
-            test_state=test_records,
-            train_stats=train_sampling_stats,
-            test_stats=test_sampling_stats,
+            split_states=split_records,
+            split_stats=split_sampling_stats,
             expected_all_keys=expected_all_keys,
             expected_total_records=expected_total_records,
             sampling_records_path=sampling_records_path,
@@ -280,92 +306,60 @@ def run_pipeline(args) -> None:
             hf_cache_dir=hf_cache_dir,
         )
 
-        if len(train_records) >= len(expected_train_keys) and len(test_records) >= len(expected_test_keys):
+        if all(
+            len(split_records[split_name]) >= len(split_expected_keys[split_name])
+            for split_name in ("train", "val", "test")
+        ):
             print("[sample] full sampling cache hit; skipping generation.")
         else:
+            def make_progress_cb(split_name: str):
+                def _progress_cb(
+                    current_records: List[Dict[str, Any]],
+                    stats: Dict[str, int],
+                ) -> None:
+                    split_records[split_name] = current_records
+                    split_sampling_stats[split_name] = dict(stats)
+                    _persist_sampling_state(
+                        stage=f"sampling_{split_name}_in_progress",
+                        split_states=split_records,
+                        split_stats=split_sampling_stats,
+                        expected_all_keys=expected_all_keys,
+                        expected_total_records=expected_total_records,
+                        sampling_records_path=sampling_records_path,
+                        sampling_manifest_path=sampling_manifest_path,
+                        sampling_hash=sampling_hash,
+                        sampling_spec=sampling_spec,
+                        cached_source_run=cached_source_run,
+                    )
 
-            def train_progress_cb(
-                current_train_records: List[Dict[str, Any]],
-                stats: Dict[str, int],
-            ) -> None:
-                nonlocal train_sampling_stats
-                train_sampling_stats = dict(stats)
-                _persist_sampling_state(
-                    stage="sampling_train_in_progress",
-                    train_state=current_train_records,
-                    test_state=test_records,
-                    train_stats=train_sampling_stats,
-                    test_stats=test_sampling_stats,
-                    expected_all_keys=expected_all_keys,
-                    expected_total_records=expected_total_records,
-                    sampling_records_path=sampling_records_path,
-                    sampling_manifest_path=sampling_manifest_path,
-                    sampling_hash=sampling_hash,
-                    sampling_spec=sampling_spec,
-                    cached_source_run=cached_source_run,
+                return _progress_cb
+
+            for split_name in ("train", "val", "test"):
+                split_records[split_name], split_sampling_stats[split_name] = sample_records_for_groups(
+                    model=model,
+                    tokenizer=tokenizer,
+                    groups=split_groups_map[split_name],
+                    split_name=split_name,
+                    bias_types=bias_types,
+                    n_draws=args.n_draws,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    max_new_tokens=args.max_new_tokens,
+                    sample_batch_size=args.sample_batch_size,
+                    existing_records=split_records[split_name],
+                    checkpoint_every=args.sampling_checkpoint_every,
+                    progress_callback=make_progress_cb(split_name),
+                    start_id=_next_record_id(
+                        split_records["train"],
+                        split_records["val"],
+                        split_records["test"],
+                    ),
                 )
-
-            train_records, train_sampling_stats = sample_records_for_groups(
-                model=model,
-                tokenizer=tokenizer,
-                groups=train_groups,
-                split_name="train",
-                bias_types=bias_types,
-                n_draws=args.n_draws,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                max_new_tokens=args.max_new_tokens,
-                sample_batch_size=args.sample_batch_size,
-                existing_records=train_records,
-                checkpoint_every=args.sampling_checkpoint_every,
-                progress_callback=train_progress_cb,
-                start_id=0,
-            )
-
-            def test_progress_cb(
-                current_test_records: List[Dict[str, Any]],
-                stats: Dict[str, int],
-            ) -> None:
-                nonlocal test_sampling_stats
-                test_sampling_stats = dict(stats)
-                _persist_sampling_state(
-                    stage="sampling_test_in_progress",
-                    train_state=train_records,
-                    test_state=current_test_records,
-                    train_stats=train_sampling_stats,
-                    test_stats=test_sampling_stats,
-                    expected_all_keys=expected_all_keys,
-                    expected_total_records=expected_total_records,
-                    sampling_records_path=sampling_records_path,
-                    sampling_manifest_path=sampling_manifest_path,
-                    sampling_hash=sampling_hash,
-                    sampling_spec=sampling_spec,
-                    cached_source_run=cached_source_run,
-                )
-
-            test_records, test_sampling_stats = sample_records_for_groups(
-                model=model,
-                tokenizer=tokenizer,
-                groups=test_groups,
-                split_name="test",
-                bias_types=bias_types,
-                n_draws=args.n_draws,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                max_new_tokens=args.max_new_tokens,
-                sample_batch_size=args.sample_batch_size,
-                existing_records=test_records,
-                checkpoint_every=args.sampling_checkpoint_every,
-                progress_callback=test_progress_cb,
-                start_id=_next_record_id(train_records, test_records),
-            )
 
         _persist_sampling_state(
             stage="sampling_complete",
-            train_state=train_records,
-            test_state=test_records,
-            train_stats=train_sampling_stats,
-            test_stats=test_sampling_stats,
+            split_states=split_records,
+            split_stats=split_sampling_stats,
             expected_all_keys=expected_all_keys,
             expected_total_records=expected_total_records,
             sampling_records_path=sampling_records_path,
@@ -375,7 +369,10 @@ def run_pipeline(args) -> None:
             cached_source_run=cached_source_run,
         )
 
-        all_records = train_records + test_records
+        train_records = split_records["train"]
+        val_records = split_records["val"]
+        test_records = split_records["test"]
+        all_records = train_records + val_records + test_records
         if len(all_records) < expected_total_records:
             print(
                 f"[warn] sampled records are incomplete: got={len(all_records)} "
@@ -384,9 +381,11 @@ def run_pipeline(args) -> None:
 
         add_empirical_t(all_records)
         print(
-            f"[sample] train_records={len(train_records)} test_records={len(test_records)} "
-            f"generated_train={train_sampling_stats.get('generated_records', 0)} "
-            f"generated_test={test_sampling_stats.get('generated_records', 0)}"
+            f"[sample] train_records={len(train_records)} val_records={len(val_records)} "
+            f"test_records={len(test_records)} "
+            f"generated_train={split_sampling_stats['train'].get('generated_records', 0)} "
+            f"generated_val={split_sampling_stats['val'].get('generated_records', 0)} "
+            f"generated_test={split_sampling_stats['test'].get('generated_records', 0)}"
         )
 
         n_layers = int(getattr(model.config, "num_hidden_layers", args.probe_layer_max))
@@ -404,12 +403,13 @@ def run_pipeline(args) -> None:
         probes_meta: Dict[str, Any] = {}
 
         train_neutral = [record for record in train_records if record["template_type"] == "neutral"]
+        val_neutral = [record for record in val_records if record["template_type"] == "neutral"]
         best_layer_x, best_auc_x, aucs_x, layer_clfs_x = select_best_layer_by_auc(
             model=model,
             tokenizer=tokenizer,
-            records=train_neutral,
+            train_records=train_neutral,
+            val_records=val_neutral,
             layer_grid=layer_grid,
-            val_frac=args.probe_val_frac,
             seed=args.probe_seed,
             max_selection_samples=args.probe_selection_max_samples,
             desc="no_bias",
@@ -418,7 +418,7 @@ def run_pipeline(args) -> None:
             train_probe_for_layer(
                 model=model,
                 tokenizer=tokenizer,
-                records=train_neutral,
+                records=train_neutral + val_neutral,
                 layer=best_layer_x if best_layer_x is not None else layer_min,
                 seed=args.probe_seed,
                 max_train_samples=args.probe_train_max_samples,
@@ -441,18 +441,21 @@ def run_pipeline(args) -> None:
             "best_dev_auc": best_auc_x,
             "auc_per_layer": aucs_x,
             "feature_source": feature_source_spec,
+            "selection_split": "val",
+            "retrained_on_splits": ["train", "val"],
         }
 
         probe_bias_layers: Dict[str, Optional[int]] = {}
         probe_bias_clfs: Dict[str, Any] = {}
         for btype in bias_types:
             train_bias = [record for record in train_records if record["template_type"] == btype]
+            val_bias = [record for record in val_records if record["template_type"] == btype]
             best_layer_b, best_auc_b, aucs_b, layer_clfs_b = select_best_layer_by_auc(
                 model=model,
                 tokenizer=tokenizer,
-                records=train_bias,
+                train_records=train_bias,
+                val_records=val_bias,
                 layer_grid=layer_grid,
-                val_frac=args.probe_val_frac,
                 seed=args.probe_seed,
                 max_selection_samples=args.probe_selection_max_samples,
                 desc=f"bias:{btype}",
@@ -461,7 +464,7 @@ def run_pipeline(args) -> None:
                 train_probe_for_layer(
                     model=model,
                     tokenizer=tokenizer,
-                    records=train_bias,
+                    records=train_bias + val_bias,
                     layer=best_layer_b if best_layer_b is not None else layer_min,
                     seed=args.probe_seed,
                     max_train_samples=args.probe_train_max_samples,
@@ -478,6 +481,8 @@ def run_pipeline(args) -> None:
                 "best_dev_auc": best_auc_b,
                 "auc_per_layer": aucs_b,
                 "feature_source": feature_source_spec,
+                "selection_split": "val",
+                "retrained_on_splits": ["train", "val"],
             }
 
             score_records_with_probe(

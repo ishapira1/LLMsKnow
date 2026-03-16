@@ -9,11 +9,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 from tqdm.auto import tqdm
 
-from .answer_utils import (
+from .correctness import (
     extract_gold_answers_from_base as _extract_gold_answers_from_base,
     grade_short_answer as _grade_short_answer,
     record_is_usable_for_metrics as _record_is_usable_for_metrics,
 )
+from .constants import SAMPLING_SPEC_VERSION
 from .dataset import as_prompt_text
 from .model_utils import generate_many as _generate_many
 from .runtime import model_slug
@@ -99,24 +100,34 @@ def build_sampling_spec(
     test_groups: Sequence[Dict[str, Any]],
     expected_train: int,
     expected_test: int,
+    *,
+    val_groups: Optional[Sequence[Dict[str, Any]]] = None,
+    expected_val: int = 0,
 ) -> Dict[str, Any]:
+    val_groups = list(val_groups or [])
     return {
+        "sampling_spec_version": int(SAMPLING_SPEC_VERSION),
         "model": args.model,
         "input_jsonl": args.input_jsonl,
         "sycophancy_repo": args.sycophancy_repo,
         "bias_types": list(bias_types),
+        "seed": int(getattr(args, "seed", 0)),
         "n_draws": int(args.n_draws),
+        "sample_batch_size": int(getattr(args, "sample_batch_size", 1)),
         "temperature": float(args.temperature),
         "top_p": float(args.top_p),
         "max_new_tokens": int(args.max_new_tokens),
         "test_frac": float(args.test_frac),
+        "probe_val_frac": float(getattr(args, "probe_val_frac", 0.0)),
         "split_seed": int(args.split_seed),
         "max_questions": args.max_questions,
         "smoke_test": bool(args.smoke_test),
         "smoke_questions": int(args.smoke_questions),
         "train_question_ids": [group["question_id"] for group in train_groups],
+        "val_question_ids": [group["question_id"] for group in val_groups],
         "test_question_ids": [group["question_id"] for group in test_groups],
         "expected_train_records": int(expected_train),
+        "expected_val_records": int(expected_val),
         "expected_test_records": int(expected_test),
     }
 

@@ -1,4 +1,4 @@
-from .answer_utils import (
+from .correctness import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
     grade_short_answer,
@@ -14,7 +14,15 @@ from .cli import (
     resolve_hf_cache_dir,
 )
 from .constants import ALL_BIAS_TYPES, BIAS_TEMPLATE_TO_TYPE, NEUTRAL_TEMPLATE, RESUME_COMPAT_KEYS
-from .dataset import as_prompt_text, build_question_groups, deduplicate_rows, question_key, split_groups, template_type
+from .dataset import (
+    as_prompt_text,
+    build_question_groups,
+    deduplicate_rows,
+    question_key,
+    split_groups,
+    split_groups_train_val_test,
+    template_type,
+)
 from .outputs import SUMMARY_COLUMNS, build_summary_df, build_tuple_rows, to_samples_df, to_tuples_df
 from .feature_utils import (
     _find_sublist,
@@ -111,6 +119,7 @@ __all__ = [
     "score_records_with_probe",
     "select_best_layer_by_auc",
     "split_groups",
+    "split_groups_train_val_test",
     "template_type",
     "to_hf_chat",
     "to_samples_df",

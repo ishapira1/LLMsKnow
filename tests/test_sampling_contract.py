@@ -28,11 +28,14 @@ def make_args(**overrides):
         "model": "mistralai/Mistral-7B-Instruct-v0.2",
         "input_jsonl": "answer.jsonl",
         "sycophancy_repo": "meg-tong/sycophancy-eval",
+        "seed": 0,
         "n_draws": 4,
+        "sample_batch_size": 4,
         "temperature": 0.7,
         "top_p": 1.0,
         "max_new_tokens": 32,
         "test_frac": 0.2,
+        "probe_val_frac": 0.25,
         "split_seed": 0,
         "max_questions": 24,
         "smoke_test": True,
@@ -98,21 +101,58 @@ class SamplingContractTests(unittest.TestCase):
 
     def test_sampling_spec_hash_and_cache_candidate_contract(self):
         train_groups = [make_group("q_1"), make_group("q_2")]
+        val_groups = [make_group("q_4")]
         test_groups = [make_group("q_3")]
         args = make_args()
         spec = build_sampling_spec(
             args=args,
             bias_types=["incorrect_suggestion"],
             train_groups=train_groups,
+            val_groups=val_groups,
             test_groups=test_groups,
             expected_train=8,
+            expected_val=4,
             expected_test=4,
         )
+        self.assertEqual(spec["sampling_spec_version"], 2)
+        self.assertEqual(spec["seed"], 0)
+        self.assertEqual(spec["sample_batch_size"], 4)
         self.assertEqual(spec["train_question_ids"], ["q_1", "q_2"])
+        self.assertEqual(spec["val_question_ids"], ["q_4"])
         self.assertEqual(spec["test_question_ids"], ["q_3"])
 
         digest = sampling_spec_hash(spec)
         self.assertEqual(digest, sampling_spec_hash(spec))
+        self.assertNotEqual(digest, sampling_spec_hash(build_sampling_spec(
+            args=make_args(seed=1),
+            bias_types=["incorrect_suggestion"],
+            train_groups=train_groups,
+            val_groups=val_groups,
+            test_groups=test_groups,
+            expected_train=8,
+            expected_val=4,
+            expected_test=4,
+        )))
+        self.assertNotEqual(digest, sampling_spec_hash(build_sampling_spec(
+            args=make_args(sample_batch_size=8),
+            bias_types=["incorrect_suggestion"],
+            train_groups=train_groups,
+            val_groups=val_groups,
+            test_groups=test_groups,
+            expected_train=8,
+            expected_val=4,
+            expected_test=4,
+        )))
+        self.assertNotEqual(digest, sampling_spec_hash(build_sampling_spec(
+            args=make_args(max_new_tokens=64),
+            bias_types=["incorrect_suggestion"],
+            train_groups=train_groups,
+            val_groups=val_groups,
+            test_groups=test_groups,
+            expected_train=8,
+            expected_val=4,
+            expected_test=4,
+        )))
 
         with tempfile.TemporaryDirectory() as tmpdir:
             model_dir = Path(tmpdir) / model_slug(args.model)

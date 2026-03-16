@@ -13,12 +13,15 @@ For each question, the pipeline builds:
 
 It then:
 
-1. Samples multiple responses from each prompt.
-2. Extracts a short answer for evaluation.
-3. Labels each sampled answer as correct or incorrect.
-4. Estimates empirical correctness for each prompt variant over repeated draws.
-5. Trains probes on final-token hidden states of the sampled completion.
-6. Produces paired neutral vs. biased records for downstream analysis.
+1. Splits question groups into question-level `train`, `val`, and `test` sets.
+2. Samples multiple responses from each prompt in each split.
+3. Extracts a short answer for evaluation.
+4. Labels each sampled answer as correct, incorrect, or ambiguous.
+5. Estimates empirical correctness for each prompt variant over repeated draws.
+6. Trains candidate probes on `train`, choosing the best layer by AUC on `val`.
+7. Retrains the selected layer on `train + val`.
+8. Scores sampled records with the retrained probes.
+9. Produces paired neutral vs. biased records for downstream analysis.
 
 The main question is whether bias changes only the model's output, or also changes the internal evidence available in its representations.
 
@@ -26,6 +29,8 @@ The main question is whether bias changes only the model's output, or also chang
 
 - `run_sycophancy_bias_probe.py`: public entrypoint for the current pipeline
 - `sycophancy_bias_probe/`: main package for dataset prep, sampling, probes, outputs, and runtime helpers
+- `sycophancy_bias_probe/correctness.py`: source-of-truth answer parsing and correctness grading logic
+- `RESULTS_FORMAT.md`: artifact layout, cache rules, and parsing guide for run outputs
 - `jobs/sycophancy_bias_probe/`: SLURM job scripts for cluster runs
 - `notebooks/`: downstream analysis notebooks
 - `data/`: local datasets used by the experiments
@@ -83,6 +88,8 @@ Important flags:
 - `--bias_types`: comma-separated subset of `incorrect_suggestion`, `doubt_correct`, `suggest_correct`
 - `--n_draws`: number of sampled completions per prompt
 - `--max_questions`: limit the number of question groups
+- `--test_frac`: fraction of questions reserved for the held-out test split
+- `--val_frac` / `--probe_val_frac`: fraction of the non-test questions reserved for validation during probe layer selection
 - `--sample_batch_size`: generation batch size
 - `--hf_cache_dir`: cache directory for model and tokenizer files
 - `--out_dir`: root output directory
@@ -96,9 +103,9 @@ Each run writes to:
 
 Main artifacts:
 
-- `sampled_responses.csv`: one row per sampled completion, including whether the parsed answer was graded or marked ambiguous
+- `sampled_responses.csv`: one row per sampled completion, including split membership and whether the parsed answer was graded or marked ambiguous
 - `final_tuples.csv`: paired neutral and biased records for the same question and draw index, after dropping ambiguous samples
-- `summary_by_question.csv`: question-level aggregates across repeated draws
+- `summary_by_question.csv`: question-level aggregates across repeated draws, grouped by split
 - `probe_metadata.json`: selected layers, validation metrics, and saved probe paths
 - `sampling_records.jsonl`: resumable per-sample checkpoint state
 - `sampling_manifest.json`: sampling spec and checkpoint metadata
@@ -108,14 +115,19 @@ Main artifacts:
 
 `final_tuples.csv` is the main table intended for downstream analysis.
 
+For artifact schemas and parsing guidance, see `RESULTS_FORMAT.md`.
+
 ## Current implementation notes
 
-- Train/test splitting is done at the question level, not the sample level.
+- Train/validation/test splitting is done at the question level, not the sample level.
 - Sampled answers are parsed into short answers and labeled as `correct`, `incorrect`, or `ambiguous`.
 - Ambiguous or unparseable samples are preserved in raw outputs but excluded from paired correctness metrics and probe training.
 - Probe targets are sampled-answer correctness labels for graded samples only.
 - Probe features come from the final token of `response_raw`.
 - Neutral and bias-specific probes are trained separately.
+- Probe layer selection is done by validation AUC on the held-out `val` split.
+- After selecting the best layer, the final probe is retrained on `train + val` before scoring records.
+- The `test` split stays untouched during layer selection and is the clean held-out evaluation split.
 - Sampling checkpoints can be reused when the sampling specification matches.
 
 ## Cluster runs

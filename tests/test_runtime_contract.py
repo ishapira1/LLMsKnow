@@ -49,6 +49,7 @@ def make_args(**overrides):
             "probe_seed": 0,
             "probe_selection_max_samples": 2000,
             "probe_train_max_samples": None,
+            "seed": 0,
         }
     )
     payload.update(overrides)
@@ -82,6 +83,10 @@ class RuntimeContractTests(unittest.TestCase):
             mismatched_args = make_args(n_draws=8)
             with self.assertRaises(ValueError):
                 assert_resume_compatible(run_dir, mismatched_args)
+
+            mismatched_seed_args = make_args(seed=1)
+            with self.assertRaises(ValueError):
+                assert_resume_compatible(run_dir, mismatched_seed_args)
 
     def test_lock_and_status_contract(self):
         with tempfile.TemporaryDirectory() as tmpdir:

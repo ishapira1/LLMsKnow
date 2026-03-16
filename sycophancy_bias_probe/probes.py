@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
-from .answer_utils import record_is_usable_for_metrics as _record_is_usable_for_metrics
+from .correctness import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from .feature_utils import get_hidden_feature_for_completion as _get_hidden_feature_for_completion
 from .model_utils import encode_chat as _encode_chat
 
@@ -88,9 +88,9 @@ def maybe_subsample(records: List[Dict[str, Any]], max_samples: Optional[int], s
 def select_best_layer_by_auc(
     model,
     tokenizer,
-    records: List[Dict[str, Any]],
+    train_records: List[Dict[str, Any]],
+    val_records: List[Dict[str, Any]],
     layer_grid: Sequence[int],
-    val_frac: float,
     seed: int,
     max_selection_samples: Optional[int],
     desc: str,
@@ -100,10 +100,16 @@ def select_best_layer_by_auc(
     Dict[int, Optional[float]],
     Dict[int, Optional[LogisticRegression]],
 ]:
-    records = [record for record in records if _record_is_usable_for_metrics(record)]
-    records = maybe_subsample(records, max_selection_samples, seed)
-    if len(records) < 10:
-        print(f"[probe:{desc}] too few samples for layer selection: {len(records)}")
+    train_records = [record for record in train_records if _record_is_usable_for_metrics(record)]
+    val_records = [record for record in val_records if _record_is_usable_for_metrics(record)]
+    train_records = maybe_subsample(train_records, max_selection_samples, seed)
+    val_records = maybe_subsample(val_records, max_selection_samples, seed + 1)
+
+    if len(train_records) < 2 or len(val_records) < 2:
+        print(
+            f"[probe:{desc}] too few samples for layer selection: "
+            f"train={len(train_records)} val={len(val_records)}"
+        )
         return (
             None,
             None,
@@ -111,44 +117,39 @@ def select_best_layer_by_auc(
             {layer: None for layer in layer_grid},
         )
 
-    labels = np.array([int(record["correctness"]) for record in records], dtype=int)
-    if len(np.unique(labels)) < 2:
-        print(f"[probe:{desc}] only one class present in labels; skipping probe.")
-        return (
-            None,
-            None,
-            {layer: None for layer in layer_grid},
-            {layer: None for layer in layer_grid},
-        )
-
-    per_record_features: List[np.ndarray] = []
-    for record in tqdm(records, desc=f"[probe:{desc}] extract all-layer features"):
-        mat = get_hidden_feature_all_layers_for_completion(
-            model,
-            tokenizer,
-            record["prompt_messages"],
-            _probe_completion_text(record),
-            layer_grid=layer_grid,
-        )
-        per_record_features.append(mat)
-
-    idx = np.arange(len(records))
-    rng = np.random.default_rng(seed)
-    rng.shuffle(idx)
-    cut = max(1, int(round((1.0 - val_frac) * len(idx))))
-    cut = min(cut, len(idx) - 1)
-    train_idx = idx[:cut]
-    val_idx = idx[cut:]
-
-    y_train = labels[train_idx]
-    y_val = labels[val_idx]
+    y_train = np.array([int(record["correctness"]) for record in train_records], dtype=int)
+    y_val = np.array([int(record["correctness"]) for record in val_records], dtype=int)
     if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
-        print(f"[probe:{desc}] train/val split collapsed to one class; skipping probe.")
+        print(f"[probe:{desc}] train or val split has only one class; skipping probe.")
         return (
             None,
             None,
             {layer: None for layer in layer_grid},
             {layer: None for layer in layer_grid},
+        )
+
+    train_features: List[np.ndarray] = []
+    for record in tqdm(train_records, desc=f"[probe:{desc}] extract train all-layer features"):
+        train_features.append(
+            get_hidden_feature_all_layers_for_completion(
+                model,
+                tokenizer,
+                record["prompt_messages"],
+                _probe_completion_text(record),
+                layer_grid=layer_grid,
+            )
+        )
+
+    val_features: List[np.ndarray] = []
+    for record in tqdm(val_records, desc=f"[probe:{desc}] extract val all-layer features"):
+        val_features.append(
+            get_hidden_feature_all_layers_for_completion(
+                model,
+                tokenizer,
+                record["prompt_messages"],
+                _probe_completion_text(record),
+                layer_grid=layer_grid,
+            )
         )
 
     auc_per_layer: Dict[int, Optional[float]] = {}
@@ -157,9 +158,8 @@ def select_best_layer_by_auc(
     best_auc = -1.0
 
     for li, layer in enumerate(layer_grid):
-        X = np.stack([mat[li] for mat in per_record_features])
-        X_train = X[train_idx]
-        X_val = X[val_idx]
+        X_train = np.stack([mat[li] for mat in train_features])
+        X_val = np.stack([mat[li] for mat in val_features])
         try:
             clf = LogisticRegression(max_iter=1000, n_jobs=1, random_state=seed, solver="liblinear")
             clf.fit(X_train, y_train)
@@ -193,7 +193,7 @@ def train_probe_for_layer(
 ) -> Optional[LogisticRegression]:
     records = [record for record in records if _record_is_usable_for_metrics(record)]
     records = maybe_subsample(records, max_train_samples, seed)
-    if len(records) < 10:
+    if len(records) < 2:
         print(f"[probe:{desc}] too few train samples: {len(records)}")
         return None
 

@@ -11,6 +11,7 @@ from sycophancy_bias_probe.answer_utils import (
     is_correct_short_answer,
     normalize_answer,
 )
+from sycophancy_bias_probe.correctness import grade_short_answer
 from sycophancy_bias_probe.model_utils import to_hf_chat
 
 
@@ -33,6 +34,7 @@ class ScriptCompatibilityTests(unittest.TestCase):
         )
         self.assertEqual(normalize_answer("  New-York!! "), "newyork")
         self.assertTrue(is_correct_short_answer("The answer is Paris", ["Paris"]))
+        self.assertEqual(grade_short_answer("Final answer: Paris", ["Paris"])["status"], "correct")
         self.assertEqual(
             extract_short_answer_from_generation("Final answer: Paris"),
             "Paris",
@@ -57,6 +59,7 @@ class ScriptCompatibilityTests(unittest.TestCase):
             "from script import generate_many, get_hidden_feature_for_answer; print('ok')",
             "from sycophancy_bias_probe.model_utils import generate_many; print('ok')",
             "from sycophancy_bias_probe.feature_utils import get_hidden_feature_for_answer; print('ok')",
+            "from sycophancy_bias_probe.correctness import grade_short_answer; print(callable(grade_short_answer))",
         ]
 
         for command in commands:
@@ -68,7 +71,7 @@ class ScriptCompatibilityTests(unittest.TestCase):
                     text=True,
                 )
                 self.assertEqual(result.returncode, 0, msg=result.stderr)
-                self.assertEqual(result.stdout.strip(), "ok")
+                self.assertIn(result.stdout.strip(), {"ok", "True"})
 
 
 if __name__ == "__main__":

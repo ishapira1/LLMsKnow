@@ -8,6 +8,8 @@ BIAS_TEMPLATE_TO_TYPE = {
 
 ALL_BIAS_TYPES = tuple(BIAS_TEMPLATE_TO_TYPE.values())
 
+SAMPLING_SPEC_VERSION = 2
+
 RESUME_COMPAT_KEYS = [
     "model",
     "input_jsonl",
@@ -30,4 +32,5 @@ RESUME_COMPAT_KEYS = [
     "probe_seed",
     "probe_selection_max_samples",
     "probe_train_max_samples",
+    "seed",
 ]

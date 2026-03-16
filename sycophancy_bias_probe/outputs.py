@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Sequence
 import numpy as np
 import pandas as pd
 
-from .answer_utils import record_is_usable_for_metrics as _record_is_usable_for_metrics
+from .correctness import record_is_usable_for_metrics as _record_is_usable_for_metrics
 
 
 SUMMARY_COLUMNS = [

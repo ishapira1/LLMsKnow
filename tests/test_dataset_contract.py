@@ -5,6 +5,7 @@ from sycophancy_bias_probe.dataset import (
     build_question_groups,
     deduplicate_rows,
     split_groups,
+    split_groups_train_val_test,
     template_type,
 )
 
@@ -77,3 +78,25 @@ def test_split_groups_is_deterministic_and_question_level():
     assert test_ids
     assert train_ids.isdisjoint(test_ids)
     assert train_ids | test_ids == {group["question_id"] for group in groups}
+
+
+def test_split_groups_train_val_test_is_deterministic_and_question_level():
+    groups = [{"question_id": f"q_{idx}"} for idx in range(10)]
+
+    train_a, val_a, test_a = split_groups_train_val_test(groups, test_frac=0.2, val_frac=0.25, seed=7)
+    train_b, val_b, test_b = split_groups_train_val_test(groups, test_frac=0.2, val_frac=0.25, seed=7)
+
+    assert [group["question_id"] for group in train_a] == [group["question_id"] for group in train_b]
+    assert [group["question_id"] for group in val_a] == [group["question_id"] for group in val_b]
+    assert [group["question_id"] for group in test_a] == [group["question_id"] for group in test_b]
+
+    train_ids = {group["question_id"] for group in train_a}
+    val_ids = {group["question_id"] for group in val_a}
+    test_ids = {group["question_id"] for group in test_a}
+    assert train_ids
+    assert val_ids
+    assert test_ids
+    assert train_ids.isdisjoint(val_ids)
+    assert train_ids.isdisjoint(test_ids)
+    assert val_ids.isdisjoint(test_ids)
+    assert train_ids | val_ids | test_ids == {group["question_id"] for group in groups}

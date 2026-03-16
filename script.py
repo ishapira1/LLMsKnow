@@ -16,7 +16,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
-from sycophancy_bias_probe.answer_utils import (
+from sycophancy_bias_probe.correctness import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
     is_correct_short_answer,

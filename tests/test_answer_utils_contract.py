@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from sycophancy_bias_probe.answer_utils import (
+from sycophancy_bias_probe.correctness import (
     extract_short_answer_from_generation,
     grade_short_answer,
     record_is_usable_for_metrics,
