@@ -8,6 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
+from .answer_utils import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from .feature_utils import get_hidden_feature_for_completion as _get_hidden_feature_for_completion
 from .model_utils import encode_chat as _encode_chat
 
@@ -99,6 +100,7 @@ def select_best_layer_by_auc(
     Dict[int, Optional[float]],
     Dict[int, Optional[LogisticRegression]],
 ]:
+    records = [record for record in records if _record_is_usable_for_metrics(record)]
     records = maybe_subsample(records, max_selection_samples, seed)
     if len(records) < 10:
         print(f"[probe:{desc}] too few samples for layer selection: {len(records)}")
@@ -159,7 +161,7 @@ def select_best_layer_by_auc(
         X_train = X[train_idx]
         X_val = X[val_idx]
         try:
-            clf = LogisticRegression(max_iter=1000, n_jobs=1)
+            clf = LogisticRegression(max_iter=1000, n_jobs=1, random_state=seed, solver="liblinear")
             clf.fit(X_train, y_train)
             probs = clf.predict_proba(X_val)[:, 1]
             auc = roc_auc_score(y_val, probs)
@@ -189,6 +191,7 @@ def train_probe_for_layer(
     max_train_samples: Optional[int],
     desc: str,
 ) -> Optional[LogisticRegression]:
+    records = [record for record in records if _record_is_usable_for_metrics(record)]
     records = maybe_subsample(records, max_train_samples, seed)
     if len(records) < 10:
         print(f"[probe:{desc}] too few train samples: {len(records)}")
@@ -212,7 +215,7 @@ def train_probe_for_layer(
         )
     X = np.stack(X)
 
-    clf = LogisticRegression(max_iter=1000, n_jobs=1, random_state=seed)
+    clf = LogisticRegression(max_iter=1000, n_jobs=1, random_state=seed, solver="liblinear")
     clf.fit(X, y)
     return clf
 

@@ -101,23 +101,52 @@ def build_question_groups(
     return groups
 
 
-def split_groups(
+def split_groups_train_val_test(
     groups: Sequence[Dict[str, Any]],
     test_frac: float,
+    val_frac: float,
     seed: int,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     shuffled_groups = list(groups)
     rng = random.Random(seed)
     rng.shuffle(shuffled_groups)
 
     n_groups = len(shuffled_groups)
     if n_groups == 0:
-        return [], []
+        return [], [], []
     if n_groups == 1:
-        return shuffled_groups, []
+        return shuffled_groups, [], []
 
-    n_test = int(round(n_groups * test_frac))
-    n_test = max(1, min(n_groups - 1, n_test))
+    if test_frac <= 0:
+        n_test = 0
+    else:
+        n_test = int(round(n_groups * test_frac))
+        n_test = max(1, min(n_groups - 1, n_test))
+
     test_groups = shuffled_groups[:n_test]
-    train_groups = shuffled_groups[n_test:]
+    train_val_groups = shuffled_groups[n_test:]
+
+    remaining_after_test = len(train_val_groups)
+    if remaining_after_test <= 1 or val_frac <= 0:
+        n_val = 0
+    else:
+        n_val = int(round(remaining_after_test * val_frac))
+        n_val = max(1, min(remaining_after_test - 1, n_val))
+
+    val_groups = train_val_groups[:n_val]
+    train_groups = train_val_groups[n_val:]
+    return train_groups, val_groups, test_groups
+
+
+def split_groups(
+    groups: Sequence[Dict[str, Any]],
+    test_frac: float,
+    seed: int,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    train_groups, _, test_groups = split_groups_train_val_test(
+        groups,
+        test_frac=test_frac,
+        val_frac=0.0,
+        seed=seed,
+    )
     return train_groups, test_groups

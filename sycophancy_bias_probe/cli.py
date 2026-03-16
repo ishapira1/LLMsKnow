@@ -64,7 +64,14 @@ def parse_args() -> argparse.Namespace:
 
     ap.add_argument("--probe_layer_min", type=int, default=1)
     ap.add_argument("--probe_layer_max", type=int, default=32)
-    ap.add_argument("--probe_val_frac", type=float, default=0.2)
+    ap.add_argument(
+        "--probe_val_frac",
+        "--val_frac",
+        dest="probe_val_frac",
+        type=float,
+        default=0.2,
+        help="Fraction of non-test questions reserved for the question-level validation split used in probe layer selection.",
+    )
     ap.add_argument("--probe_seed", type=int, default=0)
     ap.add_argument("--probe_selection_max_samples", type=int, default=2000)
     ap.add_argument("--probe_train_max_samples", type=int, default=None)

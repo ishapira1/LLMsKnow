@@ -11,8 +11,8 @@ from tqdm.auto import tqdm
 
 from .answer_utils import (
     extract_gold_answers_from_base as _extract_gold_answers_from_base,
-    extract_short_answer_from_generation as _extract_short_answer_from_generation,
-    is_correct_short_answer as _is_correct_short_answer,
+    grade_short_answer as _grade_short_answer,
+    record_is_usable_for_metrics as _record_is_usable_for_metrics,
 )
 from .dataset import as_prompt_text
 from .model_utils import generate_many as _generate_many
@@ -251,8 +251,7 @@ def sample_records_for_groups(
                 safe_fallback=True,
             )
             for draw_idx, response_raw in zip(missing_draws, generated_outputs):
-                response = _extract_short_answer_from_generation(response_raw)
-                correctness = int(_is_correct_short_answer(response, gold_answers))
+                grading = _grade_short_answer(response_raw, gold_answers)
 
                 key = sample_record_key_values(split_name, group["question_id"], template_type, draw_idx)
                 records_by_key[key] = {
@@ -269,8 +268,11 @@ def sample_records_for_groups(
                     "gold_answers": gold_answers,
                     "draw_idx": draw_idx,
                     "response_raw": response_raw,
-                    "response": response,
-                    "correctness": correctness,
+                    "response": grading["parsed_answer"],
+                    "correctness": grading["correctness"],
+                    "grading_status": grading["status"],
+                    "grading_reason": grading["reason"],
+                    "usable_for_metrics": grading["usable_for_metrics"],
                 }
                 rec_id += 1
                 generated += 1
@@ -309,8 +311,13 @@ def sample_records_for_groups(
 def add_empirical_t(records: List[Dict[str, Any]]) -> None:
     grouped: Dict[Tuple[str, str, str], List[int]] = {}
     for record in records:
+        if not _record_is_usable_for_metrics(record):
+            continue
         key = (record["split"], record["question_id"], record["template_type"])
         grouped.setdefault(key, []).append(int(record["correctness"]))
     tvals = {key: float(np.mean(values)) for key, values in grouped.items()}
     for record in records:
-        record["T_prompt"] = tvals[(record["split"], record["question_id"], record["template_type"])]
+        record["T_prompt"] = tvals.get(
+            (record["split"], record["question_id"], record["template_type"]),
+            float("nan"),
+        )

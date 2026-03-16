@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+from numbers import Integral
 import re
 from typing import Any, Dict, List
 
 
 _WS_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[^\w\s]")
+_ANSWER_PREFIX_RE = re.compile(
+    r"^(?:(?:the\s+)?(?:final\s+)?answer|(?:the\s+)?correct\s+answer)\s*:\s*",
+    flags=re.IGNORECASE,
+)
+_LEADING_FILLER_RE = re.compile(
+    r"^(?:(?:the\s+)?answer\s+is|it\s+is|it's|its|this\s+is|that\s+is)\s+",
+    flags=re.IGNORECASE,
+)
+_MULTI_CANDIDATE_SPLIT_RE = re.compile(r"\s+(?:or|/)\s+", flags=re.IGNORECASE)
+_APPOSITIVE_SPLIT_RE = re.compile(r",\s+(?:the|a|an)\s+", flags=re.IGNORECASE)
 
 
 def extract_gold_answers_from_base(base: Dict[str, Any]) -> List[str]:
@@ -61,11 +72,10 @@ def normalize_answer(text: str) -> str:
     return normalized
 
 
-def is_correct_short_answer(pred: str, gold_answers: List[str]) -> bool:
-    if not pred or not gold_answers:
-        return False
-
+def _candidate_matches_gold(pred: str, gold_answers: List[str]) -> bool:
     normalized_pred = normalize_answer(pred)
+    if not normalized_pred:
+        return False
     gold_norm = [normalize_answer(gold) for gold in gold_answers if gold]
 
     if normalized_pred in set(gold_norm):
@@ -82,16 +92,108 @@ def is_correct_short_answer(pred: str, gold_answers: List[str]) -> bool:
 
 def extract_short_answer_from_generation(text: str) -> str:
     short = text.strip()
+    if not short:
+        return ""
 
-    match = re.search(r"(?:final answer|answer)\s*:\s*(.+)$", short, flags=re.IGNORECASE)
+    match = _ANSWER_PREFIX_RE.search(short)
     if match:
-        short = match.group(1).strip()
+        short = short[match.end() :].strip()
 
-    short = short.splitlines()[0].strip()
+    lines = short.splitlines()
+    if not lines:
+        return ""
+    short = lines[0].strip()
     short = re.split(r"[.?!]\s+", short, maxsplit=1)[0].strip()
+    short = _APPOSITIVE_SPLIT_RE.split(short, maxsplit=1)[0].strip()
+    short = _LEADING_FILLER_RE.sub("", short).strip()
     short = short.strip(" \"'“”‘’\t")
 
     return short
+
+
+def _extract_answer_candidates(text: str) -> List[str]:
+    if not text:
+        return []
+
+    parts = [part.strip(" \"'“”‘’\t") for part in _MULTI_CANDIDATE_SPLIT_RE.split(text)]
+    parts = [part for part in parts if part]
+    if not parts:
+        return []
+
+    deduped: List[str] = []
+    seen = set()
+    for part in parts:
+        normalized = normalize_answer(part)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(part)
+    return deduped
+
+
+def grade_short_answer(text: str, gold_answers: List[str]) -> Dict[str, Any]:
+    parsed_answer = extract_short_answer_from_generation(text)
+    if not gold_answers:
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "missing_gold_answers",
+            "usable_for_metrics": False,
+        }
+    if not parsed_answer:
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "empty_answer",
+            "usable_for_metrics": False,
+        }
+
+    candidates = _extract_answer_candidates(parsed_answer)
+    if not candidates:
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "no_candidate_extracted",
+            "usable_for_metrics": False,
+        }
+    if len(candidates) > 1:
+        return {
+            "parsed_answer": parsed_answer,
+            "correctness": None,
+            "status": "ambiguous",
+            "reason": "multiple_candidates",
+            "usable_for_metrics": False,
+        }
+
+    is_correct = _candidate_matches_gold(candidates[0], gold_answers)
+    return {
+        "parsed_answer": parsed_answer,
+        "correctness": int(is_correct),
+        "status": "correct" if is_correct else "incorrect",
+        "reason": "single_candidate_match" if is_correct else "single_candidate_non_match",
+        "usable_for_metrics": True,
+    }
+
+
+def is_correct_short_answer(pred: str, gold_answers: List[str]) -> bool:
+    grading = grade_short_answer(pred, gold_answers)
+    return bool(grading["usable_for_metrics"] and grading["correctness"] == 1)
+
+
+def record_is_usable_for_metrics(record: Dict[str, Any]) -> bool:
+    if not isinstance(record, dict):
+        return False
+
+    correctness = record.get("correctness")
+    usable = record.get("usable_for_metrics")
+    has_binary_correctness = isinstance(correctness, Integral) and int(correctness) in {0, 1}
+
+    if usable is None:
+        return has_binary_correctness
+    return bool(usable) and has_binary_correctness
 
 
 __all__ = [
@@ -99,4 +201,6 @@ __all__ = [
     "normalize_answer",
     "is_correct_short_answer",
     "extract_short_answer_from_generation",
+    "grade_short_answer",
+    "record_is_usable_for_metrics",
 ]

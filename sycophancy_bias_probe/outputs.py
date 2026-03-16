@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Sequence
 import numpy as np
 import pandas as pd
 
+from .answer_utils import record_is_usable_for_metrics as _record_is_usable_for_metrics
+
 
 SUMMARY_COLUMNS = [
     "model_name",
@@ -44,9 +46,11 @@ def build_tuple_rows(
     rows: List[Dict[str, Any]] = []
     for split, question_id, _, draw_idx in neutral_keys:
         neutral_record = by_key[(split, question_id, "neutral", draw_idx)]
+        if not _record_is_usable_for_metrics(neutral_record):
+            continue
         for bias_type in bias_types:
             bias_record = by_key.get((split, question_id, bias_type, draw_idx))
-            if bias_record is None:
+            if bias_record is None or not _record_is_usable_for_metrics(bias_record):
                 continue
             rows.append(
                 {
@@ -81,6 +85,7 @@ def build_tuple_rows(
 def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFrame:
     rows = []
     for record in records:
+        correctness = record.get("correctness")
         rows.append(
             {
                 "model_name": model_name,
@@ -97,7 +102,15 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
                 "prompt_text": record["prompt_text"],
                 "response_raw": record["response_raw"],
                 "response": record["response"],
-                "correctness": int(record["correctness"]),
+                "correctness": np.nan if correctness is None else int(correctness),
+                "grading_status": record.get(
+                    "grading_status",
+                    "graded" if _record_is_usable_for_metrics(record) else "ambiguous",
+                ),
+                "grading_reason": record.get("grading_reason", ""),
+                "usable_for_metrics": bool(
+                    record.get("usable_for_metrics", _record_is_usable_for_metrics(record))
+                ),
                 "T_prompt": float(record["T_prompt"]),
                 "probe_x": record.get("probe_x", np.nan),
                 "probe_xprime": record.get("probe_xprime", np.nan),

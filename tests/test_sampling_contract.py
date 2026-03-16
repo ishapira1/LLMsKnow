@@ -164,6 +164,18 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual(records[2]["T_prompt"], 0.0)
         self.assertEqual(records[3]["T_prompt"], 0.0)
 
+        records_with_ambiguous = records + [
+            {
+                "split": "train",
+                "question_id": "q_1",
+                "template_type": "neutral",
+                "correctness": None,
+                "usable_for_metrics": False,
+            }
+        ]
+        add_empirical_t(records_with_ambiguous)
+        self.assertEqual(records_with_ambiguous[-1]["T_prompt"], 0.5)
+
     def test_sample_records_for_groups_reuses_existing_and_generates_missing(self):
         groups = [make_group("q_1")]
         existing_records = [
@@ -195,9 +207,14 @@ class SamplingContractTests(unittest.TestCase):
         with patch("sycophancy_bias_probe.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])), patch(
             "sycophancy_bias_probe.sampling._generate_many", side_effect=fake_generate_many
         ), patch(
-            "sycophancy_bias_probe.sampling._extract_short_answer_from_generation", side_effect=lambda text: text
-        ), patch(
-            "sycophancy_bias_probe.sampling._is_correct_short_answer", side_effect=lambda pred, gold: pred in set(gold)
+            "sycophancy_bias_probe.sampling._grade_short_answer",
+            side_effect=lambda text, gold: {
+                "parsed_answer": text,
+                "correctness": int(text in set(gold)),
+                "status": "correct" if text in set(gold) else "incorrect",
+                "reason": "test",
+                "usable_for_metrics": True,
+            },
         ):
             records, stats = sample_records_for_groups(
                 model=None,
@@ -227,6 +244,7 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual([record["draw_idx"] for record in neutral_records], [0, 1])
         self.assertEqual([record["correctness"] for record in neutral_records], [1, 1])
         self.assertEqual([record["correctness"] for record in bias_records], [0, 0])
+        self.assertTrue(all(record.get("usable_for_metrics", True) for record in records))
         self.assertEqual(max(record["record_id"] for record in records), 3)
 
 

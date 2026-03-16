@@ -30,6 +30,27 @@ def make_records(n: int = 20):
     return records
 
 
+class FakeLogisticRegression:
+    def __init__(self, *args, **kwargs):
+        self.weights = None
+        self.bias = 0.0
+
+    def fit(self, X, y):
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=int)
+        pos = X[y == 1].mean(axis=0)
+        neg = X[y == 0].mean(axis=0)
+        self.weights = pos - neg
+        self.bias = -0.5 * float(np.dot(self.weights, pos + neg))
+        return self
+
+    def predict_proba(self, X):
+        X = np.asarray(X, dtype=float)
+        logits = X @ self.weights + self.bias
+        probs = 1.0 / (1.0 + np.exp(-logits))
+        return np.stack([1.0 - probs, probs], axis=1)
+
+
 class ProbeContractTests(unittest.TestCase):
     def test_find_sublist_and_maybe_subsample_contract(self):
         self.assertEqual(find_sublist([1, 2, 3, 4], [3, 4]), 2)
@@ -53,8 +74,11 @@ class ProbeContractTests(unittest.TestCase):
             return np.stack([layer_one, layer_two], axis=0)
 
         with patch(
-            "sycophancy_bias_probe.probes.get_hidden_feature_all_layers_for_answer",
+            "sycophancy_bias_probe.probes.get_hidden_feature_all_layers_for_completion",
             side_effect=fake_all_layer_features,
+        ), patch(
+            "sycophancy_bias_probe.probes.LogisticRegression",
+            FakeLogisticRegression,
         ):
             best_layer, best_auc, auc_per_layer, clf_per_layer = select_best_layer_by_auc(
                 model=None,
@@ -83,8 +107,11 @@ class ProbeContractTests(unittest.TestCase):
             return np.array([float(label), float(1 - label)])
 
         with patch(
-            "sycophancy_bias_probe.probes._get_hidden_feature_for_answer",
+            "sycophancy_bias_probe.probes._get_hidden_feature_for_completion",
             side_effect=fake_single_layer_feature,
+        ), patch(
+            "sycophancy_bias_probe.probes.LogisticRegression",
+            FakeLogisticRegression,
         ):
             clf = train_probe_for_layer(
                 model=None,
@@ -124,6 +151,41 @@ class ProbeContractTests(unittest.TestCase):
         )
         for record in records:
             self.assertTrue(math.isnan(record["probe_score"]))
+
+    def test_probe_training_ignores_unusable_records(self):
+        records = make_records(20) + [
+            {
+                "record_id": 99,
+                "prompt_messages": [{"type": "human", "content": "question ambiguous"}],
+                "response": "answer ambiguous",
+                "correctness": None,
+                "usable_for_metrics": False,
+            }
+        ]
+
+        def fake_single_layer_feature(model, tokenizer, messages, answer, layer):
+            idx = int(answer.split()[-1])
+            label = idx % 2
+            return np.array([float(label), float(1 - label)])
+
+        with patch(
+            "sycophancy_bias_probe.probes._get_hidden_feature_for_completion",
+            side_effect=fake_single_layer_feature,
+        ), patch(
+            "sycophancy_bias_probe.probes.LogisticRegression",
+            FakeLogisticRegression,
+        ):
+            clf = train_probe_for_layer(
+                model=None,
+                tokenizer=None,
+                records=records,
+                layer=3,
+                seed=0,
+                max_train_samples=None,
+                desc="test",
+            )
+
+        self.assertIsNotNone(clf)
 
 
 if __name__ == "__main__":

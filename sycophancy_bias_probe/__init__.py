@@ -1,8 +1,10 @@
 from .answer_utils import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
+    grade_short_answer,
     is_correct_short_answer,
     normalize_answer,
+    record_is_usable_for_metrics,
 )
 from .cli import (
     load_env_file,
@@ -83,6 +85,7 @@ __all__ = [
     "encode_chat",
     "extract_gold_answers_from_base",
     "extract_short_answer_from_generation",
+    "grade_short_answer",
     "find_sublist",
     "generate_many",
     "generate_one",
@@ -97,6 +100,7 @@ __all__ = [
     "normalize_answer",
     "parse_args",
     "question_key",
+    "record_is_usable_for_metrics",
     "release_run_lock",
     "resolve_bias_types",
     "resolve_device",
