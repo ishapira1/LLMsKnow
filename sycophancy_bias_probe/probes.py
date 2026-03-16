@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 
 from .correctness import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from .feature_utils import get_hidden_feature_for_completion as _get_hidden_feature_for_completion
+from .logging_utils import log_status, tqdm_desc
 from .model_utils import encode_chat as _encode_chat
 
 
@@ -104,11 +105,17 @@ def select_best_layer_by_auc(
     val_records = [record for record in val_records if _record_is_usable_for_metrics(record)]
     train_records = maybe_subsample(train_records, max_selection_samples, seed)
     val_records = maybe_subsample(val_records, max_selection_samples, seed + 1)
+    log_status(
+        "probes.py",
+        f"layer selection for {desc}: train_records={len(train_records)} "
+        f"val_records={len(val_records)} layers={len(layer_grid)}",
+    )
 
     if len(train_records) < 2 or len(val_records) < 2:
-        print(
-            f"[probe:{desc}] too few samples for layer selection: "
-            f"train={len(train_records)} val={len(val_records)}"
+        log_status(
+            "probes.py",
+            f"skipping layer selection for {desc}: too few samples "
+            f"train={len(train_records)} val={len(val_records)}",
         )
         return (
             None,
@@ -120,7 +127,10 @@ def select_best_layer_by_auc(
     y_train = np.array([int(record["correctness"]) for record in train_records], dtype=int)
     y_val = np.array([int(record["correctness"]) for record in val_records], dtype=int)
     if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
-        print(f"[probe:{desc}] train or val split has only one class; skipping probe.")
+        log_status(
+            "probes.py",
+            f"skipping layer selection for {desc}: train or val split has only one class",
+        )
         return (
             None,
             None,
@@ -129,7 +139,11 @@ def select_best_layer_by_auc(
         )
 
     train_features: List[np.ndarray] = []
-    for record in tqdm(train_records, desc=f"[probe:{desc}] extract train all-layer features"):
+    for record in tqdm(
+        train_records,
+        desc=tqdm_desc("probes.py", f"{desc} train all-layer features"),
+        unit="record",
+    ):
         train_features.append(
             get_hidden_feature_all_layers_for_completion(
                 model,
@@ -141,7 +155,11 @@ def select_best_layer_by_auc(
         )
 
     val_features: List[np.ndarray] = []
-    for record in tqdm(val_records, desc=f"[probe:{desc}] extract val all-layer features"):
+    for record in tqdm(
+        val_records,
+        desc=tqdm_desc("probes.py", f"{desc} val all-layer features"),
+        unit="record",
+    ):
         val_features.append(
             get_hidden_feature_all_layers_for_completion(
                 model,
@@ -157,7 +175,9 @@ def select_best_layer_by_auc(
     best_layer = None
     best_auc = -1.0
 
-    for li, layer in enumerate(layer_grid):
+    for li, layer in enumerate(
+        tqdm(layer_grid, desc=tqdm_desc("probes.py", f"{desc} layer selection"), unit="layer")
+    ):
         X_train = np.stack([mat[li] for mat in train_features])
         X_val = np.stack([mat[li] for mat in val_features])
         try:
@@ -175,10 +195,10 @@ def select_best_layer_by_auc(
             best_layer = layer
 
     if best_layer is None:
-        print(f"[probe:{desc}] no valid layer selected.")
+        log_status("probes.py", f"no valid layer selected for {desc}")
         return None, None, auc_per_layer, clf_per_layer
 
-    print(f"[probe:{desc}] best_layer={best_layer} dev_auc={best_auc:.4f}")
+    log_status("probes.py", f"selected best layer for {desc}: layer={best_layer} dev_auc={best_auc:.4f}")
     return best_layer, best_auc, auc_per_layer, clf_per_layer
 
 
@@ -193,17 +213,25 @@ def train_probe_for_layer(
 ) -> Optional[LogisticRegression]:
     records = [record for record in records if _record_is_usable_for_metrics(record)]
     records = maybe_subsample(records, max_train_samples, seed)
+    log_status(
+        "probes.py",
+        f"training probe for {desc}: records={len(records)} layer={layer}",
+    )
     if len(records) < 2:
-        print(f"[probe:{desc}] too few train samples: {len(records)}")
+        log_status("probes.py", f"skipping training for {desc}: too few train samples={len(records)}")
         return None
 
     y = np.array([int(record["correctness"]) for record in records], dtype=int)
     if len(np.unique(y)) < 2:
-        print(f"[probe:{desc}] only one class in training data; skipping probe.")
+        log_status("probes.py", f"skipping training for {desc}: only one class in training data")
         return None
 
     X = []
-    for record in tqdm(records, desc=f"[probe:{desc}] extract layer-{layer} features"):
+    for record in tqdm(
+        records,
+        desc=tqdm_desc("probes.py", f"{desc} layer-{layer} features"),
+        unit="record",
+    ):
         X.append(
             _get_hidden_feature_for_completion(
                 model,
@@ -234,7 +262,15 @@ def score_records_with_probe(
             record[score_key] = np.nan
         return
 
-    for record in tqdm(records, desc=f"[probe:{desc}] scoring"):
+    log_status(
+        "probes.py",
+        f"scoring records for {desc}: records={len(records)} layer={layer} score_key={score_key}",
+    )
+    for record in tqdm(
+        records,
+        desc=tqdm_desc("probes.py", f"{desc} scoring"),
+        unit="record",
+    ):
         x = _get_hidden_feature_for_completion(
             model,
             tokenizer,

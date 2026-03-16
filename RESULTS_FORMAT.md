@@ -19,6 +19,7 @@ output/sycophancy_bias_probe/<model_slug>/<run_name>/
 Typical contents:
 
 ```text
+run.log
 sampling_records.jsonl
 sampling_manifest.json
 sampled_responses.csv
@@ -50,6 +51,9 @@ status.json
   - Full resolved CLI config for the run.
 - `sampling_manifest.json`
   - The exact sampling/cache spec plus checkpoint status.
+- `run.log`
+  - Human-readable runtime log for the run.
+  - Mirrors the stage and progress messages printed during execution.
 
 If you want the complete record of model generations, start from `sampling_records.jsonl`.
 

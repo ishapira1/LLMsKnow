@@ -16,6 +16,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
+from sycophancy_bias_probe.logging_utils import log_status
 from sycophancy_bias_probe.correctness import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
@@ -68,7 +69,7 @@ def ensure_sycophancy_eval_cached(
                 shutil.copy2(src, dst)
                 out_paths[fname] = str(dst)
                 missing.remove(fname)
-                print(f"[data] copied {src} -> {dst}")
+                log_status("script.py", f"copied cached dataset file {src} -> {dst}")
 
     if missing:
         try:
@@ -88,9 +89,9 @@ def ensure_sycophancy_eval_cached(
                 force_download=force_download,
             )
             out_paths[fname] = downloaded
-            print(f"[data] downloaded {fname} -> {downloaded}")
+            log_status("script.py", f"downloaded dataset file {fname} -> {downloaded}")
     else:
-        print(f"[data] using cached sycophancy files in {base}")
+        log_status("script.py", f"using cached sycophancy files in {base}")
 
     return out_paths
 

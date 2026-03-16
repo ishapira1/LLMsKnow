@@ -16,6 +16,7 @@ from .correctness import (
 )
 from .constants import SAMPLING_SPEC_VERSION
 from .dataset import as_prompt_text
+from .logging_utils import log_status, tqdm_desc
 from .model_utils import generate_many as _generate_many
 from .runtime import model_slug
 
@@ -221,8 +222,17 @@ def sample_records_for_groups(
     expected_total = 0
     generated_since_checkpoint = 0
     wanted_types = ["neutral"] + list(bias_types)
+    log_status(
+        "sampling.py",
+        f"sampling split={split_name}: questions={len(groups)} existing_records={len(records_by_key)} "
+        f"n_draws={n_draws} batch_size={sample_batch_size}",
+    )
 
-    for group in tqdm(groups, desc=f"[sample:{split_name}] questions"):
+    for group in tqdm(
+        groups,
+        desc=tqdm_desc("sampling.py", f"sampling {split_name} split"),
+        unit="question",
+    ):
         base_row = group["rows_by_type"]["neutral"]
         base = base_row.get("base", {}) or {}
         gold_answers = _extract_gold_answers_from_base(base)
@@ -316,6 +326,13 @@ def sample_records_for_groups(
     }
     if progress_callback is not None:
         progress_callback(out_records, stats)
+    remaining = max(0, expected_total - len(out_records))
+    coverage = 0.0 if expected_total <= 0 else len(out_records) / expected_total
+    log_status(
+        "sampling.py",
+        f"completed split={split_name}: total_records={len(out_records)}/{expected_total} "
+        f"coverage={coverage:.1%} reused={reused} generated={generated} remaining={remaining}",
+    )
     return out_records, stats
 
 

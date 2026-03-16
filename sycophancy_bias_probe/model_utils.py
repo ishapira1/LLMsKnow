@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from .logging_utils import log_status
+
 
 def _import_torch():
     import torch
@@ -155,9 +157,10 @@ def generate_many(
             except Exception as exc:
                 if not safe_fallback or not _should_fallback_to_sequential(exc):
                     raise
-                print(
-                    "[warn] batched generation failed; falling back to sequential generation "
-                    f"for this prompt (chunk={chunk}). {type(exc).__name__}: {exc}"
+                log_status(
+                    "model_utils.py",
+                    "batched generation failed; falling back to sequential generation "
+                    f"for this prompt chunk={chunk}. {type(exc).__name__}: {exc}",
                 )
                 _clear_device_cache(model.device)
                 for _ in range(chunk):
