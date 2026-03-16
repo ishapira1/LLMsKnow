@@ -49,5 +49,5 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --n_draws 2 \
   --probe_layer_min 1 \
   --probe_layer_max 8 \
-  --max_new_tokens 24 \
+  --max_new_tokens 96 \
   --run_name fast_dirty_mistral7b_instruct_V2
