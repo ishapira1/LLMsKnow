@@ -55,4 +55,4 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --probe_layer_min 1 \
   --probe_layer_max 8 \
   --max_new_tokens 256 \
-  --run_name fast_dirty_aqua_mc_mistral7b_instruct_V5
+  --run_name fast_dirty_aqua_mc_mistral7b_instruct_V6
