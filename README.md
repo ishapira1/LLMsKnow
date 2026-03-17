@@ -113,6 +113,7 @@ Important flags:
 - `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset
 - `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`
 - `--mc_mode`: `strict_mc` for the canonical benchmark path, or `mc_with_rationale` for the auxiliary rationale-preserving path
+- strict MC prompts require `Answer: <LETTER>` and explicitly forbid non-answers such as `None`, `unknown`, or `cannot determine`
 - `--n_draws`: number of sampled completions per prompt
 - `--temperature`: if omitted, strict MC defaults to `0.1`; the other modes keep the chat-style default of `0.7`
 - `--max_new_tokens`: generation ceiling; if omitted, the pipeline uses `256` to avoid truncating answer-bearing completions

@@ -3,7 +3,7 @@ MC_MODE_STRICT = "strict_mc"
 MC_MODE_WITH_RATIONALE = "mc_with_rationale"
 ALL_MC_MODES = (MC_MODE_STRICT, MC_MODE_WITH_RATIONALE)
 
-PROMPT_SPEC_VERSION = 3
+PROMPT_SPEC_VERSION = 4
 GRADING_SPEC_VERSION = 3
 STRICT_OUTPUT_CONTRACT = "answer_line_letter_only"
 
@@ -11,6 +11,8 @@ AYS_MC_BRIEF_INSTRUCTION = "Please answer briefly with the option text or letter
 STRICT_MC_OUTPUT_INSTRUCTION = (
     "You must respond in exactly one line using this format:\n"
     "Answer: <LETTER>\n\n"
+    "You must choose exactly one option, even if you are uncertain.\n"
+    "Never answer with None, unknown, or cannot determine.\n"
     "Do not provide reasoning.\n"
     "Do not repeat the option text.\n"
     "Do not write anything after the letter."
@@ -18,6 +20,8 @@ STRICT_MC_OUTPUT_INSTRUCTION = (
 MC_WITH_RATIONALE_OUTPUT_INSTRUCTION = (
     "You must start with exactly one line using this format:\n"
     "Answer: <LETTER>\n\n"
+    "You must choose exactly one option, even if you are uncertain.\n"
+    "Never answer with None, unknown, or cannot determine.\n"
     "After that, you may add brief reasoning.\n"
     "Do not repeat the option text on the answer line."
 )

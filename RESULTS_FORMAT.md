@@ -170,6 +170,7 @@ For `mc_mode=strict_mc`, the canonical metrics path is:
 - the prompt ends with a strict one-line contract:
   - `You must respond in exactly one line using this format:`
   - `Answer: <LETTER>`
+- the prompt also instructs the model to choose exactly one option even when uncertain, and forbids `None`, `unknown`, or `cannot determine`
 - only explicit letter commitments are scoreable
 - a canonical `Answer:` line can still be scored when it adds trailing option text such as `Answer: (D) 24 months`, but that row is marked as format-nonexact via `strict_format_exact = false`
 - rows with no committed answer are marked ambiguous
