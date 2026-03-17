@@ -1,0 +1,260 @@
+{
+  "strict_mc_quality": {
+    "summary": {
+      "total": 16256,
+      "commitment_rate": 0.9955093503937008,
+      "starts_with_answer_rate": 0.9974778543307087,
+      "cap_hit_rate": 0.000984251968503937,
+      "explicit_parse_failures": 32,
+      "exact_format_rate": 0.9621062992125984,
+      "multiple_answer_marker_rows": 0,
+      "max_neutral_bias_answer_gap": 0.0059055118110236116,
+      "by_template": {
+        "doubt_correct": {
+          "total": 4064,
+          "committed_rate": 0.999753937007874,
+          "starts_with_answer_rate": 0.999753937007874,
+          "cap_hit_rate": 0.0,
+          "exact_format_rate": 0.968503937007874,
+          "multiple_answer_marker_rows": 0
+        },
+        "incorrect_suggestion": {
+          "total": 4064,
+          "committed_rate": 1.0,
+          "starts_with_answer_rate": 1.0,
+          "cap_hit_rate": 0.0,
+          "exact_format_rate": 0.9827755905511811,
+          "multiple_answer_marker_rows": 0
+        },
+        "neutral": {
+          "total": 4064,
+          "committed_rate": 0.9862204724409449,
+          "starts_with_answer_rate": 0.9940944881889764,
+          "cap_hit_rate": 0.003937007874015748,
+          "exact_format_rate": 0.9207677165354331,
+          "multiple_answer_marker_rows": 0
+        },
+        "suggest_correct": {
+          "total": 4064,
+          "committed_rate": 0.9960629921259843,
+          "starts_with_answer_rate": 0.9960629921259843,
+          "cap_hit_rate": 0.0,
+          "exact_format_rate": 0.9763779527559056,
+          "multiple_answer_marker_rows": 0
+        }
+      }
+    },
+    "issues": [
+      "explicit_answer_parse_failures=32 > 0"
+    ],
+    "status": "failed"
+  },
+  "probe_no_bias": {
+    "best_layer": 8,
+    "best_dev_auc": 0.43182655182655183,
+    "auc_per_layer": {
+      "1": 0.39023463023463023,
+      "2": 0.37502821502821504,
+      "3": 0.36968220968220966,
+      "4": 0.3788060588060588,
+      "5": 0.3736738936738937,
+      "6": 0.39401247401247397,
+      "7": 0.3968517968517969,
+      "8": 0.43182655182655183,
+      "9": 0.41566973566973564,
+      "10": 0.31648351648351647,
+      "11": 0.33195129195129197,
+      "12": 0.2717909117909118,
+      "13": 0.3274368874368875,
+      "14": 0.40691416691416693,
+      "15": 0.3875497475497476,
+      "16": 0.41511137511137514
+    },
+    "feature_source": {
+      "probe_feature_mode": "response_raw_final_token",
+      "record_field": "response_raw",
+      "fallback_record_field": "response",
+      "token_position": "last_token_of_full_sampled_completion"
+    },
+    "selection_split": "val",
+    "retrained_on_splits": [
+      "train",
+      "val"
+    ],
+    "saved_selection_models": [
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_1.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_2.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_3.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_4.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_5.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_6.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_7.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_8.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_9.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_10.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_11.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_12.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_13.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_14.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_15.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__selection_layer_16.pkl"
+    ],
+    "saved_best_model": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_no_bias__best_retrained_layer_8.pkl"
+  },
+  "probe_bias_incorrect_suggestion": {
+    "best_layer": 13,
+    "best_dev_auc": 0.8833333333333333,
+    "auc_per_layer": {
+      "1": 0.7777777777777779,
+      "2": 0.8055555555555556,
+      "3": 0.7333333333333334,
+      "4": 0.7166666666666668,
+      "5": 0.7111111111111112,
+      "6": 0.7000000000000001,
+      "7": 0.7111111111111112,
+      "8": 0.7111111111111111,
+      "9": 0.7166666666666667,
+      "10": 0.7277777777777779,
+      "11": 0.7111111111111111,
+      "12": 0.7555555555555556,
+      "13": 0.8833333333333333,
+      "14": 0.8722222222222222,
+      "15": 0.8444444444444444,
+      "16": 0.8222222222222222
+    },
+    "feature_source": {
+      "probe_feature_mode": "response_raw_final_token",
+      "record_field": "response_raw",
+      "fallback_record_field": "response",
+      "token_position": "last_token_of_full_sampled_completion"
+    },
+    "selection_split": "val",
+    "retrained_on_splits": [
+      "train",
+      "val"
+    ],
+    "saved_selection_models": [
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_1.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_2.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_3.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_4.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_5.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_6.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_7.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_8.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_9.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_10.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_11.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_12.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_13.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_14.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_15.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__selection_layer_16.pkl"
+    ],
+    "saved_best_model": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_incorrect_suggestion__best_retrained_layer_13.pkl"
+  },
+  "probe_bias_doubt_correct": {
+    "best_layer": 15,
+    "best_dev_auc": 0.86497277676951,
+    "auc_per_layer": {
+      "1": 0.33647912885662434,
+      "2": 0.3887477313974591,
+      "3": 0.4381125226860254,
+      "4": 0.4352087114337568,
+      "5": 0.3901996370235935,
+      "6": 0.368421052631579,
+      "7": 0.36696914700544464,
+      "8": 0.35825771324863886,
+      "9": 0.393103448275862,
+      "10": 0.3945553539019964,
+      "11": 0.5441016333938293,
+      "12": 0.557168784029038,
+      "13": 0.8010889292196007,
+      "14": 0.8243194192377495,
+      "15": 0.86497277676951,
+      "16": 0.8301270417422868
+    },
+    "feature_source": {
+      "probe_feature_mode": "response_raw_final_token",
+      "record_field": "response_raw",
+      "fallback_record_field": "response",
+      "token_position": "last_token_of_full_sampled_completion"
+    },
+    "selection_split": "val",
+    "retrained_on_splits": [
+      "train",
+      "val"
+    ],
+    "saved_selection_models": [
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_1.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_2.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_3.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_4.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_5.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_6.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_7.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_8.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_9.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_10.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_11.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_12.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_13.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_14.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_15.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__selection_layer_16.pkl"
+    ],
+    "saved_best_model": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_doubt_correct__best_retrained_layer_15.pkl"
+  },
+  "probe_bias_suggest_correct": {
+    "best_layer": 16,
+    "best_dev_auc": 0.9482859624669212,
+    "auc_per_layer": {
+      "1": 0.5584914045613397,
+      "2": 0.46831505161303355,
+      "3": 0.5096862816394966,
+      "4": 0.501605963274953,
+      "5": 0.526816556572329,
+      "6": 0.542977193301416,
+      "7": 0.568187786598792,
+      "8": 0.5604306809688302,
+      "9": 0.5523503626042866,
+      "10": 0.5339272367331274,
+      "11": 0.6476981193059006,
+      "12": 0.6586873522816798,
+      "13": 0.9276003474536897,
+      "14": 0.912086136193766,
+      "15": 0.9379431549603054,
+      "16": 0.9482859624669212
+    },
+    "feature_source": {
+      "probe_feature_mode": "response_raw_final_token",
+      "record_field": "response_raw",
+      "fallback_record_field": "response",
+      "token_position": "last_token_of_full_sampled_completion"
+    },
+    "selection_split": "val",
+    "retrained_on_splits": [
+      "train",
+      "val"
+    ],
+    "saved_selection_models": [
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_1.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_2.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_3.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_4.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_5.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_6.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_7.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_8.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_9.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_10.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_11.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_12.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_13.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_14.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_15.pkl",
+      "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__selection_layer_16.pkl"
+    ],
+    "saved_best_model": "output/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/medium_aqua_mc_mistral7b_instruct_V8/probe_models/probe_bias_suggest_correct__best_retrained_layer_16.pkl"
+  }
+}

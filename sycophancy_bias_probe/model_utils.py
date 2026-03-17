@@ -50,6 +50,29 @@ def encode_chat(tokenizer, messages: List[Dict[str, Any]], add_generation_prompt
     return tokenizer(text, return_tensors="pt").input_ids
 
 
+def _token_id_list_from_encoded(encoded: Any, device: Any = None) -> List[int]:
+    target = encoded
+    if hasattr(target, "input_ids"):
+        if device is not None and hasattr(target, "to"):
+            target = target.to(device)
+        return _token_id_list_from_encoded(target.input_ids, device=None)
+
+    if hasattr(target, "ids"):
+        return [int(token_id) for token_id in target.ids]
+
+    if device is not None and hasattr(target, "to"):
+        target = target.to(device)
+
+    if hasattr(target, "tolist"):
+        values = target.tolist()
+    else:
+        values = list(target)
+
+    if values and isinstance(values[0], list):
+        values = values[0]
+    return [int(token_id) for token_id in values]
+
+
 def _resolve_model_inputs(
     tokenizer,
     messages: List[Dict[str, Any]],

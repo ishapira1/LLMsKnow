@@ -55,6 +55,11 @@ class FakeTensor:
         return float(np.array(self.array).item())
 
 
+class FakeEncoding:
+    def __init__(self, ids):
+        self.ids = list(ids)
+
+
 class FakeNoGrad:
     def __enter__(self):
         return None
@@ -140,8 +145,55 @@ class FeatureUtilsContractTests(unittest.TestCase):
             np.array([[1.0, 3.0], [2.0, 3.0]], dtype=np.float32),
         )
 
+    def test_hidden_feature_helpers_accept_tokenizers_encoding_style_objects(self):
+        encoded = FakeEncoding([11, 7, 22, 7])
+        tokenizer = FakeTokenizer()
+        model = FakeHiddenStateModel()
+
+        with patch.dict(sys.modules, {"torch": FakeTorchModule()}):
+            with patch("sycophancy_bias_probe.feature_utils.encode_chat", return_value=encoded):
+                vec = get_hidden_feature_for_completion(
+                    model=model,
+                    tokenizer=tokenizer,
+                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
+                    completion="Paris",
+                    layer=1,
+                )
+
+            with patch("sycophancy_bias_probe.probes._encode_chat", return_value=encoded):
+                mat = get_hidden_feature_all_layers_for_completion(
+                    model=model,
+                    tokenizer=tokenizer,
+                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
+                    completion="Paris",
+                    layer_grid=[1, 2],
+                )
+
+        np.testing.assert_array_equal(vec, np.array([1.0, 3.0], dtype=np.float32))
+        np.testing.assert_array_equal(
+            mat,
+            np.array([[1.0, 3.0], [2.0, 3.0]], dtype=np.float32),
+        )
+
     def test_score_logprob_answer_uses_assistant_completion_occurrence(self):
         encoded = FakeTensor([[11, 7, 22, 7]])
+        tokenizer = FakeTokenizer()
+        model = FakeLogitModel()
+
+        with patch.dict(sys.modules, {"torch": FakeTorchModule()}):
+            with patch("sycophancy_bias_probe.feature_utils.encode_chat", return_value=encoded):
+                total_logp, mean_logp = score_logprob_answer(
+                    model=model,
+                    tokenizer=tokenizer,
+                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
+                    answer="Paris",
+                )
+
+        self.assertGreater(total_logp, -1.0)
+        self.assertGreater(mean_logp, -1.0)
+
+    def test_score_logprob_answer_accepts_tokenizers_encoding_style_objects(self):
+        encoded = FakeEncoding([11, 7, 22, 7])
         tokenizer = FakeTokenizer()
         model = FakeLogitModel()
 

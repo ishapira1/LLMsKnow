@@ -12,7 +12,7 @@ from .correctness import record_is_usable_for_metrics as _record_is_usable_for_m
 from .feature_utils import _assistant_text_last_token_index
 from .feature_utils import get_hidden_feature_for_completion as _get_hidden_feature_for_completion
 from .logging_utils import log_status, tqdm_desc
-from .model_utils import encode_chat as _encode_chat
+from .model_utils import _token_id_list_from_encoded, encode_chat as _encode_chat
 
 
 def find_sublist(hay: List[int], needle: List[int]) -> Optional[int]:
@@ -45,7 +45,10 @@ def get_hidden_feature_all_layers_for_completion(
 
     with torch.no_grad():
         msgs = list(messages) + [{"type": "assistant", "content": completion}]
-        ids = _encode_chat(tokenizer, msgs, add_generation_prompt=False).to(model.device)[0].tolist()
+        ids = _token_id_list_from_encoded(
+            _encode_chat(tokenizer, msgs, add_generation_prompt=False),
+            device=model.device,
+        )
         last_idx = _assistant_text_last_token_index(tokenizer, ids, completion)
 
         input_tensor = torch.tensor([ids], device=model.device)

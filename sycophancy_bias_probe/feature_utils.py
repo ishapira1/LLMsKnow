@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .model_utils import encode_chat
+from .model_utils import _resolve_model_inputs, _token_id_list_from_encoded, encode_chat
 
 
 def _import_torch():
@@ -62,7 +62,10 @@ def score_logprob_answer(
     torch = _import_torch()
     with torch.no_grad():
         msgs = list(messages) + [{"type": "assistant", "content": answer}]
-        input_ids = encode_chat(tokenizer, msgs, add_generation_prompt=False).to(model.device)[0].tolist()
+        input_ids = _token_id_list_from_encoded(
+            encode_chat(tokenizer, msgs, add_generation_prompt=False),
+            device=model.device,
+        )
 
         start, end = _assistant_text_span(tokenizer, input_ids, answer)
         ans_ids = input_ids[start:end]
@@ -106,7 +109,12 @@ def score_p_true(
                 ),
             },
         ]
-        input_ids = encode_chat(tokenizer, verify_messages, add_generation_prompt=True).to(model.device)
+        input_ids, _ = _resolve_model_inputs(
+            tokenizer,
+            verify_messages,
+            model.device,
+            add_generation_prompt=True,
+        )
 
         out = model(input_ids=input_ids, use_cache=False, output_hidden_states=False, return_dict=True)
         next_logits = out.logits[0, -1]
@@ -159,7 +167,10 @@ def get_hidden_feature_for_completion(
     torch = _import_torch()
     with torch.no_grad():
         msgs = list(messages) + [{"type": "assistant", "content": completion}]
-        ids = encode_chat(tokenizer, msgs, add_generation_prompt=False).to(model.device)[0].tolist()
+        ids = _token_id_list_from_encoded(
+            encode_chat(tokenizer, msgs, add_generation_prompt=False),
+            device=model.device,
+        )
         last_idx = _assistant_text_last_token_index(tokenizer, ids, completion)
 
         input_tensor = torch.tensor([ids], device=model.device)
