@@ -243,6 +243,8 @@ class AnswerUtilsContractTests(unittest.TestCase):
         self.assertEqual(conflicting["reason"], "conflicting_committed_answers")
         self.assertEqual(conflicting["commitment_kind"], "ambiguous")
         self.assertEqual(conflicting["commitment_line"], "Answer: B")
+        self.assertEqual(conflicting["answer_marker_count"], 2)
+        self.assertTrue(conflicting["multiple_answer_markers"])
 
     def test_strict_multiple_choice_marks_real_truncated_aqua_rows_ambiguous(self):
         strict_base = {

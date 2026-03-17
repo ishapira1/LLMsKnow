@@ -9,6 +9,7 @@ from .constants import (
     ALL_BIAS_TYPES,
     ALL_MC_MODES,
     DEFAULT_AYS_MC_DATASETS,
+    GENERATION_SPEC_VERSION,
     GRADING_SPEC_VERSION,
     MC_MODE_STRICT,
     MC_MODE_WITH_RATIONALE,
@@ -156,6 +157,7 @@ def parse_args() -> argparse.Namespace:
             args.temperature = 0.7
     args.prompt_spec_version = int(PROMPT_SPEC_VERSION)
     args.grading_spec_version = int(GRADING_SPEC_VERSION)
+    args.generation_spec_version = int(GENERATION_SPEC_VERSION)
     return args
 
 

@@ -2,11 +2,13 @@ SLURM jobs for `run_sycophancy_bias_probe.py`:
 
 - `fast_dirty.sbatch`: very quick sanity run.
 - `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
-- `fast_dirty_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
+- `fast_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
+- `fast_dirty_aqua_mc.sbatch`: legacy AQuA smoke job name; prefer `fast_aqua_mc.sbatch`.
 - `medium.sbatch`: medium-scale run.
 - `medium_aqua_mc.sbatch`: medium AYS-derived MC run restricted to `aqua_mc`.
 - `full.sbatch`: full dataset run.
 - `full_aqua_mc.sbatch`: full AYS-derived MC run restricted to `aqua_mc`.
+- `submit_aqua_mc.sh`: submit the final overnight AQuA-only trio (`fast_aqua_mc`, `medium_aqua_mc`, `full_aqua_mc`).
 
 All jobs:
 
@@ -21,9 +23,10 @@ Submit examples:
 ```bash
 sbatch jobs/sycophancy_bias_probe/fast_dirty.sbatch
 sbatch jobs/sycophancy_bias_probe/fast_truthful_qa.sbatch
-sbatch jobs/sycophancy_bias_probe/fast_dirty_aqua_mc.sbatch
+sbatch jobs/sycophancy_bias_probe/fast_aqua_mc.sbatch
 sbatch jobs/sycophancy_bias_probe/medium.sbatch
 sbatch jobs/sycophancy_bias_probe/medium_aqua_mc.sbatch
 sbatch jobs/sycophancy_bias_probe/full.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc.sbatch
+bash jobs/sycophancy_bias_probe/submit_aqua_mc.sh
 ```

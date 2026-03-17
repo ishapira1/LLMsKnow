@@ -130,6 +130,8 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
                 "starts_with_answer_prefix": bool(record.get("starts_with_answer_prefix", False)),
                 "strict_format_exact": bool(record.get("strict_format_exact", False)),
                 "commitment_line": record.get("commitment_line", ""),
+                "answer_marker_count": int(record.get("answer_marker_count", 0) or 0),
+                "multiple_answer_markers": bool(record.get("multiple_answer_markers", False)),
                 "correctness": np.nan if correctness is None else int(correctness),
                 "grading_status": record.get(
                     "grading_status",

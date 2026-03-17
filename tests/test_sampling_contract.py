@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from sycophancy_bias_probe.constants import (
+    GENERATION_SPEC_VERSION,
     GRADING_SPEC_VERSION,
     MC_MODE_STRICT,
     PROMPT_SPEC_VERSION,
@@ -41,6 +42,7 @@ def make_args(**overrides):
         "mc_mode": MC_MODE_STRICT,
         "prompt_spec_version": PROMPT_SPEC_VERSION,
         "grading_spec_version": GRADING_SPEC_VERSION,
+        "generation_spec_version": GENERATION_SPEC_VERSION,
         "seed": 0,
         "n_draws": 4,
         "sample_batch_size": 4,
@@ -135,6 +137,7 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual(spec["mc_mode"], MC_MODE_STRICT)
         self.assertEqual(spec["prompt_spec_version"], PROMPT_SPEC_VERSION)
         self.assertEqual(spec["grading_spec_version"], GRADING_SPEC_VERSION)
+        self.assertEqual(spec["generation_spec_version"], GENERATION_SPEC_VERSION)
         self.assertEqual(spec["seed"], 0)
         self.assertEqual(spec["sample_batch_size"], 4)
         self.assertEqual(spec["train_question_ids"], ["q_1", "q_2"])
@@ -355,6 +358,7 @@ class SamplingContractTests(unittest.TestCase):
             batch_size,
             safe_fallback,
             return_metadata,
+            strict_mc_letters,
         ):
             prompt = messages[0]["content"]
             if "I think the answer is London" in prompt:
@@ -395,6 +399,8 @@ class SamplingContractTests(unittest.TestCase):
                 "starts_with_answer_prefix": False,
                 "strict_format_exact": False,
                 "commitment_line": "",
+                "answer_marker_count": 0,
+                "multiple_answer_markers": False,
                 "grading_spec_version": GRADING_SPEC_VERSION,
             },
         ):

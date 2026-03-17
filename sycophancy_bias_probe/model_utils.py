@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 from .logging_utils import log_status
@@ -58,7 +59,46 @@ def _eos_token_ids(tokenizer) -> List[int]:
     return [int(eos_value)]
 
 
-def _decode_generation_metadata(tokenizer, gen_ids, max_new_tokens: int) -> Dict[str, Any]:
+def _strict_mc_generated_answer_complete(text: str, letters: str) -> bool:
+    allowed = set(str(letters or "").strip().upper())
+    candidate = str(text or "")
+    if not candidate.strip() or not allowed:
+        return False
+
+    match = re.fullmatch(
+        r"\s*(?:answer\s*:\s*)?\(?([A-Za-z])(?:\)|\])?[\s\].,:;\-]*",
+        candidate,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return False
+    return match.group(1).upper() in allowed
+
+
+def _strict_mc_stopping_criteria(tokenizer, input_len: int, letters: str):
+    normalized_letters = str(letters or "").strip().upper()
+    if not normalized_letters:
+        return None
+
+    from transformers import StoppingCriteria, StoppingCriteriaList
+
+    class _StrictMCStopper(StoppingCriteria):
+        def __call__(self, input_ids, scores, **kwargs):  # type: ignore[override]
+            if input_ids.shape[0] != 1:
+                return False
+            generated_ids = input_ids[0, input_len:]
+            text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+            return _strict_mc_generated_answer_complete(text, normalized_letters)
+
+    return StoppingCriteriaList([_StrictMCStopper()])
+
+
+def _decode_generation_metadata(
+    tokenizer,
+    gen_ids,
+    max_new_tokens: int,
+    strict_mc_letters: str = "",
+) -> Dict[str, Any]:
     token_ids = gen_ids.detach().cpu().tolist()
     pad_token_id = getattr(tokenizer, "pad_token_id", None)
     while token_ids and pad_token_id is not None and token_ids[-1] == pad_token_id:
@@ -68,7 +108,16 @@ def _decode_generation_metadata(tokenizer, gen_ids, max_new_tokens: int) -> Dict
     eos_token_ids = set(_eos_token_ids(tokenizer))
     stopped_on_eos = bool(token_ids and eos_token_ids and token_ids[-1] in eos_token_ids)
     hit_max_new_tokens = completion_token_count >= int(max_new_tokens) and not stopped_on_eos
-    if stopped_on_eos:
+    response_raw = tokenizer.decode(token_ids, skip_special_tokens=True).strip()
+    if (
+        strict_mc_letters
+        and response_raw
+        and _strict_mc_generated_answer_complete(response_raw, strict_mc_letters)
+        and not stopped_on_eos
+        and not hit_max_new_tokens
+    ):
+        finish_reason = "answer_commitment"
+    elif stopped_on_eos:
         finish_reason = "eos_token"
     elif hit_max_new_tokens:
         finish_reason = "length"
@@ -78,7 +127,7 @@ def _decode_generation_metadata(tokenizer, gen_ids, max_new_tokens: int) -> Dict
         finish_reason = "unknown"
 
     return {
-        "response_raw": tokenizer.decode(token_ids, skip_special_tokens=True).strip(),
+        "response_raw": response_raw,
         "completion_token_count": completion_token_count,
         "hit_max_new_tokens": hit_max_new_tokens,
         "stopped_on_eos": stopped_on_eos,
@@ -94,11 +143,17 @@ def generate_one(
     temperature: float = 0.0,
     top_p: float = 1.0,
     return_metadata: bool = False,
+    strict_mc_letters: str = "",
 ):
     torch = _import_torch()
     with torch.no_grad():
         input_ids = encode_chat(tokenizer, messages, add_generation_prompt=True).to(model.device)
         attention_mask = torch.ones_like(input_ids, device=model.device)
+        stopping_criteria = _strict_mc_stopping_criteria(
+            tokenizer,
+            input_ids.shape[1],
+            strict_mc_letters,
+        )
 
         do_sample = temperature > 0
         out = model.generate(
@@ -109,9 +164,15 @@ def generate_one(
             temperature=temperature if do_sample else None,
             top_p=top_p if do_sample else None,
             return_dict_in_generate=True,
+            stopping_criteria=stopping_criteria,
         )
         gen_ids = out.sequences[0, input_ids.shape[1] :]
-        metadata = _decode_generation_metadata(tokenizer, gen_ids, max_new_tokens=max_new_tokens)
+        metadata = _decode_generation_metadata(
+            tokenizer,
+            gen_ids,
+            max_new_tokens=max_new_tokens,
+            strict_mc_letters=strict_mc_letters,
+        )
         if return_metadata:
             return metadata
         return metadata["response_raw"]
@@ -154,11 +215,18 @@ def generate_many(
     batch_size: int = 1,
     safe_fallback: bool = True,
     return_metadata: bool = False,
+    strict_mc_letters: str = "",
 ) -> List[Any]:
     if n <= 0:
         return []
 
     batch_size = max(1, int(batch_size))
+    if strict_mc_letters and batch_size != 1:
+        log_status(
+            "model_utils.py",
+            "strict MC generation uses sequential decoding so each sample can stop at the first committed answer.",
+        )
+        batch_size = 1
     if batch_size == 1:
         return [
             generate_one(
@@ -169,6 +237,7 @@ def generate_many(
                 temperature=temperature,
                 top_p=top_p,
                 return_metadata=return_metadata,
+                strict_mc_letters=strict_mc_letters,
             )
             for _ in range(n)
         ]
@@ -202,6 +271,7 @@ def generate_many(
                         tokenizer,
                         gen_ids,
                         max_new_tokens=max_new_tokens,
+                        strict_mc_letters=strict_mc_letters,
                     )
                     outputs.append(metadata if return_metadata else metadata["response_raw"])
             except Exception as exc:
@@ -223,6 +293,7 @@ def generate_many(
                             temperature=temperature,
                             top_p=top_p,
                             return_metadata=return_metadata,
+                            strict_mc_letters=strict_mc_letters,
                         )
                     )
 

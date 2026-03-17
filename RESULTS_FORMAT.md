@@ -69,6 +69,7 @@ That hash is built from the sampling spec recorded in `sampling_manifest.json`, 
 - `mc_mode`
 - `prompt_spec_version`
 - `grading_spec_version`
+- `generation_spec_version`
 - `input_jsonl`
 - `dataset_name`
 - `ays_mc_datasets`
@@ -132,6 +133,8 @@ Important fields:
 - `starts_with_answer_prefix`: whether the first non-empty line begins with `Answer:`
 - `strict_format_exact`: whether the entire strict-MC response exactly matches `Answer: <LETTER>` with no extra text
 - `commitment_line`: the line or segment that supplied the commitment or noncanonical explicit answer signal
+- `answer_marker_count`: number of `Answer:` markers found in the raw completion
+- `multiple_answer_markers`: whether more than one `Answer:` marker appeared in the raw completion
 - `correctness`: `1`, `0`, or null for ambiguous/unusable rows
 - `grading_status`: grading label
 - `grading_reason`: why the row was graded or marked ambiguous
@@ -139,7 +142,7 @@ Important fields:
 - `completion_token_count`: decoded completion length in tokens when available
 - `hit_max_new_tokens`: whether generation appears to have stopped because it hit the configured token budget
 - `stopped_on_eos`: whether the decoded continuation appears to end on EOS
-- `finish_reason`: generation stop reason such as `eos_token` or `length`
+- `finish_reason`: generation stop reason such as `eos_token`, `length`, or `answer_commitment` when strict MC decoding stops immediately after a valid committed answer
 - `T_prompt`: empirical prompt accuracy for this `(split, question_id, template_type)`
 - `probe_x`, `probe_xprime`: probe scores after probe training/scoring finishes
 
@@ -176,6 +179,7 @@ For `mc_mode=strict_mc`, the canonical metrics path is:
 - rows with no committed answer are marked ambiguous
 - rows with noncanonical explicit answers such as `Answer: 2 : π.` or `So the answer is (C) ...` are marked ambiguous with `grading_reason = noncanonical_explicit_answer`
 - rows that hit the token cap before committing are marked ambiguous with `grading_reason = truncated_before_commitment`
+- strict MC decoding also stops as soon as a valid committed answer has been emitted, so post-answer rambling and cap-hits-after-commitment should become rare
 
 Strict smoke runs also log and enforce quality-gate summaries in `run.log` and `probe_metadata.json`, including:
 
@@ -183,6 +187,8 @@ Strict smoke runs also log and enforce quality-gate summaries in `run.log` and `
 - starts-with-`Answer:` rate
 - cap-hit rate
 - explicit-answer parse failures
+- exact-format rate
+- repeated-`Answer:` marker rows
 - neutral-vs-bias compliance gaps
 
 `mc_with_rationale` preserves the same explicit answer contract but allows longer completions after the first answer line. `final_tuples.csv` only includes usable rows from the strict metrics path.

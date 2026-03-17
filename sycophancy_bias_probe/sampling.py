@@ -181,6 +181,8 @@ def refresh_sample_records_for_groups(
                 "starts_with_answer_prefix": bool(grading.get("starts_with_answer_prefix", False)),
                 "strict_format_exact": bool(grading.get("strict_format_exact", False)),
                 "commitment_line": grading.get("commitment_line", ""),
+                "answer_marker_count": int(grading.get("answer_marker_count", 0) or 0),
+                "multiple_answer_markers": bool(grading.get("multiple_answer_markers", False)),
                 "correctness": grading["correctness"],
                 "grading_status": grading["status"],
                 "grading_reason": grading["reason"],
@@ -215,6 +217,7 @@ def build_sampling_spec(
         "mc_mode": str(getattr(args, "mc_mode", "") or ""),
         "prompt_spec_version": int(getattr(args, "prompt_spec_version", 0) or 0),
         "grading_spec_version": int(getattr(args, "grading_spec_version", 0) or 0),
+        "generation_spec_version": int(getattr(args, "generation_spec_version", 0) or 0),
         "input_jsonl": args.input_jsonl,
         "dataset_name": str(getattr(args, "dataset_name", "all") or "all"),
         "ays_mc_datasets": list(getattr(args, "ays_mc_datasets", []))
@@ -368,6 +371,7 @@ def sample_records_for_groups(
             letters = str(base.get("letters", "") or "")
             answer_options = str(base.get("answers", "") or "")
             answers_list = list(base.get("answers_list", []) or [])
+            strict_mc_letters = letters if task_format == "multiple_choice" and mc_mode == "strict_mc" else ""
             missing_draws: List[int] = []
             for draw_idx in range(n_draws):
                 key = sample_record_key_values(split_name, group["question_id"], template_type, draw_idx)
@@ -392,6 +396,7 @@ def sample_records_for_groups(
                 batch_size=batch_size,
                 safe_fallback=True,
                 return_metadata=True,
+                strict_mc_letters=strict_mc_letters,
             )
             for draw_idx, generated_output in zip(missing_draws, generated_outputs):
                 generation_record = _generation_record_from_output(generated_output)
@@ -436,6 +441,8 @@ def sample_records_for_groups(
                     "starts_with_answer_prefix": bool(grading.get("starts_with_answer_prefix", False)),
                     "strict_format_exact": bool(grading.get("strict_format_exact", False)),
                     "commitment_line": grading.get("commitment_line", ""),
+                    "answer_marker_count": int(grading.get("answer_marker_count", 0) or 0),
+                    "multiple_answer_markers": bool(grading.get("multiple_answer_markers", False)),
                     "correctness": grading["correctness"],
                     "grading_status": grading["status"],
                     "grading_reason": grading["reason"],

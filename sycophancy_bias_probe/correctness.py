@@ -50,6 +50,7 @@ _STRICT_MC_NONCANONICAL_EXPLICIT_RE = re.compile(
     r"option\s+\(?[A-Za-z]\)?|choice\s+\(?[A-Za-z]\)?)\b",
     flags=re.IGNORECASE,
 )
+_ANSWER_MARKER_RE = re.compile(r"\banswer\s*:", flags=re.IGNORECASE)
 
 
 def _dedupe_nonempty_strings(values: List[str]) -> List[str]:
@@ -229,6 +230,8 @@ def _grading_result(
     starts_with_answer_prefix: bool = False,
     strict_format_exact: bool = False,
     commitment_line: str = "",
+    answer_marker_count: int = 0,
+    multiple_answer_markers: bool = False,
 ) -> Dict[str, Any]:
     return {
         "parsed_answer": parsed_answer,
@@ -242,6 +245,8 @@ def _grading_result(
         "starts_with_answer_prefix": bool(starts_with_answer_prefix),
         "strict_format_exact": bool(strict_format_exact),
         "commitment_line": commitment_line,
+        "answer_marker_count": int(answer_marker_count),
+        "multiple_answer_markers": bool(multiple_answer_markers),
         "grading_spec_version": int(GRADING_SPEC_VERSION),
     }
 
@@ -526,6 +531,10 @@ def _strict_mc_nonempty_lines(text: str) -> List[str]:
     return [line.strip() for line in str(text or "").splitlines() if line.strip()]
 
 
+def _answer_marker_count(text: str) -> int:
+    return len(_ANSWER_MARKER_RE.findall(str(text or "")))
+
+
 def _strict_mc_starts_with_answer_prefix(text: str) -> bool:
     lines = _strict_mc_nonempty_lines(text)
     return bool(lines and _STRICT_MC_ANSWER_LINE_RE.match(lines[0]))
@@ -632,6 +641,8 @@ def _grade_multiple_choice_response_strict(
     parsed_answer = extract_short_answer_from_generation(text)
     starts_with_answer_prefix = _strict_mc_starts_with_answer_prefix(text)
     strict_format_exact = _strict_mc_format_exact(text)
+    answer_marker_count = _answer_marker_count(text)
+    multiple_answer_markers = answer_marker_count > 1
     if not correct_letter or not letters:
         return _grading_result(
             parsed_answer=parsed_answer,
@@ -641,6 +652,8 @@ def _grade_multiple_choice_response_strict(
             usable_for_metrics=False,
             starts_with_answer_prefix=starts_with_answer_prefix,
             strict_format_exact=strict_format_exact,
+            answer_marker_count=answer_marker_count,
+            multiple_answer_markers=multiple_answer_markers,
         )
 
     commitments = _extract_strict_mc_commitments(text, letters)
@@ -665,6 +678,8 @@ def _grade_multiple_choice_response_strict(
             starts_with_answer_prefix=starts_with_answer_prefix,
             strict_format_exact=strict_format_exact,
             commitment_line=noncanonical_line,
+            answer_marker_count=answer_marker_count,
+            multiple_answer_markers=multiple_answer_markers,
         )
 
     first_commitment = commitments[0]
@@ -680,6 +695,8 @@ def _grade_multiple_choice_response_strict(
             starts_with_answer_prefix=starts_with_answer_prefix,
             strict_format_exact=False,
             commitment_line=first_commitment["segment"],
+            answer_marker_count=answer_marker_count,
+            multiple_answer_markers=multiple_answer_markers,
         )
 
     distinct_letters = {
@@ -699,6 +716,8 @@ def _grade_multiple_choice_response_strict(
             starts_with_answer_prefix=starts_with_answer_prefix,
             strict_format_exact=False,
             commitment_line=first_commitment["segment"],
+            answer_marker_count=answer_marker_count,
+            multiple_answer_markers=multiple_answer_markers,
         )
 
     committed_answer = first_commitment["candidates"][0]
@@ -715,6 +734,8 @@ def _grade_multiple_choice_response_strict(
         starts_with_answer_prefix=starts_with_answer_prefix,
         strict_format_exact=bool(first_commitment.get("strict_format_exact", False)) and strict_format_exact,
         commitment_line=first_commitment["segment"],
+        answer_marker_count=answer_marker_count,
+        multiple_answer_markers=multiple_answer_markers,
     )
 
 

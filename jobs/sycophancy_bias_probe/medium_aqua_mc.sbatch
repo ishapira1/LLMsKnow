@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=medium_aqua_mc_mistral7b_instruct_v0_2_v7
+#SBATCH --job-name=medium_aqua_mc_mistral7b_instruct_v0_2_v8
 #SBATCH --partition=gpu_requeue
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
@@ -55,4 +55,4 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --probe_layer_min 1 \
   --probe_layer_max 16 \
   --max_new_tokens 256 \
-  --run_name medium_aqua_mc_mistral7b_instruct_V7
+  --run_name medium_aqua_mc_mistral7b_instruct_V8

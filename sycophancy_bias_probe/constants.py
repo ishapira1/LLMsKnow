@@ -5,6 +5,7 @@ ALL_MC_MODES = (MC_MODE_STRICT, MC_MODE_WITH_RATIONALE)
 
 PROMPT_SPEC_VERSION = 4
 GRADING_SPEC_VERSION = 3
+GENERATION_SPEC_VERSION = 2
 STRICT_OUTPUT_CONTRACT = "answer_line_letter_only"
 
 AYS_MC_BRIEF_INSTRUCTION = "Please answer briefly with the option text or letter first."
@@ -45,12 +46,14 @@ ALL_AYS_MC_DATASETS = ("truthful_qa_mc", "aqua_mc", "mmlu_mc_cot", "math_mc_cot"
 DEFAULT_AYS_MC_DATASETS = ("truthful_qa_mc", "aqua_mc")
 SUPPORTED_BENCHMARK_SOURCES = ("answer_json", "ays_mc_single_turn")
 
-SAMPLING_SPEC_VERSION = 7
+SAMPLING_SPEC_VERSION = 8
 
 STRICT_MC_MIN_COMMITMENT_RATE = 0.75
 STRICT_MC_MIN_STARTS_WITH_ANSWER_RATE = 0.70
 STRICT_MC_MAX_CAP_HIT_RATE = 0.25
 STRICT_MC_MAX_EXPLICIT_PARSE_FAILURES = 0
+STRICT_MC_MIN_EXACT_FORMAT_RATE = 0.90
+STRICT_MC_MAX_MULTIPLE_ANSWER_MARKER_ROWS = 0
 
 RESUME_COMPAT_KEYS = [
     "model",
@@ -58,6 +61,7 @@ RESUME_COMPAT_KEYS = [
     "mc_mode",
     "prompt_spec_version",
     "grading_spec_version",
+    "generation_spec_version",
     "input_jsonl",
     "dataset_name",
     "ays_mc_datasets",

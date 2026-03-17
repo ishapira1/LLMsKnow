@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 from sycophancy_bias_probe.constants import (
+    GENERATION_SPEC_VERSION,
     GRADING_SPEC_VERSION,
     MC_MODE_STRICT,
     PROMPT_SPEC_VERSION,
@@ -43,6 +44,7 @@ def make_args(**overrides):
             "mc_mode": MC_MODE_STRICT,
             "prompt_spec_version": PROMPT_SPEC_VERSION,
             "grading_spec_version": GRADING_SPEC_VERSION,
+            "generation_spec_version": GENERATION_SPEC_VERSION,
             "bias_types": "incorrect_suggestion,doubt_correct,suggest_correct",
             "test_frac": 0.2,
             "split_seed": 0,

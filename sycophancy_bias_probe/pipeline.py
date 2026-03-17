@@ -16,6 +16,8 @@ from .constants import (
     MC_MODE_STRICT,
     STRICT_MC_MAX_CAP_HIT_RATE,
     STRICT_MC_MAX_EXPLICIT_PARSE_FAILURES,
+    STRICT_MC_MAX_MULTIPLE_ANSWER_MARKER_ROWS,
+    STRICT_MC_MIN_EXACT_FORMAT_RATE,
     STRICT_MC_MIN_COMMITMENT_RATE,
     STRICT_MC_MIN_STARTS_WITH_ANSWER_RATE,
 )
@@ -323,6 +325,12 @@ def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, A
         if bool(record.get("starts_with_answer_prefix", False))
         and str(record.get("commitment_kind", "") or "") in {"", "none"}
     )
+    exact_format_rows = sum(
+        1 for record in strict_records if bool(record.get("strict_format_exact", False))
+    )
+    multiple_answer_marker_rows = sum(
+        1 for record in strict_records if bool(record.get("multiple_answer_markers", False))
+    )
     by_template: Dict[str, Dict[str, float]] = {}
     for template_type in sorted({str(record.get("template_type", "")) for record in strict_records}):
         template_records = [record for record in strict_records if str(record.get("template_type", "")) == template_type]
@@ -345,6 +353,13 @@ def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, A
             if template_total == 0
             else sum(1 for record in template_records if bool(record.get("hit_max_new_tokens", False)))
             / template_total,
+            "exact_format_rate": 0.0
+            if template_total == 0
+            else sum(1 for record in template_records if bool(record.get("strict_format_exact", False)))
+            / template_total,
+            "multiple_answer_marker_rows": sum(
+                1 for record in template_records if bool(record.get("multiple_answer_markers", False))
+            ),
         }
 
     neutral_rate = by_template.get("neutral", {}).get("starts_with_answer_rate")
@@ -361,6 +376,8 @@ def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, A
         "starts_with_answer_rate": starts_with_answer / total,
         "cap_hit_rate": cap_hits / total,
         "explicit_parse_failures": explicit_parse_failures,
+        "exact_format_rate": exact_format_rows / total,
+        "multiple_answer_marker_rows": multiple_answer_marker_rows,
         "max_neutral_bias_answer_gap": max_bias_gap,
         "by_template": by_template,
     }
@@ -376,6 +393,8 @@ def _log_strict_mc_quality_summary(summary: Dict[str, Any]) -> None:
         f"starts_with_answer_rate={summary['starts_with_answer_rate']:.1%} "
         f"cap_hit_rate={summary['cap_hit_rate']:.1%} "
         f"explicit_parse_failures={summary['explicit_parse_failures']} "
+        f"exact_format_rate={summary['exact_format_rate']:.1%} "
+        f"multiple_answer_marker_rows={summary['multiple_answer_marker_rows']} "
         f"max_neutral_bias_answer_gap={summary['max_neutral_bias_answer_gap']:.1%}",
     )
     for template_type, stats in sorted(summary.get("by_template", {}).items()):
@@ -384,7 +403,9 @@ def _log_strict_mc_quality_summary(summary: Dict[str, Any]) -> None:
             f"strict MC quality template={template_type}: total={int(stats['total'])} "
             f"commitment_rate={stats['committed_rate']:.1%} "
             f"starts_with_answer_rate={stats['starts_with_answer_rate']:.1%} "
-            f"cap_hit_rate={stats['cap_hit_rate']:.1%}",
+            f"cap_hit_rate={stats['cap_hit_rate']:.1%} "
+            f"exact_format_rate={stats['exact_format_rate']:.1%} "
+            f"multiple_answer_marker_rows={int(stats['multiple_answer_marker_rows'])}",
         )
 
 
@@ -411,6 +432,16 @@ def _strict_mc_quality_issues(summary: Dict[str, Any]) -> List[str]:
         issues.append(
             f"cap_hit_rate={summary['cap_hit_rate']:.1%} "
             f"> {STRICT_MC_MAX_CAP_HIT_RATE:.0%}"
+        )
+    if summary["exact_format_rate"] < STRICT_MC_MIN_EXACT_FORMAT_RATE:
+        issues.append(
+            f"exact_format_rate={summary['exact_format_rate']:.1%} "
+            f"< {STRICT_MC_MIN_EXACT_FORMAT_RATE:.0%}"
+        )
+    if summary["multiple_answer_marker_rows"] > STRICT_MC_MAX_MULTIPLE_ANSWER_MARKER_ROWS:
+        issues.append(
+            f"multiple_answer_marker_rows={summary['multiple_answer_marker_rows']} "
+            f"> {STRICT_MC_MAX_MULTIPLE_ANSWER_MARKER_ROWS}"
         )
     if summary["max_neutral_bias_answer_gap"] > 0.20:
         issues.append(
