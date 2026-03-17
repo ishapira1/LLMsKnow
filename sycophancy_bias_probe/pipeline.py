@@ -12,6 +12,13 @@ from tqdm.auto import tqdm
 from script import ensure_sycophancy_eval_cached, read_jsonl
 
 from .cli import load_env_file, resolve_bias_types, resolve_device, resolve_hf_cache_dir
+from .constants import (
+    MC_MODE_STRICT,
+    STRICT_MC_MAX_CAP_HIT_RATE,
+    STRICT_MC_MAX_EXPLICIT_PARSE_FAILURES,
+    STRICT_MC_MIN_COMMITMENT_RATE,
+    STRICT_MC_MIN_STARTS_WITH_ANSWER_RATE,
+)
 from .dataset import (
     build_question_groups,
     deduplicate_rows,
@@ -296,6 +303,122 @@ def _log_post_sampling_metrics(records: Sequence[Dict[str, Any]]) -> None:
         )
 
 
+def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    strict_records = [
+        record
+        for record in records
+        if str(record.get("task_format", "") or "") == "multiple_choice"
+        and str(record.get("mc_mode", "") or "") == MC_MODE_STRICT
+    ]
+    if not strict_records:
+        return {}
+
+    total = len(strict_records)
+    committed = sum(1 for record in strict_records if str(record.get("commitment_kind", "") or "") == "letter")
+    starts_with_answer = sum(1 for record in strict_records if bool(record.get("starts_with_answer_prefix", False)))
+    cap_hits = sum(1 for record in strict_records if bool(record.get("hit_max_new_tokens", False)))
+    explicit_parse_failures = sum(
+        1
+        for record in strict_records
+        if bool(record.get("starts_with_answer_prefix", False))
+        and str(record.get("commitment_kind", "") or "") in {"", "none"}
+    )
+    by_template: Dict[str, Dict[str, float]] = {}
+    for template_type in sorted({str(record.get("template_type", "")) for record in strict_records}):
+        template_records = [record for record in strict_records if str(record.get("template_type", "")) == template_type]
+        template_total = len(template_records)
+        by_template[template_type] = {
+            "total": template_total,
+            "committed_rate": 0.0
+            if template_total == 0
+            else sum(
+                1
+                for record in template_records
+                if str(record.get("commitment_kind", "") or "") == "letter"
+            )
+            / template_total,
+            "starts_with_answer_rate": 0.0
+            if template_total == 0
+            else sum(1 for record in template_records if bool(record.get("starts_with_answer_prefix", False)))
+            / template_total,
+            "cap_hit_rate": 0.0
+            if template_total == 0
+            else sum(1 for record in template_records if bool(record.get("hit_max_new_tokens", False)))
+            / template_total,
+        }
+
+    neutral_rate = by_template.get("neutral", {}).get("starts_with_answer_rate")
+    max_bias_gap = 0.0
+    if neutral_rate is not None:
+        for template_type, stats in by_template.items():
+            if template_type == "neutral":
+                continue
+            max_bias_gap = max(max_bias_gap, abs(neutral_rate - stats["starts_with_answer_rate"]))
+
+    return {
+        "total": total,
+        "commitment_rate": committed / total,
+        "starts_with_answer_rate": starts_with_answer / total,
+        "cap_hit_rate": cap_hits / total,
+        "explicit_parse_failures": explicit_parse_failures,
+        "max_neutral_bias_answer_gap": max_bias_gap,
+        "by_template": by_template,
+    }
+
+
+def _log_strict_mc_quality_summary(summary: Dict[str, Any]) -> None:
+    if not summary:
+        return
+    log_status(
+        "pipeline.py",
+        "strict MC quality: "
+        f"commitment_rate={summary['commitment_rate']:.1%} "
+        f"starts_with_answer_rate={summary['starts_with_answer_rate']:.1%} "
+        f"cap_hit_rate={summary['cap_hit_rate']:.1%} "
+        f"explicit_parse_failures={summary['explicit_parse_failures']} "
+        f"max_neutral_bias_answer_gap={summary['max_neutral_bias_answer_gap']:.1%}",
+    )
+    for template_type, stats in sorted(summary.get("by_template", {}).items()):
+        log_status(
+            "pipeline.py",
+            f"strict MC quality template={template_type}: total={int(stats['total'])} "
+            f"commitment_rate={stats['committed_rate']:.1%} "
+            f"starts_with_answer_rate={stats['starts_with_answer_rate']:.1%} "
+            f"cap_hit_rate={stats['cap_hit_rate']:.1%}",
+        )
+
+
+def _strict_mc_quality_issues(summary: Dict[str, Any]) -> List[str]:
+    if not summary:
+        return []
+    issues: List[str] = []
+    if summary["explicit_parse_failures"] > STRICT_MC_MAX_EXPLICIT_PARSE_FAILURES:
+        issues.append(
+            f"explicit_answer_parse_failures={summary['explicit_parse_failures']} "
+            f"> {STRICT_MC_MAX_EXPLICIT_PARSE_FAILURES}"
+        )
+    if summary["commitment_rate"] < STRICT_MC_MIN_COMMITMENT_RATE:
+        issues.append(
+            f"commitment_rate={summary['commitment_rate']:.1%} "
+            f"< {STRICT_MC_MIN_COMMITMENT_RATE:.0%}"
+        )
+    if summary["starts_with_answer_rate"] < STRICT_MC_MIN_STARTS_WITH_ANSWER_RATE:
+        issues.append(
+            f"starts_with_answer_rate={summary['starts_with_answer_rate']:.1%} "
+            f"< {STRICT_MC_MIN_STARTS_WITH_ANSWER_RATE:.0%}"
+        )
+    if summary["cap_hit_rate"] > STRICT_MC_MAX_CAP_HIT_RATE:
+        issues.append(
+            f"cap_hit_rate={summary['cap_hit_rate']:.1%} "
+            f"> {STRICT_MC_MAX_CAP_HIT_RATE:.0%}"
+        )
+    if summary["max_neutral_bias_answer_gap"] > 0.20:
+        issues.append(
+            f"neutral_bias_starts_with_answer_gap={summary['max_neutral_bias_answer_gap']:.1%} > 20%"
+        )
+    return issues
+
+
 def _persist_sampling_state(
     *,
     stage: str,
@@ -361,6 +484,8 @@ def run_pipeline(args) -> None:
 
     run_status = "failed"
     run_error: Optional[str] = None
+    strict_mc_quality_report: Dict[str, Any] = {}
+    strict_mc_quality_failures: List[str] = []
     try:
         assert_resume_compatible(run_dir, args)
         acquire_run_lock(lock_path, run_dir)
@@ -724,165 +849,183 @@ def run_pipeline(args) -> None:
 
         begin_stage(6, "post-sampling prompt metrics")
         _log_post_sampling_metrics(all_records)
+        strict_mc_quality_report = _strict_mc_quality_summary(all_records)
+        _log_strict_mc_quality_summary(strict_mc_quality_report)
+        strict_mc_quality_failures = _strict_mc_quality_issues(strict_mc_quality_report)
+        for issue in strict_mc_quality_failures:
+            log_status("pipeline.py", f"warning: strict MC quality gate issue: {issue}")
         finish_stage()
 
         begin_stage(7, "probe selection, training, and scoring")
-        n_layers = int(getattr(model.config, "num_hidden_layers", args.probe_layer_max))
-        layer_min = max(1, args.probe_layer_min)
-        layer_max = min(args.probe_layer_max, n_layers)
-        layer_grid = list(range(layer_min, layer_max + 1))
-        log_status("pipeline.py", f"probe layer grid: {layer_min}..{layer_max} (num_layers={len(layer_grid)})")
-
-        feature_source_spec = {
-            "probe_feature_mode": args.probe_feature_mode,
-            "record_field": "response_raw",
-            "fallback_record_field": "response",
-            "token_position": "last_token_of_full_sampled_completion",
-        }
         probes_meta: Dict[str, Any] = {}
+        if strict_mc_quality_report:
+            probes_meta["strict_mc_quality"] = {
+                "summary": strict_mc_quality_report,
+                "issues": strict_mc_quality_failures,
+                "status": "failed" if strict_mc_quality_failures else "passed",
+            }
 
-        train_neutral = [record for record in train_records if record["template_type"] == "neutral"]
-        val_neutral = [record for record in val_records if record["template_type"] == "neutral"]
-        log_status(
-            "pipeline.py",
-            f"probe selection neutral: train_records={len(train_neutral)} val_records={len(val_neutral)}",
-        )
-        best_layer_x, best_auc_x, aucs_x, layer_clfs_x = select_best_layer_by_auc(
-            model=model,
-            tokenizer=tokenizer,
-            train_records=train_neutral,
-            val_records=val_neutral,
-            layer_grid=layer_grid,
-            seed=args.probe_seed,
-            max_selection_samples=args.probe_selection_max_samples,
-            desc="no_bias",
-        )
-        clf_x = (
-            train_probe_for_layer(
-                model=model,
-                tokenizer=tokenizer,
-                records=train_neutral + val_neutral,
-                layer=best_layer_x if best_layer_x is not None else layer_min,
-                seed=args.probe_seed,
-                max_train_samples=args.probe_train_max_samples,
-                desc="no_bias",
-            )
-            if best_layer_x is not None
-            else None
-        )
-        log_status(
-            "pipeline.py",
-            f"probe retrain neutral: best_layer={best_layer_x} best_dev_auc={best_auc_x}",
-        )
-        score_records_with_probe(
-            model=model,
-            tokenizer=tokenizer,
-            records=[record for record in all_records if record["template_type"] == "neutral"],
-            clf=clf_x,
-            layer=best_layer_x,
-            score_key="probe_x",
-            desc="no_bias",
-        )
-        probes_meta["probe_no_bias"] = {
-            "best_layer": best_layer_x,
-            "best_dev_auc": best_auc_x,
-            "auc_per_layer": aucs_x,
-            "feature_source": feature_source_spec,
-            "selection_split": "val",
-            "retrained_on_splits": ["train", "val"],
-        }
-
-        probe_bias_layers: Dict[str, Optional[int]] = {}
-        probe_bias_clfs: Dict[str, Any] = {}
-        for btype in planned_bias_types:
-            train_bias = [record for record in train_records if record["template_type"] == btype]
-            val_bias = [record for record in val_records if record["template_type"] == btype]
+        if args.smoke_test and strict_mc_quality_failures:
             log_status(
                 "pipeline.py",
-                f"probe selection bias={btype}: train_records={len(train_bias)} val_records={len(val_bias)}",
+                "skipping probe training because the strict MC quality gate failed for this smoke run",
             )
-            best_layer_b, best_auc_b, aucs_b, layer_clfs_b = select_best_layer_by_auc(
+        else:
+            n_layers = int(getattr(model.config, "num_hidden_layers", args.probe_layer_max))
+            layer_min = max(1, args.probe_layer_min)
+            layer_max = min(args.probe_layer_max, n_layers)
+            layer_grid = list(range(layer_min, layer_max + 1))
+            log_status("pipeline.py", f"probe layer grid: {layer_min}..{layer_max} (num_layers={len(layer_grid)})")
+
+            feature_source_spec = {
+                "probe_feature_mode": args.probe_feature_mode,
+                "record_field": "response_raw",
+                "fallback_record_field": "response",
+                "token_position": "last_token_of_full_sampled_completion",
+            }
+
+            train_neutral = [record for record in train_records if record["template_type"] == "neutral"]
+            val_neutral = [record for record in val_records if record["template_type"] == "neutral"]
+            log_status(
+                "pipeline.py",
+                f"probe selection neutral: train_records={len(train_neutral)} val_records={len(val_neutral)}",
+            )
+            best_layer_x, best_auc_x, aucs_x, layer_clfs_x = select_best_layer_by_auc(
                 model=model,
                 tokenizer=tokenizer,
-                train_records=train_bias,
-                val_records=val_bias,
+                train_records=train_neutral,
+                val_records=val_neutral,
                 layer_grid=layer_grid,
                 seed=args.probe_seed,
                 max_selection_samples=args.probe_selection_max_samples,
-                desc=f"bias:{btype}",
+                desc="no_bias",
             )
-            clf_b = (
+            clf_x = (
                 train_probe_for_layer(
                     model=model,
                     tokenizer=tokenizer,
-                    records=train_bias + val_bias,
-                    layer=best_layer_b if best_layer_b is not None else layer_min,
+                    records=train_neutral + val_neutral,
+                    layer=best_layer_x if best_layer_x is not None else layer_min,
                     seed=args.probe_seed,
                     max_train_samples=args.probe_train_max_samples,
-                    desc=f"bias:{btype}",
+                    desc="no_bias",
                 )
-                if best_layer_b is not None
+                if best_layer_x is not None
                 else None
             )
             log_status(
                 "pipeline.py",
-                f"probe retrain bias={btype}: best_layer={best_layer_b} best_dev_auc={best_auc_b}",
+                f"probe retrain neutral: best_layer={best_layer_x} best_dev_auc={best_auc_x}",
             )
-
-            probe_bias_layers[btype] = best_layer_b
-            probe_bias_clfs[btype] = clf_b
-            probes_meta[f"probe_bias_{btype}"] = {
-                "best_layer": best_layer_b,
-                "best_dev_auc": best_auc_b,
-                "auc_per_layer": aucs_b,
+            score_records_with_probe(
+                model=model,
+                tokenizer=tokenizer,
+                records=[record for record in all_records if record["template_type"] == "neutral"],
+                clf=clf_x,
+                layer=best_layer_x,
+                score_key="probe_x",
+                desc="no_bias",
+            )
+            probes_meta["probe_no_bias"] = {
+                "best_layer": best_layer_x,
+                "best_dev_auc": best_auc_x,
+                "auc_per_layer": aucs_x,
                 "feature_source": feature_source_spec,
                 "selection_split": "val",
                 "retrained_on_splits": ["train", "val"],
             }
 
-            score_records_with_probe(
-                model=model,
-                tokenizer=tokenizer,
-                records=[record for record in all_records if record["template_type"] == btype],
-                clf=clf_b,
-                layer=best_layer_b,
-                score_key="probe_xprime",
-                desc=f"bias:{btype}",
-            )
+            probe_bias_layers: Dict[str, Optional[int]] = {}
+            probe_bias_clfs: Dict[str, Any] = {}
+            for btype in planned_bias_types:
+                train_bias = [record for record in train_records if record["template_type"] == btype]
+                val_bias = [record for record in val_records if record["template_type"] == btype]
+                log_status(
+                    "pipeline.py",
+                    f"probe selection bias={btype}: train_records={len(train_bias)} val_records={len(val_bias)}",
+                )
+                best_layer_b, best_auc_b, aucs_b, layer_clfs_b = select_best_layer_by_auc(
+                    model=model,
+                    tokenizer=tokenizer,
+                    train_records=train_bias,
+                    val_records=val_bias,
+                    layer_grid=layer_grid,
+                    seed=args.probe_seed,
+                    max_selection_samples=args.probe_selection_max_samples,
+                    desc=f"bias:{btype}",
+                )
+                clf_b = (
+                    train_probe_for_layer(
+                        model=model,
+                        tokenizer=tokenizer,
+                        records=train_bias + val_bias,
+                        layer=best_layer_b if best_layer_b is not None else layer_min,
+                        seed=args.probe_seed,
+                        max_train_samples=args.probe_train_max_samples,
+                        desc=f"bias:{btype}",
+                    )
+                    if best_layer_b is not None
+                    else None
+                )
+                log_status(
+                    "pipeline.py",
+                    f"probe retrain bias={btype}: best_layer={best_layer_b} best_dev_auc={best_auc_b}",
+                )
+
+                probe_bias_layers[btype] = best_layer_b
+                probe_bias_clfs[btype] = clf_b
+                probes_meta[f"probe_bias_{btype}"] = {
+                    "best_layer": best_layer_b,
+                    "best_dev_auc": best_auc_b,
+                    "auc_per_layer": aucs_b,
+                    "feature_source": feature_source_spec,
+                    "selection_split": "val",
+                    "retrained_on_splits": ["train", "val"],
+                }
+
+                score_records_with_probe(
+                    model=model,
+                    tokenizer=tokenizer,
+                    records=[record for record in all_records if record["template_type"] == btype],
+                    clf=clf_b,
+                    layer=best_layer_b,
+                    score_key="probe_xprime",
+                    desc=f"bias:{btype}",
+                )
+
+                probe_models_dir = run_dir / "probe_models"
+                saved_layer_models: List[str] = []
+                for layer_id, clf_layer in layer_clfs_b.items():
+                    if clf_layer is None:
+                        continue
+                    path = probe_models_dir / f"probe_bias_{btype}__selection_layer_{int(layer_id)}.pkl"
+                    write_pickle_atomic(path, clf_layer)
+                    saved_layer_models.append(str(path))
+
+                saved_best_model = None
+                if clf_b is not None and best_layer_b is not None:
+                    path = probe_models_dir / f"probe_bias_{btype}__best_retrained_layer_{int(best_layer_b)}.pkl"
+                    write_pickle_atomic(path, clf_b)
+                    saved_best_model = str(path)
+
+                probes_meta[f"probe_bias_{btype}"]["saved_selection_models"] = saved_layer_models
+                probes_meta[f"probe_bias_{btype}"]["saved_best_model"] = saved_best_model
 
             probe_models_dir = run_dir / "probe_models"
-            saved_layer_models: List[str] = []
-            for layer_id, clf_layer in layer_clfs_b.items():
+            saved_x_layer_models: List[str] = []
+            for layer_id, clf_layer in layer_clfs_x.items():
                 if clf_layer is None:
                     continue
-                path = probe_models_dir / f"probe_bias_{btype}__selection_layer_{int(layer_id)}.pkl"
+                path = probe_models_dir / f"probe_no_bias__selection_layer_{int(layer_id)}.pkl"
                 write_pickle_atomic(path, clf_layer)
-                saved_layer_models.append(str(path))
-
-            saved_best_model = None
-            if clf_b is not None and best_layer_b is not None:
-                path = probe_models_dir / f"probe_bias_{btype}__best_retrained_layer_{int(best_layer_b)}.pkl"
-                write_pickle_atomic(path, clf_b)
-                saved_best_model = str(path)
-
-            probes_meta[f"probe_bias_{btype}"]["saved_selection_models"] = saved_layer_models
-            probes_meta[f"probe_bias_{btype}"]["saved_best_model"] = saved_best_model
-
-        probe_models_dir = run_dir / "probe_models"
-        saved_x_layer_models: List[str] = []
-        for layer_id, clf_layer in layer_clfs_x.items():
-            if clf_layer is None:
-                continue
-            path = probe_models_dir / f"probe_no_bias__selection_layer_{int(layer_id)}.pkl"
-            write_pickle_atomic(path, clf_layer)
-            saved_x_layer_models.append(str(path))
-        saved_x_best_model = None
-        if clf_x is not None and best_layer_x is not None:
-            path = probe_models_dir / f"probe_no_bias__best_retrained_layer_{int(best_layer_x)}.pkl"
-            write_pickle_atomic(path, clf_x)
-            saved_x_best_model = str(path)
-        probes_meta["probe_no_bias"]["saved_selection_models"] = saved_x_layer_models
-        probes_meta["probe_no_bias"]["saved_best_model"] = saved_x_best_model
+                saved_x_layer_models.append(str(path))
+            saved_x_best_model = None
+            if clf_x is not None and best_layer_x is not None:
+                path = probe_models_dir / f"probe_no_bias__best_retrained_layer_{int(best_layer_x)}.pkl"
+                write_pickle_atomic(path, clf_x)
+                saved_x_best_model = str(path)
+            probes_meta["probe_no_bias"]["saved_selection_models"] = saved_x_layer_models
+            probes_meta["probe_no_bias"]["saved_best_model"] = saved_x_best_model
         finish_stage()
 
         begin_stage(8, "final artifact saving")
@@ -921,6 +1064,10 @@ def run_pipeline(args) -> None:
         log_status("pipeline.py", f"saved artifact: {sampling_records_path}")
         log_status("pipeline.py", f"saved artifact: {sampling_manifest_path}")
         log_status("pipeline.py", f"saved artifact: {run_log_path}")
+        if args.smoke_test and strict_mc_quality_failures:
+            raise RuntimeError(
+                "strict MC quality gate failed: " + "; ".join(strict_mc_quality_failures)
+            )
         run_status = "completed"
         log_status("pipeline.py", f"run completed successfully: {run_dir}")
         finish_stage()

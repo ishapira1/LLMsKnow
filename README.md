@@ -90,6 +90,8 @@ python run_sycophancy_bias_probe.py \
   --benchmark_source ays_mc_single_turn \
   --input_jsonl are_you_sure.jsonl \
   --ays_mc_datasets truthful_qa_mc,aqua_mc \
+  --mc_mode strict_mc \
+  --temperature 0.1 \
   --run_name ays_mc_truthful_aqua_run
 ```
 
@@ -110,7 +112,10 @@ Important flags:
 - `--bias_types`: comma-separated subset of `incorrect_suggestion`, `doubt_correct`, `suggest_correct`
 - `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset
 - `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`
+- `--mc_mode`: `strict_mc` for the canonical benchmark path, or `mc_with_rationale` for the auxiliary rationale-preserving path
 - `--n_draws`: number of sampled completions per prompt
+- `--temperature`: if omitted, strict MC defaults to `0.1`; the other modes keep the chat-style default of `0.7`
+- `--max_new_tokens`: generation ceiling; if omitted, the pipeline uses `256` to avoid truncating answer-bearing completions
 - `--max_questions`: limit the number of question groups
 - `--test_frac`: fraction of questions reserved for the held-out test split
 - `--val_frac` / `--probe_val_frac`: fraction of the non-test questions reserved for validation during probe layer selection
@@ -128,6 +133,7 @@ Each run writes to:
 Main artifacts:
 
 - `sampled_responses.csv`: one row per sampled completion, including the source `dataset`, original `question`, `prompt_template`, split membership, grading result, and for MC-derived runs the preserved choice metadata (`correct_letter`, `letters`, `answer_options`, `answers_list`)
+- strict MC rows also expose compliance/audit fields such as `committed_answer`, `starts_with_answer_prefix`, `strict_format_exact`, `commitment_line`, and generation-stop metadata (`finish_reason`, `hit_max_new_tokens`)
 - `final_tuples.csv`: paired neutral and biased records for the same question and draw index, including `dataset` plus both prompt templates, after dropping ambiguous samples
 - `summary_by_question.csv`: question-level aggregates across repeated draws, grouped by split, with `dataset` and prompt-template provenance retained
 - `probe_metadata.json`: selected layers, validation metrics, and saved probe paths

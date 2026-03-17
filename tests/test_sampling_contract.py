@@ -316,6 +316,9 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual(refreshed[0]["commitment_kind"], "text")
         self.assertEqual(refreshed[0]["commitment_source"], "first_line_fallback")
         self.assertIn("grading_spec_version", refreshed[0])
+        self.assertFalse(refreshed[0]["starts_with_answer_prefix"])
+        self.assertFalse(refreshed[0]["strict_format_exact"])
+        self.assertEqual(refreshed[0]["commitment_line"], "")
         self.assertFalse(refreshed[0]["hit_max_new_tokens"])
 
     def test_sample_records_for_groups_reuses_existing_and_generates_missing(self):
@@ -389,6 +392,9 @@ class SamplingContractTests(unittest.TestCase):
                 "committed_answer": text,
                 "commitment_kind": "text",
                 "commitment_source": "unit_test",
+                "starts_with_answer_prefix": False,
+                "strict_format_exact": False,
+                "commitment_line": "",
                 "grading_spec_version": GRADING_SPEC_VERSION,
             },
         ):
@@ -428,6 +434,7 @@ class SamplingContractTests(unittest.TestCase):
         self.assertTrue(all(record.get("completion_token_count") == 4 for record in generated_records))
         self.assertTrue(all(record.get("finish_reason", "") == "eos_token" for record in generated_records))
         self.assertTrue(all(record.get("commitment_kind", "") == "text" for record in generated_records))
+        self.assertTrue(all(record.get("commitment_line", "") == "" for record in generated_records))
         self.assertEqual(max(record["record_id"] for record in records), 3)
 
     def test_refresh_sample_records_marks_strict_mc_truncation_as_ambiguous(self):
@@ -480,6 +487,9 @@ class SamplingContractTests(unittest.TestCase):
         self.assertFalse(refreshed[0]["usable_for_metrics"])
         self.assertEqual(refreshed[0]["mc_mode"], MC_MODE_STRICT)
         self.assertEqual(refreshed[0]["commitment_kind"], "none")
+        self.assertFalse(refreshed[0]["starts_with_answer_prefix"])
+        self.assertFalse(refreshed[0]["strict_format_exact"])
+        self.assertEqual(refreshed[0]["commitment_line"], "")
         self.assertTrue(refreshed[0]["hit_max_new_tokens"])
         self.assertEqual(refreshed[0]["finish_reason"], "length")
 

@@ -127,6 +127,9 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
                 "committed_answer": record.get("committed_answer", ""),
                 "commitment_kind": record.get("commitment_kind", ""),
                 "commitment_source": record.get("commitment_source", ""),
+                "starts_with_answer_prefix": bool(record.get("starts_with_answer_prefix", False)),
+                "strict_format_exact": bool(record.get("strict_format_exact", False)),
+                "commitment_line": record.get("commitment_line", ""),
                 "correctness": np.nan if correctness is None else int(correctness),
                 "grading_status": record.get(
                     "grading_status",

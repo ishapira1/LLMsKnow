@@ -93,7 +93,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable reuse of matching sampling checkpoints from earlier runs.",
     )
-    ap.add_argument("--temperature", type=float, default=0.7)
+    ap.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Sampling temperature. If omitted, strict_mc uses 0.1 and the other modes keep the chat-style default of 0.7.",
+    )
+    ap.set_defaults(temperature=None)
     ap.add_argument("--top_p", type=float, default=1.0)
     ap.add_argument(
         "--max_new_tokens",
@@ -141,6 +147,13 @@ def parse_args() -> argparse.Namespace:
     args = ap.parse_args()
     if args.max_new_tokens is None:
         args.max_new_tokens = 256
+    if args.temperature is None:
+        if args.benchmark_source == "ays_mc_single_turn" and args.mc_mode == MC_MODE_STRICT:
+            args.temperature = 0.1
+        elif args.benchmark_source == "ays_mc_single_turn" and args.mc_mode == MC_MODE_WITH_RATIONALE:
+            args.temperature = 0.7
+        else:
+            args.temperature = 0.7
     args.prompt_spec_version = int(PROMPT_SPEC_VERSION)
     args.grading_spec_version = int(GRADING_SPEC_VERSION)
     return args

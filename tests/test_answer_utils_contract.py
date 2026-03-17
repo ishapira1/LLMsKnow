@@ -194,6 +194,9 @@ class AnswerUtilsContractTests(unittest.TestCase):
         self.assertEqual(correct["committed_answer"], "B")
         self.assertEqual(correct["commitment_kind"], "letter")
         self.assertEqual(correct["commitment_source"], "explicit_answer_line")
+        self.assertTrue(correct["starts_with_answer_prefix"])
+        self.assertTrue(correct["strict_format_exact"])
+        self.assertEqual(correct["commitment_line"], "Answer: B")
         self.assertEqual(correct["grading_spec_version"], GRADING_SPEC_VERSION)
 
         incorrect = grade_multiple_choice_response("Answer: D", strict_base)
@@ -207,6 +210,8 @@ class AnswerUtilsContractTests(unittest.TestCase):
         self.assertFalse(no_commit["usable_for_metrics"])
         self.assertEqual(no_commit["reason"], "no_committed_answer")
         self.assertEqual(no_commit["commitment_kind"], "none")
+        self.assertFalse(no_commit["starts_with_answer_prefix"])
+        self.assertFalse(no_commit["strict_format_exact"])
 
     def test_strict_multiple_choice_grades_late_committed_answers_and_conflicts(self):
         strict_base = make_strict_aqua_base()
@@ -216,7 +221,9 @@ class AnswerUtilsContractTests(unittest.TestCase):
             strict_base,
         )
         self.assertEqual(late_correct["status"], "correct")
-        self.assertEqual(late_correct["commitment_source"], "explicit_answer_line")
+        self.assertEqual(late_correct["commitment_source"], "late_explicit_answer_line")
+        self.assertFalse(late_correct["strict_format_exact"])
+        self.assertEqual(late_correct["commitment_line"], "Answer: B")
 
         standalone = grade_response_from_base(
             "Reasoning first.\n(B)",
@@ -224,7 +231,8 @@ class AnswerUtilsContractTests(unittest.TestCase):
         )
         self.assertEqual(standalone["status"], "correct")
         self.assertEqual(standalone["committed_answer"], "B")
-        self.assertEqual(standalone["commitment_source"], "standalone_answer_line")
+        self.assertEqual(standalone["commitment_source"], "late_standalone_answer_line")
+        self.assertFalse(standalone["starts_with_answer_prefix"])
 
         conflicting = grade_response_from_base(
             "Answer: B\nAnswer: D",
@@ -234,6 +242,7 @@ class AnswerUtilsContractTests(unittest.TestCase):
         self.assertIsNone(conflicting["correctness"])
         self.assertEqual(conflicting["reason"], "conflicting_committed_answers")
         self.assertEqual(conflicting["commitment_kind"], "ambiguous")
+        self.assertEqual(conflicting["commitment_line"], "Answer: B")
 
     def test_strict_multiple_choice_marks_real_truncated_aqua_rows_ambiguous(self):
         strict_base = {
@@ -284,6 +293,60 @@ class AnswerUtilsContractTests(unittest.TestCase):
         )
         self.assertEqual(also_truncated["status"], "ambiguous")
         self.assertEqual(also_truncated["reason"], "truncated_before_commitment")
+
+    def test_strict_multiple_choice_accepts_canonical_answer_lines_with_wrappers_and_trailing_text(self):
+        strict_base = make_strict_aqua_base()
+
+        cases = [
+            ("Answer: (D) 24 months", "D", False),
+            ("Answer: A) 88", "A", False),
+            ("Answer: D 24 months", "D", False),
+            ("Answer: (B)", "B", False),
+            ("Answer: B", "B", True),
+        ]
+
+        for raw_text, letter, exact in cases:
+            graded = grade_response_from_base(raw_text, strict_base)
+            self.assertEqual(graded["committed_answer"], letter)
+            self.assertEqual(graded["commitment_kind"], "letter")
+            self.assertEqual(graded["commitment_source"], "explicit_answer_line")
+            self.assertTrue(graded["starts_with_answer_prefix"])
+            self.assertEqual(graded["strict_format_exact"], exact)
+            self.assertEqual(graded["commitment_line"], raw_text)
+
+    def test_strict_multiple_choice_marks_noncanonical_explicit_answers_ambiguous(self):
+        strict_base = make_strict_aqua_base()
+
+        answer_text = grade_response_from_base("Answer: 2 : π.", strict_base)
+        self.assertEqual(answer_text["status"], "ambiguous")
+        self.assertEqual(answer_text["reason"], "noncanonical_explicit_answer")
+        self.assertTrue(answer_text["starts_with_answer_prefix"])
+        self.assertEqual(answer_text["commitment_line"], "Answer: 2 : π.")
+
+        prose = grade_response_from_base("So the answer is (C) 252 gms.", strict_base)
+        self.assertEqual(prose["status"], "ambiguous")
+        self.assertEqual(prose["reason"], "noncanonical_explicit_answer")
+        self.assertFalse(prose["starts_with_answer_prefix"])
+        self.assertEqual(prose["commitment_line"], "So the answer is (C) 252 gms.")
+
+    def test_strict_multiple_choice_regression_rows_from_v6_explicit_answer_prefixes(self):
+        rows = [
+            ("Answer: A) 88", "B"),
+            ("Answer: (E) 45.86%", "B"),
+            ("Answer: (E) 45.86%", "B"),
+            ("Answer: (D) 24 months", "B"),
+            ("Answer: (D) 24 months", "B"),
+            ("Answer: (D) 4 hours", "C"),
+        ]
+
+        for raw_text, correct_letter in rows:
+            strict_base = make_strict_aqua_base()
+            strict_base["correct_letter"] = correct_letter
+            graded = grade_response_from_base(raw_text, strict_base)
+            self.assertEqual(graded["status"], "incorrect")
+            self.assertEqual(graded["reason"], "single_letter_non_match")
+            self.assertEqual(graded["commitment_kind"], "letter")
+            self.assertNotEqual(graded["committed_answer"], "")
 
     def test_strict_multiple_choice_rejects_false_positive_reasoning_letters(self):
         strict_base = make_strict_aqua_base()

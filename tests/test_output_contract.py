@@ -274,6 +274,9 @@ class OutputContractTests(unittest.TestCase):
                 "committed_answer",
                 "commitment_kind",
                 "commitment_source",
+                "starts_with_answer_prefix",
+                "strict_format_exact",
+                "commitment_line",
                 "correctness",
                 "grading_status",
                 "grading_reason",
@@ -294,6 +297,9 @@ class OutputContractTests(unittest.TestCase):
         self.assertEqual(samples_df.iloc[0]["mc_mode"], "")
         self.assertEqual(samples_df.iloc[0]["answer_channel"], "")
         self.assertEqual(samples_df.iloc[0]["commitment_kind"], "")
+        self.assertFalse(samples_df.iloc[0]["starts_with_answer_prefix"])
+        self.assertFalse(samples_df.iloc[0]["strict_format_exact"])
+        self.assertEqual(samples_df.iloc[0]["commitment_line"], "")
         self.assertEqual(samples_df.iloc[0]["finish_reason"], "")
         self.assertFalse(samples_df.iloc[0]["hit_max_new_tokens"])
         self.assertEqual(json.loads(samples_df.iloc[0]["gold_answers"]), ["Paris"])

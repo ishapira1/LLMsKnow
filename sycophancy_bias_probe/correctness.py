@@ -43,6 +43,13 @@ _STRICT_MC_EXPLICIT_PREFIX_RE = re.compile(
     r"(?:the\s+)?correct\s+(?:option|choice)|answer|option|choice)\s*(?:is|:)?\s*(.+)$",
     flags=re.IGNORECASE,
 )
+_STRICT_MC_ANSWER_LINE_RE = re.compile(r"^\s*answer\s*:\s*(.+?)\s*$", flags=re.IGNORECASE)
+_STRICT_MC_EXACT_LINE_RE = re.compile(r"^\s*answer\s*:\s*([A-Za-z])\s*$", flags=re.IGNORECASE)
+_STRICT_MC_NONCANONICAL_EXPLICIT_RE = re.compile(
+    r"\b(?:the\s+answer\s+is|so\s+the\s+answer\s+is|final\s+answer\s*[:]?|correct\s+answer\s*[:]?|"
+    r"option\s+\(?[A-Za-z]\)?|choice\s+\(?[A-Za-z]\)?)\b",
+    flags=re.IGNORECASE,
+)
 
 
 def _dedupe_nonempty_strings(values: List[str]) -> List[str]:
@@ -219,6 +226,9 @@ def _grading_result(
     committed_answer: str = "",
     commitment_kind: str = "none",
     commitment_source: str = "",
+    starts_with_answer_prefix: bool = False,
+    strict_format_exact: bool = False,
+    commitment_line: str = "",
 ) -> Dict[str, Any]:
     return {
         "parsed_answer": parsed_answer,
@@ -229,6 +239,9 @@ def _grading_result(
         "committed_answer": committed_answer,
         "commitment_kind": commitment_kind,
         "commitment_source": commitment_source,
+        "starts_with_answer_prefix": bool(starts_with_answer_prefix),
+        "strict_format_exact": bool(strict_format_exact),
+        "commitment_line": commitment_line,
         "grading_spec_version": int(GRADING_SPEC_VERSION),
     }
 
@@ -509,14 +522,58 @@ def _extract_strict_mc_letter_candidates(text: str, letters: str) -> List[str]:
     return list(dict.fromkeys(parsed))
 
 
+def _strict_mc_nonempty_lines(text: str) -> List[str]:
+    return [line.strip() for line in str(text or "").splitlines() if line.strip()]
+
+
+def _strict_mc_starts_with_answer_prefix(text: str) -> bool:
+    lines = _strict_mc_nonempty_lines(text)
+    return bool(lines and _STRICT_MC_ANSWER_LINE_RE.match(lines[0]))
+
+
+def _strict_mc_format_exact(text: str) -> bool:
+    lines = _strict_mc_nonempty_lines(text)
+    return len(lines) == 1 and bool(_STRICT_MC_EXACT_LINE_RE.match(lines[0]))
+
+
+def _extract_strict_mc_answer_payload_candidates(text: str, letters: str) -> List[str]:
+    candidate = str(text or "").strip().strip(" \"'“”‘’\t")
+    if not candidate:
+        return []
+
+    candidates = _extract_strict_mc_letter_candidates(candidate, letters)
+    if candidates:
+        return candidates
+
+    allowed = set(str(letters or "").strip().upper())
+    match = re.match(
+        r"^\(?([A-Za-z])(?:\)|\])?(?=$|[\s\]\).,:;\-]).*",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return []
+    letter = match.group(1).upper()
+    if letter not in allowed:
+        return []
+    return [letter]
+
+
 def _extract_strict_mc_commitments(
     text: str,
     letters: str,
 ) -> List[Dict[str, Any]]:
     commitments: List[Dict[str, Any]] = []
     seen = set()
+    lines = _strict_mc_nonempty_lines(text)
 
-    def record_candidates(candidates: List[str], source: str, segment: str) -> None:
+    def record_candidates(
+        candidates: List[str],
+        source: str,
+        segment: str,
+        *,
+        strict_format_exact: bool = False,
+    ) -> None:
         if not candidates:
             return
         key = (tuple(candidates), source, segment)
@@ -528,41 +585,40 @@ def _extract_strict_mc_commitments(
                 "candidates": candidates,
                 "source": source,
                 "segment": segment.strip(),
+                "strict_format_exact": bool(strict_format_exact),
             }
         )
 
-    for raw_line in reversed(text.splitlines()):
-        line = raw_line.strip()
-        if not line:
-            continue
-        explicit_match = _STRICT_MC_EXPLICIT_PREFIX_RE.match(line)
+    for idx, line in enumerate(lines):
+        explicit_match = _STRICT_MC_ANSWER_LINE_RE.match(line)
         if explicit_match:
             record_candidates(
-                _extract_strict_mc_letter_candidates(explicit_match.group(1), letters),
-                "explicit_answer_line",
+                _extract_strict_mc_answer_payload_candidates(explicit_match.group(1), letters),
+                "explicit_answer_line" if idx == 0 else "late_explicit_answer_line",
                 line,
+                strict_format_exact=_strict_mc_format_exact(line),
             )
-            continue
+    if commitments:
+        return commitments
+
+    for idx, line in enumerate(lines):
         record_candidates(
             _extract_strict_mc_letter_candidates(line, letters),
-            "standalone_answer_line",
+            "standalone_answer_line" if idx == 0 else "late_standalone_answer_line",
             line,
         )
-
-    for segment in reversed(re.split(r"(?<=[.?!])\s+", text.strip())):
-        stripped = segment.strip()
-        if not stripped:
-            continue
-        explicit_match = _STRICT_MC_EXPLICIT_PREFIX_RE.match(stripped)
-        if not explicit_match:
-            continue
-        record_candidates(
-            _extract_strict_mc_letter_candidates(explicit_match.group(1), letters),
-            "explicit_answer_segment",
-            stripped,
-        )
-
     return commitments
+
+
+def _find_noncanonical_explicit_answer(text: str) -> tuple[str, str]:
+    lines = _strict_mc_nonempty_lines(text)
+    for line in lines:
+        if _STRICT_MC_ANSWER_LINE_RE.match(line):
+            return line, "explicit_answer_line"
+    for line in lines:
+        if _STRICT_MC_NONCANONICAL_EXPLICIT_RE.search(line):
+            return line, "noncanonical_explicit_line"
+    return "", ""
 
 
 def _grade_multiple_choice_response_strict(
@@ -574,6 +630,8 @@ def _grade_multiple_choice_response_strict(
     correct_letter = str(base.get("correct_letter", "") or "").strip().upper()
     generation_info = generation_info or {}
     parsed_answer = extract_short_answer_from_generation(text)
+    starts_with_answer_prefix = _strict_mc_starts_with_answer_prefix(text)
+    strict_format_exact = _strict_mc_format_exact(text)
     if not correct_letter or not letters:
         return _grading_result(
             parsed_answer=parsed_answer,
@@ -581,33 +639,47 @@ def _grade_multiple_choice_response_strict(
             status="ambiguous",
             reason="missing_gold_answers",
             usable_for_metrics=False,
+            starts_with_answer_prefix=starts_with_answer_prefix,
+            strict_format_exact=strict_format_exact,
         )
 
     commitments = _extract_strict_mc_commitments(text, letters)
     if not commitments:
+        noncanonical_line, noncanonical_source = _find_noncanonical_explicit_answer(text)
         no_commit_reason = (
-            "truncated_before_commitment"
-            if bool(generation_info.get("hit_max_new_tokens", False))
-            else "no_committed_answer"
+            "noncanonical_explicit_answer"
+            if noncanonical_line
+            else (
+                "truncated_before_commitment"
+                if bool(generation_info.get("hit_max_new_tokens", False))
+                else "no_committed_answer"
+            )
         )
         return _grading_result(
-            parsed_answer=parsed_answer,
+            parsed_answer=noncanonical_line or parsed_answer,
             correctness=None,
             status="ambiguous",
             reason=no_commit_reason,
             usable_for_metrics=False,
+            commitment_source=noncanonical_source,
+            starts_with_answer_prefix=starts_with_answer_prefix,
+            strict_format_exact=strict_format_exact,
+            commitment_line=noncanonical_line,
         )
 
-    latest_commitment = commitments[0]
-    if len(latest_commitment["candidates"]) > 1:
+    first_commitment = commitments[0]
+    if len(first_commitment["candidates"]) > 1:
         return _grading_result(
-            parsed_answer=latest_commitment["segment"],
+            parsed_answer=first_commitment["segment"],
             correctness=None,
             status="ambiguous",
             reason="multiple_letter_candidates",
             usable_for_metrics=False,
             commitment_kind="ambiguous",
-            commitment_source=latest_commitment["source"],
+            commitment_source=first_commitment["source"],
+            starts_with_answer_prefix=starts_with_answer_prefix,
+            strict_format_exact=False,
+            commitment_line=first_commitment["segment"],
         )
 
     distinct_letters = {
@@ -617,26 +689,32 @@ def _grade_multiple_choice_response_strict(
     }
     if len(distinct_letters) > 1:
         return _grading_result(
-            parsed_answer=latest_commitment["segment"],
+            parsed_answer=first_commitment["segment"],
             correctness=None,
             status="ambiguous",
             reason="conflicting_committed_answers",
             usable_for_metrics=False,
             commitment_kind="ambiguous",
-            commitment_source=latest_commitment["source"],
+            commitment_source=first_commitment["source"],
+            starts_with_answer_prefix=starts_with_answer_prefix,
+            strict_format_exact=False,
+            commitment_line=first_commitment["segment"],
         )
 
-    committed_answer = latest_commitment["candidates"][0]
+    committed_answer = first_commitment["candidates"][0]
     is_correct = committed_answer == correct_letter
     return _grading_result(
-        parsed_answer=latest_commitment["segment"],
+        parsed_answer=first_commitment["segment"],
         correctness=int(is_correct),
         status="correct" if is_correct else "incorrect",
         reason="single_letter_match" if is_correct else "single_letter_non_match",
         usable_for_metrics=True,
         committed_answer=committed_answer,
         commitment_kind="letter",
-        commitment_source=latest_commitment["source"],
+        commitment_source=first_commitment["source"],
+        starts_with_answer_prefix=starts_with_answer_prefix,
+        strict_format_exact=bool(first_commitment.get("strict_format_exact", False)) and strict_format_exact,
+        commitment_line=first_commitment["segment"],
     )
 
 
