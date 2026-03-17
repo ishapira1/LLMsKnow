@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from .logging_utils import log_status
 
@@ -48,6 +48,32 @@ def encode_chat(tokenizer, messages: List[Dict[str, Any]], add_generation_prompt
     if add_generation_prompt:
         text += "ASSISTANT: "
     return tokenizer(text, return_tensors="pt").input_ids
+
+
+def _resolve_model_inputs(
+    tokenizer,
+    messages: List[Dict[str, Any]],
+    device: Any,
+    *,
+    add_generation_prompt: bool = True,
+) -> Tuple[Any, Any]:
+    torch = _import_torch()
+    encoded = encode_chat(
+        tokenizer,
+        messages,
+        add_generation_prompt=add_generation_prompt,
+    )
+    if hasattr(encoded, "input_ids"):
+        encoded = encoded.to(device)
+        input_ids = encoded.input_ids
+        attention_mask = getattr(encoded, "attention_mask", None)
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids, device=device)
+        return input_ids, attention_mask
+
+    input_ids = encoded.to(device)
+    attention_mask = torch.ones_like(input_ids, device=device)
+    return input_ids, attention_mask
 
 
 def _eos_token_ids(tokenizer) -> List[int]:
@@ -147,8 +173,12 @@ def generate_one(
 ):
     torch = _import_torch()
     with torch.no_grad():
-        input_ids = encode_chat(tokenizer, messages, add_generation_prompt=True).to(model.device)
-        attention_mask = torch.ones_like(input_ids, device=model.device)
+        input_ids, attention_mask = _resolve_model_inputs(
+            tokenizer,
+            messages,
+            model.device,
+            add_generation_prompt=True,
+        )
         stopping_criteria = _strict_mc_stopping_criteria(
             tokenizer,
             input_ids.shape[1],
@@ -245,8 +275,12 @@ def generate_many(
     torch = _import_torch()
     with torch.no_grad():
         do_sample = temperature > 0
-        input_ids_base = encode_chat(tokenizer, messages, add_generation_prompt=True).to(model.device)
-        attention_mask_base = torch.ones_like(input_ids_base, device=model.device)
+        input_ids_base, attention_mask_base = _resolve_model_inputs(
+            tokenizer,
+            messages,
+            model.device,
+            add_generation_prompt=True,
+        )
         input_len = input_ids_base.shape[1]
 
         outputs: List[str] = []
