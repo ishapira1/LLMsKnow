@@ -15,6 +15,7 @@ from llmssycoph.llm import (
     registered_llm_names,
     unregister_llm,
 )
+from llmssycoph.llm.huggingface import _device_uses_gpu, _warn_if_not_using_gpu
 from llmssycoph.llm.generation import (
     _resolve_model_inputs,
     _strict_mc_generated_answer_complete,
@@ -85,6 +86,26 @@ class ModelUtilsContractTests(unittest.TestCase):
             device="cpu",
             device_map_auto=False,
             hf_cache_dir=None,
+        )
+
+    def test_gpu_device_detection_accepts_cuda_and_mps(self):
+        self.assertTrue(_device_uses_gpu("cuda"))
+        self.assertTrue(_device_uses_gpu("cuda:0"))
+        self.assertTrue(_device_uses_gpu("mps"))
+        self.assertFalse(_device_uses_gpu("cpu"))
+
+    def test_warn_if_not_using_gpu_emits_warning_for_cpu(self):
+        with patch("llmssycoph.llm.huggingface.warn_status") as mock_warn:
+            _warn_if_not_using_gpu(
+                model_name="mistralai/Mistral-7B-Instruct-v0.2",
+                device="cpu",
+            )
+
+        mock_warn.assert_called_once_with(
+            "llm/huggingface.py",
+            "model_loading_without_gpu",
+            "loading model=mistralai/Mistral-7B-Instruct-v0.2 without GPU acceleration "
+            "(resolved device=cpu). This run may be much slower.",
         )
 
     def test_load_llm_prefers_registered_backend(self):

@@ -2,10 +2,26 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..logging_utils import log_status
+from ..logging_utils import log_status, warn_status
 from .base import BaseLLM, GenerationResult
 from .generation import generate_many as _generate_many
 from .scoring import score_choices as _score_choices
+
+
+def _device_uses_gpu(device: str) -> bool:
+    normalized = str(device or "").strip().lower()
+    return normalized == "mps" or normalized.startswith("cuda")
+
+
+def _warn_if_not_using_gpu(model_name: str, device: str) -> None:
+    if _device_uses_gpu(device):
+        return
+    warn_status(
+        "llm/huggingface.py",
+        "model_loading_without_gpu",
+        f"loading model={model_name} without GPU acceleration (resolved device={device}). "
+        "This run may be much slower.",
+    )
 
 
 class HuggingFaceLLM(BaseLLM):
@@ -38,6 +54,7 @@ class HuggingFaceLLM(BaseLLM):
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         log_status("llm/huggingface.py", f"loading model={model_name} on device={device}")
+        _warn_if_not_using_gpu(model_name=model_name, device=device)
         if device == "cuda":
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
