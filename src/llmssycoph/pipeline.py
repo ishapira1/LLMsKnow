@@ -293,7 +293,10 @@ def _log_reuse_summary(
     cached_source_run: Optional[Path],
 ) -> None:
     if not reuse_enabled:
-        log_status("pipeline.py", "reuse strategy: disabled by --no_reuse_sampling_cache")
+        log_status(
+            "pipeline.py",
+            "reuse strategy: disabled by --no_reuse_sampling_cache/--override_sampling_cache",
+        )
     elif cached_source_run is None:
         log_status("pipeline.py", "reuse strategy: no compatible cached sampling run found")
     else:

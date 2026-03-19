@@ -17,10 +17,16 @@ REQUIRED_ARTIFACT_KEYS = (
     "sampling_manifest",
     "sampling_records",
     "sampling_integrity_summary",
+    "run_summary",
     "sampled_responses",
     "final_tuples",
     "summary_by_question",
+    "model_summary_by_template",
+    "model_summary_by_bias",
     "probe_candidate_scores",
+    "probe_scores_by_prompt",
+    "probe_summary_csv",
+    "executive_summary",
     "probe_metadata",
 )
 
@@ -81,7 +87,12 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     samples_path = resolve_run_artifact_path(run_dir, "sampled_responses")
     tuples_path = resolve_run_artifact_path(run_dir, "final_tuples")
     summary_path = resolve_run_artifact_path(run_dir, "summary_by_question")
+    model_summary_by_template_path = resolve_run_artifact_path(run_dir, "model_summary_by_template")
+    model_summary_by_bias_path = resolve_run_artifact_path(run_dir, "model_summary_by_bias")
     probe_candidate_scores_path = resolve_run_artifact_path(run_dir, "probe_candidate_scores")
+    probe_scores_by_prompt_path = resolve_run_artifact_path(run_dir, "probe_scores_by_prompt")
+    probe_summary_csv_path = resolve_run_artifact_path(run_dir, "probe_summary_csv")
+    executive_summary_path = resolve_run_artifact_path(run_dir, "executive_summary")
     probe_metadata_path = resolve_run_artifact_path(run_dir, "probe_metadata")
     run_summary_path = resolve_run_artifact_path(run_dir, "run_summary")
 
@@ -89,12 +100,17 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     status = _load_json(status_path)
     manifest = _load_json(manifest_path)
     probe_meta = _load_json(probe_metadata_path)
+    run_summary = _load_json(run_summary_path)
     sampling_integrity = _load_json(sampling_integrity_path)
 
     samples = pd.read_csv(samples_path)
     tuples_df = pd.read_csv(tuples_path)
     summary_df = pd.read_csv(summary_path)
+    model_summary_by_template_df = pd.read_csv(model_summary_by_template_path)
+    model_summary_by_bias_df = pd.read_csv(model_summary_by_bias_path)
     probe_candidate_scores_df = pd.read_csv(probe_candidate_scores_path)
+    probe_scores_by_prompt_df = pd.read_csv(probe_scores_by_prompt_path)
+    probe_summary_csv_df = pd.read_csv(probe_summary_csv_path)
 
     sample_required_columns = {"question_id", "prompt_id", "question", "prompt_text"}
     missing_sample_columns = sorted(sample_required_columns.difference(samples.columns))
@@ -116,11 +132,54 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         issues.append(
             f"summary_by_question.csv is missing required columns: {missing_summary_columns}"
         )
+    model_summary_template_required_columns = {"template_type", "accuracy", "avg_p_correct"}
+    missing_model_template_columns = sorted(
+        model_summary_template_required_columns.difference(model_summary_by_template_df.columns)
+    )
+    if missing_model_template_columns:
+        issues.append(
+            "model_summary_by_template.csv is missing required columns: "
+            f"{missing_model_template_columns}"
+        )
+    model_summary_bias_required_columns = {"bias_type", "accuracy_x", "accuracy_xprime", "avg_p_x", "avg_p_xprime"}
+    missing_model_bias_columns = sorted(
+        model_summary_bias_required_columns.difference(model_summary_by_bias_df.columns)
+    )
+    if missing_model_bias_columns:
+        issues.append(
+            f"model_summary_by_bias.csv is missing required columns: {missing_model_bias_columns}"
+        )
     candidate_score_required_columns = {"probe_name", "question_id", "prompt_id", "candidate_choice", "probe_score"}
     missing_candidate_score_columns = sorted(candidate_score_required_columns.difference(probe_candidate_scores_df.columns))
     if missing_candidate_score_columns:
         issues.append(
             f"probe_candidate_scores.csv is missing required columns: {missing_candidate_score_columns}"
+        )
+    probe_scores_by_prompt_required_columns = {
+        "probe_name",
+        "question_id",
+        "prompt_id",
+        "correct_letter",
+        "selected_choice",
+        "probe_score_correct_choice",
+        "probe_score_selected_choice",
+        "probe_argmax_choice",
+    }
+    missing_probe_scores_by_prompt_columns = sorted(
+        probe_scores_by_prompt_required_columns.difference(probe_scores_by_prompt_df.columns)
+    )
+    if missing_probe_scores_by_prompt_columns:
+        issues.append(
+            "probe_scores_by_prompt.csv is missing required columns: "
+            f"{missing_probe_scores_by_prompt_columns}"
+        )
+    probe_summary_csv_required_columns = {"probe_name", "best_layer", "best_dev_auc", "test_auc"}
+    missing_probe_summary_csv_columns = sorted(
+        probe_summary_csv_required_columns.difference(probe_summary_csv_df.columns)
+    )
+    if missing_probe_summary_csv_columns:
+        issues.append(
+            f"probe_summary.csv is missing required columns: {missing_probe_summary_csv_columns}"
         )
 
     if status.get("status") != "completed":
@@ -394,6 +453,12 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         if f"probe_bias_{bias_type}" not in probe_meta:
             issues.append(f"probe_metadata.json is missing probe_bias_{bias_type}")
 
+    executive_summary_text = executive_summary_path.read_text(encoding="utf-8").strip()
+    if not executive_summary_text:
+        issues.append("executive_summary.md is empty")
+    if "Executive Summary" not in executive_summary_text:
+        issues.append("executive_summary.md is missing the expected title")
+
     all_probes_dir = resolve_run_artifact_path(run_dir, "all_probes_dir")
     chosen_probe_dir = resolve_run_artifact_path(run_dir, "chosen_probe_dir")
     if all_probes_dir.exists():
@@ -416,11 +481,10 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
                 issues.append(f"chosen_probe manifest is missing for {probe_name}")
 
     if run_summary_path.exists():
-        run_summary = _load_json(run_summary_path)
-        if "agreement_injection_summary" not in run_summary:
-            issues.append("run_summary.json is missing agreement_injection_summary")
-        if "chosen_probe_test_metrics" not in run_summary:
-            issues.append("run_summary.json is missing chosen_probe_test_metrics")
+        if "headline_metrics" not in run_summary:
+            issues.append("run_summary.json is missing headline_metrics")
+        if "paths" not in run_summary:
+            issues.append("run_summary.json is missing paths")
 
     if issues:
         raise RuntimeError("\n".join(issues))

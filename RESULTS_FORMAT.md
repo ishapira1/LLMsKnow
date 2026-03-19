@@ -21,6 +21,7 @@ Typical contents:
 ```text
 logs/
   run.log
+  warnings.log  # optional; created only if warnings were emitted
 sampling_records.jsonl
 sampling_manifest.json
 sampled_responses.csv
@@ -71,6 +72,9 @@ status.json
 - `logs/run.log`
   - Human-readable runtime log for the run.
   - Mirrors the stage and progress messages printed during execution.
+- `logs/warnings.log`
+  - Optional warning-only log for the run.
+  - Created only when the pipeline emits at least one warning.
 
 If you want the complete record of model generations, start from `sampling_records.jsonl`.
 

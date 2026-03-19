@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Tuple
 
-from ..logging_utils import log_status
+from ..logging_utils import log_status, warn_status
 
 
 def _import_torch():
@@ -334,8 +334,9 @@ def generate_many(
             except Exception as exc:
                 if not safe_fallback or not _should_fallback_to_sequential(exc):
                     raise
-                log_status(
+                warn_status(
                     "llm/generation.py",
+                    "batched_generation_fallback",
                     "batched generation failed; falling back to sequential generation "
                     f"for this prompt chunk={chunk}. {type(exc).__name__}: {exc}",
                 )

@@ -23,13 +23,23 @@ class IntegrityContractTests(unittest.TestCase):
         sampling_records_path = preferred_run_artifact_path(run_dir, "sampling_records")
         tuples_path = preferred_run_artifact_path(run_dir, "final_tuples")
         summary_path = preferred_run_artifact_path(run_dir, "summary_by_question")
+        model_summary_by_template_path = preferred_run_artifact_path(run_dir, "model_summary_by_template")
+        model_summary_by_bias_path = preferred_run_artifact_path(run_dir, "model_summary_by_bias")
         probe_candidate_scores_path = preferred_run_artifact_path(run_dir, "probe_candidate_scores")
+        probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
+        probe_summary_csv_path = preferred_run_artifact_path(run_dir, "probe_summary_csv")
+        executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
         for path in (
             samples_path,
             sampling_records_path,
             tuples_path,
             summary_path,
+            model_summary_by_template_path,
+            model_summary_by_bias_path,
             probe_candidate_scores_path,
+            probe_scores_by_prompt_path,
+            probe_summary_csv_path,
+            executive_summary_path,
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
         question_splits = {"train": ["q_1"], "val": ["q_2"], "test": ["q_3"]}
@@ -200,6 +210,154 @@ class IntegrityContractTests(unittest.TestCase):
                 for template_type in templates
             ]
         ).to_csv(probe_candidate_scores_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "model_name": "HuggingFaceTB/SmolLM2-135M-Instruct",
+                    "probe_name": "probe_no_bias" if template_type == "neutral" else "probe_bias_incorrect_suggestion",
+                    "split": split_name,
+                    "question_id": question_id,
+                    "prompt_id": f"{question_id}__{template_type}",
+                    "dataset": "aqua_mc",
+                    "template_type": template_type,
+                    "draw_idx": 0,
+                    "source_record_id": idx + 1,
+                    "correct_letter": "A",
+                    "selected_choice": "A",
+                    "selected_choice_is_correct": True,
+                    "probe_score_correct_choice": 0.8,
+                    "probe_score_selected_choice": 0.8,
+                    "correct_choice_probability": 1.0,
+                    "selected_choice_probability": 1.0,
+                    "probe_argmax_choice": "A",
+                    "probe_argmax_score": 0.8,
+                    "probe_prefers_correct": True,
+                    "probe_prefers_selected": True,
+                    "probe_score_gap_correct_minus_selected": 0.0,
+                    "score_A": 0.8,
+                }
+                for idx, (split_name, question_ids) in enumerate(question_splits.items())
+                for question_id in question_ids
+                for template_type in templates
+            ]
+        ).to_csv(probe_scores_by_prompt_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "template_type": template_type,
+                    "n_rows": 3,
+                    "n_questions": 3,
+                    "n_usable_rows": 3,
+                    "usable_rate": 1.0,
+                    "ambiguous_rate": 0.0,
+                    "accuracy": 1.0,
+                    "avg_p_correct": 1.0,
+                    "avg_p_selected": 1.0,
+                    "avg_selected_minus_correct_probability_gap": 0.0,
+                    "avg_probe_score_selected_prompt": 0.3 if template_type == "neutral" else 0.7,
+                    "exact_format_rate": 1.0,
+                    "starts_with_answer_prefix_rate": 1.0,
+                    "cap_hit_rate": 0.0,
+                    "stopped_on_eos_rate": 0.0,
+                    "avg_completion_token_count": 3.0,
+                }
+                for template_type in templates
+            ]
+        ).to_csv(model_summary_by_template_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "bias_type": "incorrect_suggestion",
+                    "n_pairs": 3,
+                    "n_questions": 3,
+                    "accuracy_x": 1.0,
+                    "accuracy_xprime": 1.0,
+                    "delta_accuracy_x_minus_xprime": 0.0,
+                    "avg_p_x": 1.0,
+                    "avg_p_xprime": 1.0,
+                    "avg_delta_p_x_minus_xprime": 0.0,
+                    "avg_probe_x": 0.3,
+                    "avg_probe_xprime": 0.7,
+                    "avg_delta_probe_x_minus_xprime": -0.4,
+                    "harmful_flip_rate": 0.0,
+                    "helpful_flip_rate": 0.0,
+                    "unchanged_correctness_rate": 1.0,
+                    "answer_change_rate": 0.0,
+                }
+            ]
+        ).to_csv(model_summary_by_bias_path, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "probe_name": "probe_no_bias",
+                    "template_type": "neutral",
+                    "probe_construction": "choice_candidates",
+                    "probe_example_weighting": "model_probability",
+                    "best_layer": 1,
+                    "best_dev_auc": 0.8,
+                    "train_auc": 0.82,
+                    "val_auc": 0.8,
+                    "test_auc": 0.75,
+                    "train_accuracy": 1.0,
+                    "val_accuracy": 1.0,
+                    "test_accuracy": 1.0,
+                    "train_balanced_accuracy": 1.0,
+                    "val_balanced_accuracy": 1.0,
+                    "test_balanced_accuracy": 1.0,
+                    "train_n_total": 3,
+                    "val_n_total": 3,
+                    "test_n_total": 3,
+                    "train_minus_val_auc": 0.02,
+                    "val_minus_test_auc": 0.05,
+                    "train_minus_test_auc": 0.07,
+                    "probe_prefers_correct_rate": 1.0,
+                    "probe_prefers_selected_rate": 1.0,
+                    "mean_probe_score_correct_candidate": 0.8,
+                    "mean_probe_score_incorrect_candidate": 0.2,
+                    "mean_probe_score_selected_candidate": 0.8,
+                    "mean_probe_score_non_selected_candidate": 0.2,
+                    "mean_probe_score_correct_choice": 0.8,
+                    "mean_probe_score_selected_choice": 0.8,
+                    "mean_correct_minus_selected_probe_gap": 0.0,
+                },
+                {
+                    "probe_name": "probe_bias_incorrect_suggestion",
+                    "template_type": "incorrect_suggestion",
+                    "probe_construction": "choice_candidates",
+                    "probe_example_weighting": "model_probability",
+                    "best_layer": 1,
+                    "best_dev_auc": 0.82,
+                    "train_auc": 0.84,
+                    "val_auc": 0.82,
+                    "test_auc": 0.8,
+                    "train_accuracy": 1.0,
+                    "val_accuracy": 1.0,
+                    "test_accuracy": 1.0,
+                    "train_balanced_accuracy": 1.0,
+                    "val_balanced_accuracy": 1.0,
+                    "test_balanced_accuracy": 1.0,
+                    "train_n_total": 3,
+                    "val_n_total": 3,
+                    "test_n_total": 3,
+                    "train_minus_val_auc": 0.02,
+                    "val_minus_test_auc": 0.02,
+                    "train_minus_test_auc": 0.04,
+                    "probe_prefers_correct_rate": 1.0,
+                    "probe_prefers_selected_rate": 1.0,
+                    "mean_probe_score_correct_candidate": 0.8,
+                    "mean_probe_score_incorrect_candidate": 0.2,
+                    "mean_probe_score_selected_candidate": 0.8,
+                    "mean_probe_score_non_selected_candidate": 0.2,
+                    "mean_probe_score_correct_choice": 0.8,
+                    "mean_probe_score_selected_choice": 0.8,
+                    "mean_correct_minus_selected_probe_gap": 0.0,
+                },
+            ]
+        ).to_csv(probe_summary_csv_path, index=False)
+        executive_summary_path.write_text(
+            "# Executive Summary\n\n## Model Overview\n\nA compact human summary.\n",
+            encoding="utf-8",
+        )
 
         _write_json(
             preferred_run_artifact_path(run_dir, "run_config"),
@@ -225,6 +383,12 @@ class IntegrityContractTests(unittest.TestCase):
                 "probe_construction": "auto",
                 "probe_example_weighting": "model_probability",
                 "strict_mc_choice_scoring": True,
+                "model_summary_by_template_path": str(model_summary_by_template_path),
+                "model_summary_by_bias_path": str(model_summary_by_bias_path),
+                "probe_scores_by_prompt_path": str(probe_scores_by_prompt_path),
+                "probe_summary_csv_path": str(probe_summary_csv_path),
+                "probe_candidate_scores_path": str(probe_candidate_scores_path),
+                "executive_summary_path": str(executive_summary_path),
             },
         )
         _write_json(
@@ -345,8 +509,20 @@ class IntegrityContractTests(unittest.TestCase):
         _write_json(
             preferred_run_artifact_path(run_dir, "run_summary"),
             {
-                "agreement_injection_summary": {"all_splits": [], "by_split": []},
-                "chosen_probe_test_metrics": [],
+                "headline_metrics": {
+                    "overall_accuracy": 1.0,
+                    "overall_avg_p_correct": 1.0,
+                    "avg_delta_p_x_minus_xprime": 0.0,
+                    "best_probe_name": "probe_bias_incorrect_suggestion",
+                    "best_probe_test_auc": 0.8,
+                },
+                "paths": {
+                    "model_summary_by_template": str(model_summary_by_template_path),
+                    "model_summary_by_bias": str(model_summary_by_bias_path),
+                    "probe_summary_csv": str(probe_summary_csv_path),
+                    "probe_scores_by_prompt": str(probe_scores_by_prompt_path),
+                    "executive_summary": str(executive_summary_path),
+                },
             },
         )
 

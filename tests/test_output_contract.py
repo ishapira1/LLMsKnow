@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 import unittest
 
+import pandas as pd
+
 from llmssycoph.saving_manager import (
+    MC_PROBE_SCORE_BY_PROMPT_BASE_COLUMNS,
     PROBE_CANDIDATE_SCORE_COLUMNS,
     SAMPLED_RESPONSE_COLUMNS,
     SUMMARY_COLUMNS,
+    build_mc_probe_scores_by_prompt_df,
     build_summary_df,
     build_tuple_rows,
     to_probe_candidate_scores_df,
@@ -345,6 +349,79 @@ class OutputContractTests(unittest.TestCase):
         self.assertEqual(df.iloc[0]["candidate_choice"], "A")
         self.assertEqual(df.iloc[0]["selected_choice"], "C")
         self.assertAlmostEqual(df.iloc[0]["probe_score"], 0.2)
+
+    def test_mc_probe_scores_by_prompt_wide_schema_and_values(self):
+        candidate_df = pd.DataFrame(
+            [
+                {
+                    "model_name": "mistralai/Mistral-7B-Instruct-v0.2",
+                    "probe_name": "probe_no_bias",
+                    "split": "test",
+                    "question_id": "q_1",
+                    "prompt_id": "q_1__neutral",
+                    "dataset": "aqua_mc",
+                    "template_type": "neutral",
+                    "draw_idx": 0,
+                    "source_record_id": 10,
+                    "correct_letter": "C",
+                    "selected_choice": "B",
+                    "candidate_choice": "A",
+                    "candidate_rank": 0,
+                    "candidate_probability": 0.1,
+                    "probe_score": 0.2,
+                },
+                {
+                    "model_name": "mistralai/Mistral-7B-Instruct-v0.2",
+                    "probe_name": "probe_no_bias",
+                    "split": "test",
+                    "question_id": "q_1",
+                    "prompt_id": "q_1__neutral",
+                    "dataset": "aqua_mc",
+                    "template_type": "neutral",
+                    "draw_idx": 0,
+                    "source_record_id": 10,
+                    "correct_letter": "C",
+                    "selected_choice": "B",
+                    "candidate_choice": "B",
+                    "candidate_rank": 1,
+                    "candidate_probability": 0.6,
+                    "probe_score": 0.7,
+                },
+                {
+                    "model_name": "mistralai/Mistral-7B-Instruct-v0.2",
+                    "probe_name": "probe_no_bias",
+                    "split": "test",
+                    "question_id": "q_1",
+                    "prompt_id": "q_1__neutral",
+                    "dataset": "aqua_mc",
+                    "template_type": "neutral",
+                    "draw_idx": 0,
+                    "source_record_id": 10,
+                    "correct_letter": "C",
+                    "selected_choice": "B",
+                    "candidate_choice": "C",
+                    "candidate_rank": 2,
+                    "candidate_probability": 0.2,
+                    "probe_score": 0.4,
+                },
+            ]
+        )
+
+        wide_df = build_mc_probe_scores_by_prompt_df(candidate_df)
+
+        self.assertEqual(
+            list(wide_df.columns[: len(MC_PROBE_SCORE_BY_PROMPT_BASE_COLUMNS)]),
+            MC_PROBE_SCORE_BY_PROMPT_BASE_COLUMNS,
+        )
+        self.assertIn("score_A", wide_df.columns)
+        self.assertIn("score_B", wide_df.columns)
+        self.assertIn("score_C", wide_df.columns)
+        self.assertEqual(len(wide_df), 1)
+        self.assertEqual(wide_df.iloc[0]["selected_choice"], "B")
+        self.assertAlmostEqual(wide_df.iloc[0]["probe_score_correct_choice"], 0.4)
+        self.assertAlmostEqual(wide_df.iloc[0]["probe_score_selected_choice"], 0.7)
+        self.assertEqual(wide_df.iloc[0]["probe_argmax_choice"], "B")
+        self.assertAlmostEqual(wide_df.iloc[0]["probe_score_gap_correct_minus_selected"], -0.3)
 
 
 if __name__ == "__main__":

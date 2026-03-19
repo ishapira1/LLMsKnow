@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from tqdm.auto import tqdm
 
 from ..grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
-from ..logging_utils import log_status, tqdm_desc
+from ..logging_utils import log_status, tqdm_desc, warn_status
 from .features import get_hidden_feature_for_completion as _get_hidden_feature_for_completion
 from .records import _probe_completion_text, maybe_subsample
 
@@ -42,13 +42,21 @@ def train_probe_for_layer(
         f'training probe for {desc}: records={len(records)} layer={layer}',
     )
     if len(records) < 2:
-        log_status(_LOG_SOURCE, f'skipping training for {desc}: too few train samples={len(records)}')
+        warn_status(
+            _LOG_SOURCE,
+            "probe_training_too_few_samples",
+            f'skipping training for {desc}: too few train samples={len(records)}',
+        )
         return None
 
     y = np.array([int(record['correctness']) for record in records], dtype=int)
     sample_weight = np.array([_record_weight(record) for record in records], dtype=float)
     if len(np.unique(y)) < 2:
-        log_status(_LOG_SOURCE, f'skipping training for {desc}: only one class in training data')
+        warn_status(
+            _LOG_SOURCE,
+            "probe_training_single_class",
+            f'skipping training for {desc}: only one class in training data',
+        )
         return None
 
     X = []

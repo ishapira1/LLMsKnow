@@ -9,7 +9,7 @@ from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
 from ..grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
-from ..logging_utils import log_status, tqdm_desc
+from ..logging_utils import log_status, tqdm_desc, warn_status
 from .features import get_hidden_feature_all_layers_for_completion
 from .records import _probe_completion_text, maybe_subsample
 
@@ -53,8 +53,9 @@ def select_best_layer_by_auc(
     )
 
     if len(train_records) < 2 or len(val_records) < 2:
-        log_status(
+        warn_status(
             _LOG_SOURCE,
+            "probe_layer_selection_too_few_samples",
             f'skipping layer selection for {desc}: too few samples '
             f'train={len(train_records)} val={len(val_records)}',
         )
@@ -69,8 +70,9 @@ def select_best_layer_by_auc(
     y_val = np.array([int(record['correctness']) for record in val_records], dtype=int)
     sample_weight_train = np.array([_record_weight(record) for record in train_records], dtype=float)
     if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
-        log_status(
+        warn_status(
             _LOG_SOURCE,
+            "probe_layer_selection_single_class",
             f'skipping layer selection for {desc}: train or val split has only one class',
         )
         return (
@@ -137,7 +139,7 @@ def select_best_layer_by_auc(
             best_layer = layer
 
     if best_layer is None:
-        log_status(_LOG_SOURCE, f'no valid layer selected for {desc}')
+        warn_status(_LOG_SOURCE, "probe_no_valid_layer_selected", f'no valid layer selected for {desc}')
         return None, None, auc_per_layer, clf_per_layer
 
     log_status(_LOG_SOURCE, f'selected best layer for {desc}: layer={best_layer} dev_auc={best_auc:.4f}')

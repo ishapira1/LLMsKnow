@@ -81,8 +81,14 @@ class CliContractTests(unittest.TestCase):
         self.assertIn("--mc_mode", help_text)
         self.assertIn("--probe_construction", help_text)
         self.assertIn("--probe_example_weighting", help_text)
+        self.assertIn("--override_sampling_cache", help_text)
         self.assertIn("answer_with_reasoning", help_text)
         self.assertIn("legacy --mc_mode", help_text)
+
+    def test_override_sampling_cache_alias_disables_sampling_reuse(self):
+        args = parse_args(["--override_sampling_cache"])
+
+        self.assertTrue(args.no_reuse_sampling_cache)
 
 
 if __name__ == "__main__":

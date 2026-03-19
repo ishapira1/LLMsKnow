@@ -57,12 +57,28 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("analysis") / "summary_by_question.csv",
         Path("summary_by_question.csv"),
     ),
+    "model_summary_by_template": (
+        Path("analysis") / "model_summary_by_template.csv",
+    ),
+    "model_summary_by_bias": (
+        Path("analysis") / "model_summary_by_bias.csv",
+    ),
     "run_summary": (
+        Path("internal") / "run_summary.json",
         Path("analysis") / "run_summary.json",
     ),
     "probe_candidate_scores": (
         Path("probes") / "probe_candidate_scores.csv",
         Path("probe_candidate_scores.csv"),
+    ),
+    "probe_scores_by_prompt": (
+        Path("probes") / "probe_scores_by_prompt.csv",
+    ),
+    "probe_summary_csv": (
+        Path("probes") / "probe_summary.csv",
+    ),
+    "executive_summary": (
+        Path("summary") / "executive_summary.md",
     ),
     "probe_metadata": (
         Path("probes") / "probe_metadata.json",
@@ -305,6 +321,20 @@ def write_pickle_atomic(path: Path, payload: Any) -> None:
     try:
         with open(tmp_path, "wb") as handle:
             pickle.dump(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+def write_text_atomic(path: Path, payload: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_path, path)

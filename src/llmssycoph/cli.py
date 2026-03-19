@@ -219,8 +219,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sampling_group.add_argument(
         "--no_reuse_sampling_cache",
+        "--override_sampling_cache",
         action="store_true",
-        help="Disable reuse of matching sampling checkpoints from earlier runs.",
+        help=(
+            "Disable reuse of matching sampling checkpoints from earlier runs. "
+            "Passing --override_sampling_cache forces fresh sampling even when the sampling hash matches."
+        ),
     )
     sampling_group.add_argument(
         "--temperature",

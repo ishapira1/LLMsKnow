@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Sequence
 
 from .constants import MC_MODE_STRICT
 from .grading import record_is_usable_for_metrics
-from .logging_utils import log_status
+from .logging_utils import log_status, warn_status
 
 
 SAMPLING_INTEGRITY_VERSION = 1
@@ -183,6 +183,20 @@ def _mode_human_summary(bucket_summary: Dict[str, Dict[str, Any]], bucket_labels
     return lines
 
 
+def _top_reasons(reason_counts: Dict[str, Any], limit: int = 3) -> str:
+    if not isinstance(reason_counts, dict):
+        return ""
+    ranked: List[tuple[str, int]] = []
+    for reason, count in reason_counts.items():
+        try:
+            numeric_count = int(count)
+        except Exception:
+            continue
+        ranked.append((str(reason), numeric_count))
+    ranked.sort(key=lambda item: (-item[1], item[0]))
+    return ", ".join(f"{reason}={count}" for reason, count in ranked[:limit])
+
+
 def _summarize_generation_records(
     records: Sequence[Dict[str, Any]],
     *,
@@ -317,6 +331,36 @@ def log_sampling_integrity_summary(summary: Dict[str, Any]) -> None:
             "sampling_integrity.py",
             f"sampling integrity mode={sampling_mode}: " + " | ".join(lines),
         )
+        total = int(mode_summary.get("total", 0) or 0)
+        if sampling_mode == "generation":
+            format_failure = int(mode_summary.get("buckets", {}).get("format_failure", {}).get("count", 0) or 0)
+            format_drift = int(
+                mode_summary.get("buckets", {}).get("minor_format_deviation_still_scoreable", {}).get("count", 0) or 0
+            )
+            if format_failure > 0:
+                details = _top_reasons(mode_summary.get("reason_counts", {}))
+                warn_status(
+                    "sampling_integrity.py",
+                    "generation_format_failures",
+                    f"{format_failure}/{total} generation rows were not scoreable due to format or parsing failures."
+                    + (f" Top reasons: {details}" if details else ""),
+                )
+            if format_drift > 0:
+                warn_status(
+                    "sampling_integrity.py",
+                    "generation_format_drift",
+                    f"{format_drift}/{total} generation rows were scoreable but violated the exact strict-MC format contract.",
+                )
+        elif sampling_mode == "choice_probabilities":
+            integrity_failure = int(mode_summary.get("buckets", {}).get("integrity_failure", {}).get("count", 0) or 0)
+            if integrity_failure > 0:
+                details = _top_reasons(mode_summary.get("reason_counts", {}))
+                warn_status(
+                    "sampling_integrity.py",
+                    "choice_probability_integrity_failures",
+                    f"{integrity_failure}/{total} choice-probability rows failed bookkeeping or integrity checks."
+                    + (f" Top reasons: {details}" if details else ""),
+                )
         for template_type, template_summary in sorted(mode_summary.get("by_template", {}).items()):
             template_lines = list(template_summary.get("human_summary", []))
             if not template_lines:
