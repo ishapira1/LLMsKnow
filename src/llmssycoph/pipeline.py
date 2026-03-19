@@ -62,6 +62,7 @@ from .runtime import (
 )
 from .sampling_integrity import build_sampling_integrity_summary, log_sampling_integrity_summary
 from .saving_manager import (
+    build_terminal_final_stats_lines,
     persist_sampling_state,
     save_run_results,
     save_sampling_integrity_summary,
@@ -717,6 +718,7 @@ def run_pipeline(args) -> None:
         else:
             log_status("pipeline.py", "HF cache dir not set; libraries may fallback to ~/.cache")
         device = resolve_device(args.device)
+        args.resolved_device = device
         log_status("pipeline.py", f"resolved device: requested={args.device} actual={device}")
 
         data_files = ensure_sycophancy_eval_cached(
@@ -1281,7 +1283,7 @@ def run_pipeline(args) -> None:
         finish_stage()
 
         begin_stage(8, "final artifact saving")
-        save_run_results(
+        saved_paths = save_run_results(
             args=args,
             run_dir=run_dir,
             lock_path=lock_path,
@@ -1302,6 +1304,12 @@ def run_pipeline(args) -> None:
             )
         run_status = "completed"
         log_status("pipeline.py", f"run completed successfully: {run_dir}")
+        try:
+            reports_summary_payload = json.loads(saved_paths["reports_summary_path"].read_text(encoding="utf-8"))
+        except Exception:
+            reports_summary_payload = {}
+        for line in build_terminal_final_stats_lines(reports_summary_payload):
+            ok_status("pipeline.py", line)
         finish_stage()
     except Exception as exc:
         run_error = f"{type(exc).__name__}: {exc}"

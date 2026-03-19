@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, List, Sequence
 import pandas as pd
 
 from .data import prompt_id_for
+from .logging_utils import warn_status
 from .runtime import model_slug, resolve_run_artifact_path
 from .saving_manager import build_model_summary_by_bias_df, build_model_summary_by_template_df
 
@@ -213,8 +214,15 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         issues.append("dataset_name is not aqua_mc")
     if str(run_config.get("mc_mode")) != "strict_mc":
         issues.append("mc_mode is not strict_mc")
-    if str(run_config.get("device")) != "cpu":
-        issues.append("device is not cpu")
+    configured_device = str(run_config.get("device", "") or "").strip()
+    resolved_device = str(run_config.get("resolved_device", "") or "").strip()
+    if not configured_device:
+        issues.append("run_config.json is missing device")
+    allowed_devices = {"auto", "cpu", "cuda", "mps"}
+    if configured_device and configured_device not in allowed_devices:
+        issues.append(f"device has unexpected value {configured_device!r}")
+    if resolved_device and resolved_device not in allowed_devices:
+        issues.append(f"resolved_device has unexpected value {resolved_device!r}")
 
     bias_types = _parse_list_like(run_config.get("bias_types"))
     expected_templates = {"neutral", *bias_types}
@@ -540,6 +548,8 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         "sample_count": int(len(samples)),
         "tuple_count": int(len(tuples_df)),
         "question_count": int(len(expected_question_ids)),
+        "configured_device": configured_device,
+        "resolved_device": resolved_device or configured_device,
         "reports_summary_path": str(reports_summary_path),
         "bias_types": bias_types,
         "usable_rate": usable_rate,
@@ -557,6 +567,11 @@ def _print_report(report: Dict[str, Any]) -> None:
         f" samples={report['sample_count']}"
         f" tuples={report['tuple_count']}"
         f" questions={report['question_count']}"
+    )
+    print(
+        "[integrity] device:"
+        f" requested={report['configured_device'] or 'unknown'}"
+        f" resolved={report['resolved_device'] or 'unknown'}"
     )
     print(
         "[integrity] usability:"
@@ -588,6 +603,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out_dir", type=str, default="results/sycophancy_bias_probe")
     parser.add_argument("--model", type=str, required=False, default="mistralai/Mistral-7B-Instruct-v0.2")
     parser.add_argument("--run_name", type=str, required=False, default="smoke_aqua_mc_mistral7b_cpu_q12_l4")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero when integrity issues are found instead of emitting warnings.",
+    )
     args = parser.parse_args(argv)
 
     run_dir = _resolve_run_dir(
@@ -596,7 +616,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         model=args.model,
         run_name=args.run_name,
     )
-    report = check_run_integrity(run_dir)
+    try:
+        report = check_run_integrity(run_dir)
+    except RuntimeError as exc:
+        issues = [line.strip() for line in str(exc).splitlines() if line.strip()]
+        warn_status(
+            "integrity.py",
+            "integrity_check_failed",
+            f"integrity check found {len(issues)} issue(s) for run_dir={run_dir}",
+        )
+        for issue in issues:
+            warn_status("integrity.py", "integrity_issue", issue)
+        if args.strict:
+            return 1
+        warn_status(
+            "integrity.py",
+            "continuing_after_integrity_warnings",
+            "continuing because --strict was not set",
+        )
+        return 0
     _print_report(report)
     return 0
 

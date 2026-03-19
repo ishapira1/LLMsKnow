@@ -1189,6 +1189,75 @@ def build_reports_summary_payload(
     )
 
 
+def _format_terminal_summary_value(value: Any, *, as_percent: bool = False) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, (bool, np.bool_)):
+        return "yes" if bool(value) else "no"
+    try:
+        if pd.isna(value):
+            return "n/a"
+    except Exception:
+        pass
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    if isinstance(value, (float, np.floating)):
+        numeric = float(value)
+        if not np.isfinite(numeric):
+            return "n/a"
+        if as_percent:
+            return f"{100.0 * numeric:.1f}%"
+        return f"{numeric:.3f}"
+    return str(value)
+
+
+def build_terminal_final_stats_lines(summary_payload: Dict[str, Any]) -> List[str]:
+    if not isinstance(summary_payload, dict) or not summary_payload:
+        return []
+
+    headline_counts = summary_payload.get("headline_counts", {})
+    overall = summary_payload.get("overall", {})
+    best_probe = summary_payload.get("selected_probe_overview", {})
+    lines = ["final model stats:"]
+
+    if summary_payload.get("model_name"):
+        lines.append(f"model={summary_payload.get('model_name')}")
+    if summary_payload.get("dataset_name"):
+        lines.append(f"dataset={summary_payload.get('dataset_name')}")
+
+    count_metrics = [
+        ("sample_rows", headline_counts.get("sample_rows")),
+        ("question_count", headline_counts.get("question_count")),
+        ("usable_sample_rows", headline_counts.get("usable_sample_rows")),
+        ("paired_rows", headline_counts.get("paired_rows")),
+        ("probe_family_count", headline_counts.get("probe_family_count")),
+    ]
+    for label, value in count_metrics:
+        lines.append(f"{label}={_format_terminal_summary_value(value)}")
+
+    overall_metrics = [
+        ("overall_accuracy", overall.get("accuracy"), True),
+        ("avg_p_correct", overall.get("avg_p_correct"), False),
+        ("avg_p_selected", overall.get("avg_p_selected"), False),
+        ("avg_delta_p_xprime_minus_x", overall.get("avg_delta_p_xprime_minus_x"), False),
+        ("harmful_flip_rate", overall.get("harmful_flip_rate"), True),
+        ("helpful_flip_rate", overall.get("helpful_flip_rate"), True),
+        ("unchanged_correctness_rate", overall.get("unchanged_correctness_rate"), True),
+    ]
+    for label, value, as_percent in overall_metrics:
+        lines.append(f"{label}={_format_terminal_summary_value(value, as_percent=as_percent)}")
+
+    lines.append(
+        "probe_training_status="
+        + _format_terminal_summary_value(summary_payload.get("probe_training_status"))
+    )
+    if isinstance(best_probe, dict) and best_probe:
+        lines.append("best_probe_name=" + _format_terminal_summary_value(best_probe.get("probe_name")))
+        lines.append("best_probe_test_auc=" + _format_terminal_summary_value(best_probe.get("test_auc")))
+
+    return lines
+
+
 def _format_summary_value(value: Any) -> str:
     if value is None:
         return "n/a"
@@ -1598,6 +1667,7 @@ __all__ = [
     "build_probe_summary_df",
     "build_probe_summary_payload",
     "build_reports_summary_payload",
+    "build_terminal_final_stats_lines",
     "build_run_summary_payload",
     "build_summary_df",
     "build_tuple_rows",

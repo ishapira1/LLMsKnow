@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from llmssycoph.integrity import check_run_integrity
+from llmssycoph.integrity import check_run_integrity, main
 from llmssycoph.runtime import preferred_run_artifact_path, write_csv_atomic, write_json_atomic, write_text_atomic
 from llmssycoph.saving_manager import (
     build_executive_summary_markdown,
@@ -224,6 +224,7 @@ class IntegrityContractTests(unittest.TestCase):
                 "run_name": run_dir.name,
                 "model": model_name,
                 "device": "cpu",
+                "resolved_device": "cpu",
                 "benchmark_source": "ays_mc_single_turn",
                 "input_jsonl": "are_you_sure.jsonl",
                 "dataset_name": dataset_name,
@@ -335,6 +336,21 @@ class IntegrityContractTests(unittest.TestCase):
             self.assertEqual(report["tuple_count"], 3)
             self.assertEqual(report["question_count"], 3)
 
+    def test_check_run_integrity_accepts_auto_requested_cuda_resolved_device(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            self._build_smoke_run(run_dir)
+            run_config_path = preferred_run_artifact_path(run_dir, "run_config")
+            run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+            run_config["device"] = "auto"
+            run_config["resolved_device"] = "cuda"
+            write_json_atomic(run_config_path, run_config)
+
+            report = check_run_integrity(run_dir)
+
+            self.assertEqual(report["configured_device"], "auto")
+            self.assertEqual(report["resolved_device"], "cuda")
+
     def test_check_run_integrity_rejects_duplicate_sample_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir) / "run"
@@ -345,6 +361,32 @@ class IntegrityContractTests(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 check_run_integrity(run_dir)
+
+    def test_integrity_main_warns_and_returns_zero_by_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            self._build_smoke_run(run_dir)
+            sampled_df = pd.read_csv(preferred_run_artifact_path(run_dir, "sampled_responses")).drop(
+                columns=["prompt_id"]
+            )
+            sampled_df.to_csv(preferred_run_artifact_path(run_dir, "sampled_responses"), index=False)
+
+            exit_code = main(["--run_dir", str(run_dir)])
+
+            self.assertEqual(exit_code, 0)
+
+    def test_integrity_main_strict_returns_nonzero_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            self._build_smoke_run(run_dir)
+            sampled_df = pd.read_csv(preferred_run_artifact_path(run_dir, "sampled_responses")).drop(
+                columns=["prompt_id"]
+            )
+            sampled_df.to_csv(preferred_run_artifact_path(run_dir, "sampled_responses"), index=False)
+
+            exit_code = main(["--run_dir", str(run_dir), "--strict"])
+
+            self.assertEqual(exit_code, 1)
 
     def test_check_run_integrity_rejects_missing_prompt_id_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:

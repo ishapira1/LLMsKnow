@@ -20,6 +20,7 @@ from llmssycoph.saving_manager import (
     build_probe_summary_df,
     build_probe_summary_payload,
     build_reports_summary_payload,
+    build_terminal_final_stats_lines,
     PROBE_CANDIDATE_SCORE_COLUMNS,
     SAMPLED_RESPONSE_COLUMNS,
     to_probe_candidate_scores_df,
@@ -317,6 +318,18 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertIn(payload["generated_at_utc"], markdown)
             self.assertIn("## Accuracy by Template", markdown)
             self.assertIn("## Probe Overview", markdown)
+
+            terminal_lines = build_terminal_final_stats_lines(payload)
+            self.assertEqual(terminal_lines[0], "final model stats:")
+            self.assertIn("model=test/model", terminal_lines)
+            self.assertIn("dataset=aqua_mc", terminal_lines)
+            self.assertIn("sample_rows=2", terminal_lines)
+            self.assertIn("overall_accuracy=50.0%", terminal_lines)
+            self.assertIn("avg_p_correct=0.550", terminal_lines)
+            self.assertIn("avg_delta_p_xprime_minus_x=-0.500", terminal_lines)
+            self.assertIn("harmful_flip_rate=100.0%", terminal_lines)
+            self.assertIn("best_probe_name=probe_bias_incorrect_suggestion", terminal_lines)
+            self.assertIn("best_probe_test_auc=0.780", terminal_lines)
 
     def test_model_and_probe_summary_artifacts_capture_global_metrics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
