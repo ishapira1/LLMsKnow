@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .correctness import (
+from .grading import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
     grade_short_answer,

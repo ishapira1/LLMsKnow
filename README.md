@@ -29,7 +29,7 @@ The main question is whether bias changes only the model's output, or also chang
 
 - `run_sycophancy_bias_probe.py`: thin public wrapper for the current pipeline
 - `src/llmssycoph/`: main package for dataset prep, sampling, probes, outputs, and runtime helpers
-- `src/llmssycoph/correctness.py`: source-of-truth answer parsing and correctness grading logic
+- `src/llmssycoph/grading/`: answer parsing, correctness grading, graded record preparation, and probe-data assembly
 - `pyproject.toml`: packaging metadata for the `src` layout and editable installs
 - `RESULTS_FORMAT.md`: artifact layout, cache rules, and parsing guide for run outputs
 - `jobs/sycophancy_bias_probe/`: SLURM job scripts for cluster runs
@@ -52,6 +52,7 @@ pip install -e .
 The repository now uses a `src` layout, and `pip install -e .` keeps the `llmssycoph` package importable for tests, scripts, and notebooks.
 
 The pipeline loads Hugging Face models and uses the sycophancy evaluation data in `data/sycophancy-eval/`. If those files are missing, the runner can fetch them from `meg-tong/sycophancy-eval`.
+For direct runs, `.env` is optional: the main pipeline only uses it to populate cache-related environment variables such as `HF_HUB_CACHE`, and if it is missing the code falls back to Hugging Face's default cache location. The repo does not wire in a Hugging Face token itself, but the SLURM job scripts under `jobs/` do require `.env` because they source it and expect `HUGGINGFACE_HUB_CACHE` to be set.
 
 ## Quick start
 

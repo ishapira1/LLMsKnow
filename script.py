@@ -27,7 +27,7 @@ from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
 from llmssycoph.logging_utils import log_status
-from llmssycoph.correctness import (
+from llmssycoph.grading import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
     is_correct_short_answer,

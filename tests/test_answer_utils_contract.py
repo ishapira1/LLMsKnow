@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from llmssycoph.constants import GRADING_SPEC_VERSION, MC_MODE_STRICT
-from llmssycoph.correctness import (
+from llmssycoph.grading import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
     grade_multiple_choice_response,

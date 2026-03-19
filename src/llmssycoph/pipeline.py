@@ -29,15 +29,14 @@ from .data import (
     split_groups_train_val_test,
     unique_dataset_names,
 )
+from .grading import add_empirical_t, build_probe_record_sets, refresh_sample_records_for_groups
 from .logging_utils import clear_run_logging, configure_run_logging, log_status, tqdm_desc
 from .outputs import build_summary_df, build_tuple_rows, to_samples_df, to_tuples_df
 from .llm import (
-    add_empirical_t,
     build_sampling_spec,
     load_model_and_tokenizer,
     load_sampling_cache_candidate,
     normalize_sample_records,
-    refresh_sample_records_for_groups,
     sample_records_for_groups,
     sampling_spec_hash,
     sort_sample_records,
@@ -867,31 +866,38 @@ def run_pipeline(args) -> None:
                 "token_position": "last_token_of_full_sampled_completion",
             }
 
-            train_neutral = [record for record in train_records if record["template_type"] == "neutral"]
-            val_neutral = [record for record in val_records if record["template_type"] == "neutral"]
+            probe_record_sets = build_probe_record_sets(
+                train_records=train_records,
+                val_records=val_records,
+                all_records=all_records,
+                bias_types=planned_bias_types,
+            )
+
+            neutral_probe = probe_record_sets["neutral"]
             log_status(
                 "pipeline.py",
-                f"probe selection neutral: train_records={len(train_neutral)} val_records={len(val_neutral)}",
+                f"probe selection neutral: train_records={len(neutral_probe['train_records'])} "
+                f"val_records={len(neutral_probe['val_records'])}",
             )
             best_layer_x, best_auc_x, aucs_x, layer_clfs_x = select_best_layer_by_auc(
                 model=model,
                 tokenizer=tokenizer,
-                train_records=train_neutral,
-                val_records=val_neutral,
+                train_records=neutral_probe["train_records"],
+                val_records=neutral_probe["val_records"],
                 layer_grid=layer_grid,
                 seed=args.probe_seed,
                 max_selection_samples=args.probe_selection_max_samples,
-                desc="no_bias",
+                desc=neutral_probe["desc"],
             )
             clf_x = (
                 train_probe_for_layer(
                     model=model,
                     tokenizer=tokenizer,
-                    records=train_neutral + val_neutral,
+                    records=neutral_probe["retrain_records"],
                     layer=best_layer_x if best_layer_x is not None else layer_min,
                     seed=args.probe_seed,
                     max_train_samples=args.probe_train_max_samples,
-                    desc="no_bias",
+                    desc=neutral_probe["desc"],
                 )
                 if best_layer_x is not None
                 else None
@@ -903,13 +909,13 @@ def run_pipeline(args) -> None:
             score_records_with_probe(
                 model=model,
                 tokenizer=tokenizer,
-                records=[record for record in all_records if record["template_type"] == "neutral"],
+                records=neutral_probe["score_records"],
                 clf=clf_x,
                 layer=best_layer_x,
-                score_key="probe_x",
-                desc="no_bias",
+                score_key=neutral_probe["score_key"],
+                desc=neutral_probe["desc"],
             )
-            probes_meta["probe_no_bias"] = {
+            probes_meta[neutral_probe["meta_key"]] = {
                 "best_layer": best_layer_x,
                 "best_dev_auc": best_auc_x,
                 "auc_per_layer": aucs_x,
@@ -921,31 +927,31 @@ def run_pipeline(args) -> None:
             probe_bias_layers: Dict[str, Optional[int]] = {}
             probe_bias_clfs: Dict[str, Any] = {}
             for btype in planned_bias_types:
-                train_bias = [record for record in train_records if record["template_type"] == btype]
-                val_bias = [record for record in val_records if record["template_type"] == btype]
+                bias_probe = probe_record_sets[btype]
                 log_status(
                     "pipeline.py",
-                    f"probe selection bias={btype}: train_records={len(train_bias)} val_records={len(val_bias)}",
+                    f"probe selection bias={btype}: train_records={len(bias_probe['train_records'])} "
+                    f"val_records={len(bias_probe['val_records'])}",
                 )
                 best_layer_b, best_auc_b, aucs_b, layer_clfs_b = select_best_layer_by_auc(
                     model=model,
                     tokenizer=tokenizer,
-                    train_records=train_bias,
-                    val_records=val_bias,
+                    train_records=bias_probe["train_records"],
+                    val_records=bias_probe["val_records"],
                     layer_grid=layer_grid,
                     seed=args.probe_seed,
                     max_selection_samples=args.probe_selection_max_samples,
-                    desc=f"bias:{btype}",
+                    desc=bias_probe["desc"],
                 )
                 clf_b = (
                     train_probe_for_layer(
                         model=model,
                         tokenizer=tokenizer,
-                        records=train_bias + val_bias,
+                        records=bias_probe["retrain_records"],
                         layer=best_layer_b if best_layer_b is not None else layer_min,
                         seed=args.probe_seed,
                         max_train_samples=args.probe_train_max_samples,
-                        desc=f"bias:{btype}",
+                        desc=bias_probe["desc"],
                     )
                     if best_layer_b is not None
                     else None
@@ -957,7 +963,7 @@ def run_pipeline(args) -> None:
 
                 probe_bias_layers[btype] = best_layer_b
                 probe_bias_clfs[btype] = clf_b
-                probes_meta[f"probe_bias_{btype}"] = {
+                probes_meta[bias_probe["meta_key"]] = {
                     "best_layer": best_layer_b,
                     "best_dev_auc": best_auc_b,
                     "auc_per_layer": aucs_b,
@@ -969,11 +975,11 @@ def run_pipeline(args) -> None:
                 score_records_with_probe(
                     model=model,
                     tokenizer=tokenizer,
-                    records=[record for record in all_records if record["template_type"] == btype],
+                    records=bias_probe["score_records"],
                     clf=clf_b,
                     layer=best_layer_b,
-                    score_key="probe_xprime",
-                    desc=f"bias:{btype}",
+                    score_key=bias_probe["score_key"],
+                    desc=bias_probe["desc"],
                 )
 
                 probe_models_dir = run_dir / "probe_models"
@@ -991,8 +997,8 @@ def run_pipeline(args) -> None:
                     write_pickle_atomic(path, clf_b)
                     saved_best_model = str(path)
 
-                probes_meta[f"probe_bias_{btype}"]["saved_selection_models"] = saved_layer_models
-                probes_meta[f"probe_bias_{btype}"]["saved_best_model"] = saved_best_model
+                probes_meta[bias_probe["meta_key"]]["saved_selection_models"] = saved_layer_models
+                probes_meta[bias_probe["meta_key"]]["saved_best_model"] = saved_best_model
 
             probe_models_dir = run_dir / "probe_models"
             saved_x_layer_models: List[str] = []
@@ -1007,8 +1013,8 @@ def run_pipeline(args) -> None:
                 path = probe_models_dir / f"probe_no_bias__best_retrained_layer_{int(best_layer_x)}.pkl"
                 write_pickle_atomic(path, clf_x)
                 saved_x_best_model = str(path)
-            probes_meta["probe_no_bias"]["saved_selection_models"] = saved_x_layer_models
-            probes_meta["probe_no_bias"]["saved_best_model"] = saved_x_best_model
+            probes_meta[neutral_probe["meta_key"]]["saved_selection_models"] = saved_x_layer_models
+            probes_meta[neutral_probe["meta_key"]]["saved_best_model"] = saved_x_best_model
         finish_stage()
 
         begin_stage(8, "final artifact saving")

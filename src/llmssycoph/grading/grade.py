@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from numbers import Integral
 import re
 from typing import Any, Dict, List
 
-from .constants import GRADING_SPEC_VERSION, MC_MODE_STRICT, MC_MODE_WITH_RATIONALE
-from .data import is_multiple_choice_base, multiple_choice_option_map
+from ..constants import GRADING_SPEC_VERSION, MC_MODE_STRICT, MC_MODE_WITH_RATIONALE
+from ..data import is_multiple_choice_base, multiple_choice_option_map
 
 
 _WS_RE = re.compile(r"\s+")
@@ -892,19 +891,6 @@ def is_correct_short_answer(pred: str, gold_answers: List[str]) -> bool:
     return bool(grading["usable_for_metrics"] and grading["correctness"] == 1)
 
 
-def record_is_usable_for_metrics(record: Dict[str, Any]) -> bool:
-    if not isinstance(record, dict):
-        return False
-
-    correctness = record.get("correctness")
-    usable = record.get("usable_for_metrics")
-    has_binary_correctness = isinstance(correctness, Integral) and int(correctness) in {0, 1}
-
-    if usable is None:
-        return has_binary_correctness
-    return bool(usable) and has_binary_correctness
-
-
 __all__ = [
     "extract_gold_answers_from_base",
     "normalize_answer",
@@ -913,5 +899,4 @@ __all__ = [
     "grade_short_answer",
     "grade_multiple_choice_response",
     "grade_response_from_base",
-    "record_is_usable_for_metrics",
 ]

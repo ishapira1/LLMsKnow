@@ -11,12 +11,10 @@ from .generation import (
 )
 from .loading import load_model_and_tokenizer
 from .sampling import (
-    add_empirical_t,
     build_sampling_spec,
     enumerate_expected_sample_keys,
     load_sampling_cache_candidate,
     normalize_sample_records,
-    refresh_sample_records_for_groups,
     sample_record_key,
     sample_record_key_values,
     sample_records_for_groups,
@@ -30,7 +28,6 @@ __all__ = [
     "_should_fallback_to_sequential",
     "_strict_mc_generated_answer_complete",
     "_token_id_list_from_encoded",
-    "add_empirical_t",
     "build_sampling_spec",
     "encode_chat",
     "enumerate_expected_sample_keys",
@@ -39,7 +36,6 @@ __all__ = [
     "load_model_and_tokenizer",
     "load_sampling_cache_candidate",
     "normalize_sample_records",
-    "refresh_sample_records_for_groups",
     "sample_record_key",
     "sample_record_key_values",
     "sample_records_for_groups",

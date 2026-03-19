@@ -7,7 +7,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
-from ..correctness import record_is_usable_for_metrics as _record_is_usable_for_metrics
+from ..grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from ..logging_utils import log_status, tqdm_desc
 from .features import get_hidden_feature_all_layers_for_completion
 from .records import _probe_completion_text, maybe_subsample

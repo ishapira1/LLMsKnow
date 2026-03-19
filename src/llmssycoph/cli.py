@@ -22,7 +22,16 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description="Run sycophancy x/x' sampling + per-type probe training/evaluation."
     )
-    ap.add_argument("--model", type=str, default="mistralai/Mistral-7B-Instruct-v0.2")
+    ap.add_argument(
+        "--model",
+        type=str,
+        default="mistralai/Mistral-7B-Instruct-v0.2",
+        help=(
+            "Model identifier passed to Hugging Face Transformers "
+            "from_pretrained(...), usually a Hugging Face repo name like "
+            "'mistralai/Mistral-7B-Instruct-v0.2'. A local model path also works."
+        ),
+    )
     ap.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda", "mps"])
     ap.add_argument("--device_map_auto", action="store_true")
 
