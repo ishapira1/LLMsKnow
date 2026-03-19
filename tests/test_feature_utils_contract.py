@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from llmssycoph.llm import score_logprob_answer
+from llmssycoph.llm import score_choices, score_logprob_answer
 from llmssycoph.probes import get_hidden_feature_for_completion
 from llmssycoph.probes.features import _assistant_text_last_token_index
 from llmssycoph.probes import get_hidden_feature_all_layers_for_completion
@@ -82,6 +82,14 @@ class FakeTorchModule:
         log_probs = shifted - np.log(np.sum(np.exp(shifted), axis=dim, keepdims=True))
         return FakeTensor(log_probs)
 
+    @staticmethod
+    def softmax(tensor, dim=-1):
+        arr = np.array(tensor.array, dtype=float)
+        shifted = arr - np.max(arr, axis=dim, keepdims=True)
+        probs = np.exp(shifted)
+        probs = probs / np.sum(probs, axis=dim, keepdims=True)
+        return FakeTensor(probs)
+
 
 class FakeHiddenStateModel:
     device = 'cpu'
@@ -105,6 +113,32 @@ class FakeLogitModel:
         logits = np.zeros((1, seq_len, 16), dtype=np.float32)
         logits[0, 0, 7] = -5.0
         logits[0, 2, 7] = 5.0
+        return SimpleNamespace(logits=FakeTensor(logits))
+
+
+class FakeChoiceTokenizer:
+    def __call__(self, text, add_special_tokens=False):
+        token_map = {
+            "A": [1],
+            " A": [4],
+            " B": [2],
+            "B": [3],
+        }
+        if text not in token_map:
+            raise AssertionError(f"Unexpected tokenization request: {text!r}")
+        return SimpleNamespace(input_ids=token_map[text])
+
+
+class FakeChoiceLogitModel:
+    device = 'cpu'
+
+    def __call__(self, input_ids=None, attention_mask=None, use_cache=False, output_hidden_states=False, return_dict=True):
+        seq_len = input_ids.shape[1]
+        logits = np.zeros((1, seq_len, 8), dtype=np.float32)
+        logits[0, -1, 1] = 0.0
+        logits[0, -1, 4] = -1.0
+        logits[0, -1, 2] = 2.0
+        logits[0, -1, 3] = -2.0
         return SimpleNamespace(logits=FakeTensor(logits))
 
 
@@ -202,6 +236,23 @@ class FeatureUtilsContractTests(unittest.TestCase):
 
         self.assertGreater(total_logp, -1.0)
         self.assertGreater(mean_logp, -1.0)
+
+    def test_score_choices_normalizes_choice_probabilities(self):
+        encoded = FakeTensor([[11, 22, 33]])
+        tokenizer = FakeChoiceTokenizer()
+        model = FakeChoiceLogitModel()
+
+        with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
+            with patch('llmssycoph.llm.scoring._resolve_model_inputs', return_value=(encoded, None)):
+                probs = score_choices(
+                    model=model,
+                    tokenizer=tokenizer,
+                    messages=[{'type': 'human', 'content': 'Question\n\nAnswer:'}],
+                    choices=['A', 'B'],
+                )
+
+        self.assertAlmostEqual(sum(probs.values()), 1.0)
+        self.assertGreater(probs['B'], probs['A'])
 
 
 if __name__ == '__main__':

@@ -13,20 +13,24 @@ python run_sycophancy_bias_probe.py ...
 Each run writes to:
 
 ```text
-output/sycophancy_bias_probe/<model_slug>/<run_name>/
+results/sycophancy_bias_probe/<model_slug>/<run_name>/
 ```
 
 Typical contents:
 
 ```text
-run.log
+logs/
+  run.log
 sampling_records.jsonl
 sampling_manifest.json
 sampled_responses.csv
+sampling_integrity_summary.json
 final_tuples.csv
 summary_by_question.csv
+probe_candidate_scores.csv
 probe_metadata.json
-probe_models/
+all_probes/
+chosen_probe/
 run_config.json
 status.json
 ```
@@ -40,18 +44,31 @@ status.json
 - `sampled_responses.csv`
   - Flat table version of the sampled records.
   - Best starting point for pandas-based analysis.
+- `sampling_integrity_summary.json`
+  - Post-sampling compliance and integrity summary.
+  - Buckets strict-format compliance for generation-based paths and choice-scoring integrity for strict MC.
 - `final_tuples.csv`
   - Pair table that matches neutral and biased prompts for the same `(split, question_id, draw_idx)`.
   - Only includes rows where both sides are usable for metrics.
 - `summary_by_question.csv`
   - Question-level aggregation over repeated draws.
+- `probe_candidate_scores.csv`
+  - One row per evaluated `(prompt, answer_choice)` probe example.
+  - This is the canonical table for strict-MC per-choice probe analysis.
 - `probe_metadata.json`
-  - Probe-selection and saved-model metadata.
+  - Top-level probe summary plus pointers into the per-probe artifact directories.
+- `all_probes/`
+  - One subdirectory per probe family.
+  - Stores every layer candidate that was actually trained during layer selection.
+- `chosen_probe/`
+  - One subdirectory per probe family.
+  - Stores the final chosen probe after retraining on the chosen layer.
 - `run_config.json`
   - Full resolved CLI config for the run.
+  - Includes normalized strict-MC values such as `n_draws = 1` and `temperature = 0.0`, plus `probe_construction` and `probe_example_weighting`.
 - `sampling_manifest.json`
   - The exact sampling/cache spec plus checkpoint status.
-- `run.log`
+- `logs/run.log`
   - Human-readable runtime log for the run.
   - Mirrors the stage and progress messages printed during execution.
 
@@ -104,16 +121,17 @@ Probe hyperparameters do not affect the sampling hash, because they do not chang
 
 ## Per-sample schema
 
-`sampling_records.jsonl` and `sampled_responses.csv` contain one record per sampled completion.
+`sampling_records.jsonl` and `sampled_responses.csv` contain one record per sampled completion, except strict-MC choice-scoring rows which now contribute one deterministic selected-choice row per prompt.
 
 Important fields:
 
 - `record_id`: stable row id within the run
 - `split`: `train`, `val`, or `test`
 - `question_id`: question-group id such as `q_17`
+- `prompt_id`: rendered-prompt id for a specific `(question_id, template_type)` pair, for example `q_17__neutral`
 - `dataset`: source dataset from `base.dataset`, for example `trivia_qa` or `truthful_qa`
 - `template_type`: `neutral` or a bias type like `incorrect_suggestion`
-- `draw_idx`: repeated-sampling index for the same prompt
+- `draw_idx`: repeated-sampling index for the same prompt; strict-MC choice scoring emits one row per prompt, so this is typically `0`
 - `task_format`: empty for the original freeform benchmark, or `multiple_choice` for AYS-derived MC rows
 - `mc_mode`: `strict_mc` for the canonical metrics path, or `mc_with_rationale` for the auxiliary rationale-preserving path
 - `answer_channel`: canonical judged channel for the row, currently `letter` for strict MC rows
@@ -124,8 +142,9 @@ Important fields:
 - `prompt_text`: flattened prompt text
 - `prompt_template`: template string used to build the prompt
 - `question`, `correct_answer`, `incorrect_answer`, `gold_answers`
-  - `question` is the original `base.question`
-- `response_raw`: full raw model completion
+  - `question` is the original question content before biasing or output-format instructions
+  - `prompt_text` is the actual model-facing prompt, which may be neutral or biased and may also include output instructions
+- `response_raw`: full raw model completion, or the selected answer choice for strict-MC choice-scoring rows
 - `response`: parsed short answer used for grading
 - `committed_answer`: committed answer extracted for grading, if any
 - `commitment_kind`: how the answer was committed, for example `letter`, `text`, `option_text`, `none`, or `ambiguous`
@@ -143,8 +162,12 @@ Important fields:
 - `hit_max_new_tokens`: whether generation appears to have stopped because it hit the configured token budget
 - `stopped_on_eos`: whether the decoded continuation appears to end on EOS
 - `finish_reason`: generation stop reason such as `eos_token`, `length`, or `answer_commitment` when strict MC decoding stops immediately after a valid committed answer
-- `T_prompt`: empirical prompt accuracy for this `(split, question_id, template_type)`
-- `probe_x`, `probe_xprime`: probe scores after probe training/scoring finishes
+- `sampling_mode`: `generation` for standard sampled completions, or `choice_probabilities` when strict MC uses first-token choice scoring
+- `choice_probabilities`: normalized probability mass over the allowed answer choices when `sampling_mode = choice_probabilities`
+- `choice_probability_correct`: probability assigned to the gold answer choice when `sampling_mode = choice_probabilities`
+- `choice_probability_selected`: probability assigned to the selected top-choice answer when `sampling_mode = choice_probabilities`
+- `T_prompt`: empirical prompt accuracy for this `(split, question_id, template_type)` in generation-based paths, or the correct-choice probability in strict-MC choice scoring
+- `probe_x`, `probe_xprime`: probe scores after probe training/scoring finishes; for strict MC these are the scores of the selected answer choice written back onto the sampled row
 
 ## How response processing works
 
@@ -179,9 +202,37 @@ For `mc_mode=strict_mc`, the canonical metrics path is:
 - rows with no committed answer are marked ambiguous
 - rows with noncanonical explicit answers such as `Answer: 2 : π.` or `So the answer is (C) ...` are marked ambiguous with `grading_reason = noncanonical_explicit_answer`
 - rows that hit the token cap before committing are marked ambiguous with `grading_reason = truncated_before_commitment`
-- strict MC decoding also stops as soon as a valid committed answer has been emitted, so post-answer rambling and cap-hits-after-commitment should become rare
+- strict MC now reads the first assistant-token distribution directly over the allowed answer letters, stores those normalized choice probabilities, and emits one deterministic top-choice row per prompt instead of repeated stochastic draws
 
-Strict smoke runs also log and enforce quality-gate summaries in `run.log` and `probe_metadata.json`, including:
+## Probe candidate score schema
+
+`probe_candidate_scores.csv` stores the full candidate-level probe evaluation table. This matters most for `mc_mode=strict_mc`, where probe training and scoring operate on explicit teacher-forced choice candidates rather than on repeated sampled outputs.
+
+Important fields:
+
+- `probe_name`: probe family such as `probe_no_bias` or `probe_bias_incorrect_suggestion`
+- `split`: source split of the underlying prompt
+- `question_id`, `prompt_id`
+- `source_record_id`: the selected-choice sampled row that this candidate came from
+- `candidate_record_id`: stable id for the candidate probe row
+- `candidate_choice`: candidate answer letter that was teacher-forced
+- `candidate_rank`: index of that choice in the original option list
+- `correct_letter`: gold answer choice
+- `selected_choice`: model's selected top-choice answer from strict-MC choice scoring
+- `candidate_probability`: first-token model probability for this candidate answer
+- `probe_sample_weight`: weight used during probe fitting
+- `candidate_correctness`: `1` for the gold answer choice, `0` otherwise
+- `candidate_is_selected`: whether this candidate matches `selected_choice`
+- `probe_score`: chosen-probe score for this `(prompt, answer_choice)` row
+
+Strict-MC defaults:
+
+- `probe_construction = choice_candidates`
+- `probe_example_weighting = model_probability`
+
+So by default the strict-MC probe is trained on one row per allowed answer choice, weighted by the model's own next-token choice probabilities. `--probe_example_weighting uniform` switches those weights to `1.0`.
+
+Strict smoke runs also log and enforce quality-gate summaries in `logs/run.log` and `probe_metadata.json`, including:
 
 - commitment rate
 - starts-with-`Answer:` rate
@@ -203,6 +254,8 @@ Strict smoke runs also log and enforce quality-gate summaries in `run.log` and `
 
 Key columns:
 
+- `question`
+- `prompt_id_x`, `prompt_id_xprime`
 - `dataset`
 - `prompt_template_x`, `prompt_template_xprime`
 - `bias_type`
@@ -211,6 +264,8 @@ Key columns:
 - `C_x_y`, `C_xprime_yprime`
 - `T_x`, `T_xprime`
 - `probe_x`, `probe_xprime`
+  - On strict-MC runs these are selected-answer probe scores.
+  - Use `probe_candidate_scores.csv` when you want the full per-choice probe view.
 
 This is the main analysis table for comparing neutral and biased behavior.
 
@@ -225,28 +280,132 @@ This is the main analysis table for comparing neutral and biased behavior.
 
 Key columns:
 
+- `question`
+- `prompt_id_x`, `prompt_id_xprime`
 - `dataset`
+- `prompt_x`, `prompt_with_bias`
 - `prompt_template_x`, `prompt_template_xprime`
 - `mean_C_x`
 - `mean_C_xprime`
 - `mean_probe_x`
 - `mean_probe_xprime`
 - `n_draws`
+  - Strict-MC runs normalize this to `1` in `run_config.json`.
 
 Use this table when you want one row per question and bias type rather than one row per sampled pair.
 
+## Probe artifact layout
+
+The probe outputs are now split into two explicit artifact trees:
+
+- `all_probes/`
+  - Candidate probes trained during layer selection.
+  - Layout:
+
+```text
+all_probes/
+  manifest.json
+  probe_no_bias/
+    manifest.json
+    layer_001/
+      model.pkl
+      metadata.json
+      metrics.json
+      record_membership.jsonl
+    layer_002/
+    ...
+  probe_bias_incorrect_suggestion/
+  probe_bias_doubt_correct/
+  ...
+```
+
+- `chosen_probe/`
+  - Final best-layer probes retrained after selection.
+  - Layout:
+
+```text
+chosen_probe/
+  manifest.json
+  probe_no_bias/
+    manifest.json
+    model.pkl
+    metadata.json
+    metrics.json
+    record_membership.jsonl
+  probe_bias_incorrect_suggestion/
+  probe_bias_doubt_correct/
+  ...
+```
+
+This makes it easy to separate:
+
+- every trained layer candidate
+- the final chosen probe that is used for scoring
+
 ## Probe metadata
 
-`probe_metadata.json` stores, for the neutral probe and each bias-specific probe:
+`probe_metadata.json` now stores a top-level summary, including:
+
+- `strict_mc_quality`
+- pointers to `all_probes/` and `chosen_probe/`
+- root manifest paths for both probe trees
+- one summary block per probe family such as `probe_no_bias` or `probe_bias_incorrect_suggestion`
+
+Per-probe summaries include:
 
 - selected best layer
-- dev AUC for the selected layer
+- selection-stage dev AUC
 - AUC per scanned layer
 - feature-source description
-- saved layer-scan models
-- saved final retrained model
+- probe-construction mode and example-weighting mode
+- paths for the family-level `all_probes/` and `chosen_probe/` artifacts
+- summary counts for what was used during selection and final retraining
 
-The serialized sklearn models live under `probe_models/`.
+The actual serialized sklearn probes now live inside the probe artifact directories as `model.pkl`.
+
+## Per-probe artifact files
+
+Each saved probe directory contains:
+
+- `model.pkl`
+  - The actual sklearn probe object.
+- `metadata.json`
+  - Static metadata and provenance.
+  - Includes:
+    - layer
+    - probe family / template type
+    - feature source
+    - `probe_construction`
+    - `example_weighting`
+    - input dimension and model shape metadata
+    - training protocol
+    - exact fit-split summary and label counts
+    - train/val/test data summary
+- `metrics.json`
+  - Split-wise probe metrics managed by the probe metrics module.
+  - Includes at least:
+    - `accuracy`
+    - `accuracy_label_1`
+    - `accuracy_label_0`
+    - `true_label_accuracy`
+    - `false_label_accuracy`
+    - `balanced_accuracy`
+    - `auc`
+    - confusion counts
+    - label counts
+- `record_membership.jsonl`
+  - One row per record in the probe family.
+  - Used to make “what this probe was trained on” explicit.
+  - Records whether each row was included in:
+    - fit
+    - selection-train
+    - selection-val
+    - evaluation
+  - For strict-MC candidate probes it also preserves:
+    - `source_record_id`
+    - `candidate_choice`
+    - `candidate_probability`
+    - `probe_sample_weight`
 
 ## Recommended parsing order
 
@@ -273,13 +432,15 @@ from pathlib import Path
 
 import pandas as pd
 
-run_dir = Path("output/sycophancy_bias_probe/<model_slug>/<run_name>")
+run_dir = Path("results/sycophancy_bias_probe/<model_slug>/<run_name>")
 
 sampled = pd.read_csv(run_dir / "sampled_responses.csv")
 tuples = pd.read_csv(run_dir / "final_tuples.csv")
 summary = pd.read_csv(run_dir / "summary_by_question.csv")
+candidate_scores = pd.read_csv(run_dir / "probe_candidate_scores.csv")
 probe_meta = json.loads((run_dir / "probe_metadata.json").read_text())
 manifest = json.loads((run_dir / "sampling_manifest.json").read_text())
+run_config = json.loads((run_dir / "run_config.json").read_text())
 
 # Example: per-bias accuracy on paired rows
 paired_accuracy = (
@@ -303,6 +464,8 @@ harmful_flip_rate = (
 print(paired_accuracy)
 print(harmful_flip_rate)
 print(manifest["sampling_spec"])
+print(run_config["probe_construction"], run_config["probe_example_weighting"])
+print(candidate_scores.head())
 print(probe_meta.keys())
 ```
 

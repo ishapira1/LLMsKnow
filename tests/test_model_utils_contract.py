@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
+from llmssycoph.llm import (
+    BaseLLM,
+    GenerationResult,
+    get_registered_llm_factory,
+    load_llm,
+    register_llm,
+    registered_llm_names,
+    unregister_llm,
+)
 from llmssycoph.llm.generation import (
     _resolve_model_inputs,
     _strict_mc_generated_answer_complete,
+    encode_chat,
 )
 
 
@@ -47,6 +58,77 @@ class ModelUtilsContractTests(unittest.TestCase):
         )
         self.assertTrue(torch.equal(input_ids, torch.tensor([[1, 2, 3]])))
         self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1, 1]])))
+
+    def test_encode_chat_requires_apply_chat_template(self):
+        class TokenizerWithoutChatTemplate:
+            name_or_path = "no-chat-template-tokenizer"
+
+        with self.assertRaisesRegex(TypeError, "apply_chat_template"):
+            encode_chat(
+                TokenizerWithoutChatTemplate(),
+                [{"type": "human", "content": "Question"}],
+            )
+
+    def test_load_llm_falls_back_to_huggingface_for_unregistered_name(self):
+        with patch("llmssycoph.llm.registry.HuggingFaceLLM", autospec=True) as mock_hf_llm:
+            instance = mock_hf_llm.return_value
+            llm = load_llm(
+                "mistralai/Mistral-7B-Instruct-v0.2",
+                device="cpu",
+                device_map_auto=False,
+                hf_cache_dir=None,
+            )
+
+        self.assertIs(llm, instance)
+        mock_hf_llm.assert_called_once_with(
+            model_name="mistralai/Mistral-7B-Instruct-v0.2",
+            device="cpu",
+            device_map_auto=False,
+            hf_cache_dir=None,
+        )
+
+    def test_load_llm_prefers_registered_backend(self):
+        class DummyLLM(BaseLLM):
+            def __init__(self, model_name: str, **kwargs):
+                super().__init__(model_name=model_name)
+                self.kwargs = kwargs
+
+            def generate(
+                self,
+                messages,
+                *,
+                n,
+                max_new_tokens=64,
+                temperature=0.0,
+                top_p=1.0,
+                batch_size=1,
+                safe_fallback=True,
+                strict_mc_letters="",
+            ):
+                return [GenerationResult(response_raw="dummy") for _ in range(n)]
+
+            def score_choices(self, messages, choices):
+                total = max(1, len(choices))
+                return {str(choice): 1.0 / total for choice in choices}
+
+        register_llm("dummy-backend", lambda **kwargs: DummyLLM(**kwargs))
+        try:
+            self.assertIsNotNone(get_registered_llm_factory("dummy-backend"))
+            self.assertIn("dummy-backend", registered_llm_names())
+
+            llm = load_llm(
+                "dummy-backend",
+                device="cpu",
+                device_map_auto=False,
+                hf_cache_dir=None,
+            )
+            self.assertIsInstance(llm, DummyLLM)
+            self.assertEqual(llm.model_name, "dummy-backend")
+            self.assertEqual(llm.kwargs["device"], "cpu")
+        finally:
+            unregister_llm("dummy-backend")
+
+        self.assertNotIn("dummy-backend", registered_llm_names())
 
 
 if __name__ == "__main__":

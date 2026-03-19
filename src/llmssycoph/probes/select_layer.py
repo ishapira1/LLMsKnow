@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -14,6 +15,16 @@ from .records import _probe_completion_text, maybe_subsample
 
 
 _LOG_SOURCE = 'probes/select_layer.py'
+
+
+def _record_weight(record: Dict) -> float:
+    try:
+        weight = float(record.get("probe_sample_weight", 1.0) or 1.0)
+    except Exception:
+        return 1.0
+    if not math.isfinite(weight):
+        return 1.0
+    return max(weight, 1e-6)
 
 
 def select_best_layer_by_auc(
@@ -56,6 +67,7 @@ def select_best_layer_by_auc(
 
     y_train = np.array([int(record['correctness']) for record in train_records], dtype=int)
     y_val = np.array([int(record['correctness']) for record in val_records], dtype=int)
+    sample_weight_train = np.array([_record_weight(record) for record in train_records], dtype=float)
     if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
         log_status(
             _LOG_SOURCE,
@@ -112,7 +124,7 @@ def select_best_layer_by_auc(
         X_val = np.stack([mat[li] for mat in val_features])
         try:
             clf = LogisticRegression(max_iter=1000, n_jobs=1, random_state=seed, solver='liblinear')
-            clf.fit(X_train, y_train)
+            clf.fit(X_train, y_train, sample_weight=sample_weight_train)
             probs = clf.predict_proba(X_val)[:, 1]
             auc = roc_auc_score(y_val, probs)
             clf_per_layer[layer] = clf

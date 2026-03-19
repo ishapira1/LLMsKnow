@@ -7,11 +7,80 @@ import socket
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 
 from .constants import RESUME_COMPAT_KEYS
+
+
+RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
+    "run_log": (
+        Path("logs") / "run.log",
+        Path("internal") / "logs" / "run.log",
+        Path("run.log"),
+    ),
+    "warnings_log": (
+        Path("logs") / "warnings.log",
+        Path("internal") / "logs" / "warnings.log",
+        Path("warnings.log"),
+    ),
+    "run_config": (
+        Path("internal") / "run_config.json",
+        Path("run_config.json"),
+    ),
+    "status": (
+        Path("internal") / "status.json",
+        Path("status.json"),
+    ),
+    "sampling_records": (
+        Path("internal") / "sampling_records.jsonl",
+        Path("sampling_records.jsonl"),
+    ),
+    "sampling_manifest": (
+        Path("internal") / "sampling_manifest.json",
+        Path("sampling_manifest.json"),
+    ),
+    "sampling_integrity_summary": (
+        Path("internal") / "sampling_integrity_summary.json",
+        Path("sampling_integrity_summary.json"),
+    ),
+    "sampled_responses": (
+        Path("sampling") / "sampled_responses.csv",
+        Path("sampled_responses.csv"),
+    ),
+    "final_tuples": (
+        Path("analysis") / "final_tuples.csv",
+        Path("final_tuples.csv"),
+    ),
+    "summary_by_question": (
+        Path("analysis") / "summary_by_question.csv",
+        Path("summary_by_question.csv"),
+    ),
+    "run_summary": (
+        Path("analysis") / "run_summary.json",
+    ),
+    "probe_candidate_scores": (
+        Path("probes") / "probe_candidate_scores.csv",
+        Path("probe_candidate_scores.csv"),
+    ),
+    "probe_metadata": (
+        Path("probes") / "probe_metadata.json",
+        Path("probe_metadata.json"),
+    ),
+    "all_probes_dir": (
+        Path("probes") / "all_probes",
+        Path("all_probes"),
+    ),
+    "chosen_probe_dir": (
+        Path("probes") / "chosen_probe",
+        Path("chosen_probe"),
+    ),
+    "internal_cache_dir": (
+        Path("internal") / "cache",
+        Path("analysis_cache"),
+    ),
+}
 
 
 def utc_now_iso() -> str:
@@ -27,6 +96,23 @@ def build_default_run_name() -> str:
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S.%fZ")
     job_id = os.getenv("SLURM_JOB_ID") or os.getenv("PBS_JOBID") or os.getenv("JOB_ID") or "local"
     return f"{ts}_{job_id}_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+
+
+def preferred_run_artifact_path(run_dir: Path, artifact_key: str) -> Path:
+    try:
+        relative_paths = RUN_ARTIFACT_LOCATIONS[artifact_key]
+    except KeyError as exc:
+        raise KeyError(f"Unknown artifact key: {artifact_key}") from exc
+    return run_dir / relative_paths[0]
+
+
+def resolve_run_artifact_path(run_dir: Path, artifact_key: str) -> Path:
+    preferred_path = preferred_run_artifact_path(run_dir, artifact_key)
+    for relative_path in RUN_ARTIFACT_LOCATIONS[artifact_key]:
+        candidate = run_dir / relative_path
+        if candidate.exists():
+            return candidate
+    return preferred_path
 
 
 def make_run_dir(base_out_dir: str, model_name: str, run_name: Optional[str]) -> Path:
@@ -62,7 +148,7 @@ def _canonical_resume_value(key: str, value: Any) -> Any:
 
 
 def assert_resume_compatible(run_dir: Path, args: Any) -> None:
-    cfg_path = run_dir / "run_config.json"
+    cfg_path = resolve_run_artifact_path(run_dir, "run_config")
     if not cfg_path.exists():
         return
 
@@ -131,7 +217,7 @@ def acquire_run_lock(lock_path: Path, run_dir: Path) -> None:
                 pass
 
             stale = False
-            status_path = run_dir / "status.json"
+            status_path = resolve_run_artifact_path(run_dir, "status")
             if status_path.exists():
                 try:
                     status_payload = json.loads(status_path.read_text(encoding="utf-8"))
@@ -234,11 +320,12 @@ def write_run_status(
     lock_path: Optional[Path] = None,
     error: Optional[str] = None,
 ) -> None:
-    status_path = run_dir / "status.json"
+    status_path = preferred_run_artifact_path(run_dir, "status")
+    existing_status_path = resolve_run_artifact_path(run_dir, "status")
     existing: Dict[str, Any] = {}
-    if status_path.exists():
+    if existing_status_path.exists():
         try:
-            loaded = json.loads(status_path.read_text(encoding="utf-8"))
+            loaded = json.loads(existing_status_path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 existing = loaded
         except Exception:

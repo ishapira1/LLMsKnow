@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import json
 import math
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 
+from llmssycoph.runtime import preferred_run_artifact_path
 from llmssycoph.probes import (
+    evaluate_probe_from_cache,
     find_sublist,
     maybe_subsample,
+    save_probe_family_artifacts,
     score_records_with_probe,
     select_best_layer_by_auc,
     train_probe_for_layer,
 )
+from llmssycoph import build_probe_record_sets
 
 
 def make_records(n: int = 20, offset: int = 0):
@@ -35,13 +42,20 @@ class FakeLogisticRegression:
         self.weights = None
         self.bias = 0.0
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         X = np.asarray(X, dtype=float)
         y = np.asarray(y, dtype=int)
-        pos = X[y == 1].mean(axis=0)
-        neg = X[y == 0].mean(axis=0)
+        if sample_weight is None:
+            sample_weight = np.ones(len(y), dtype=float)
+        sample_weight = np.asarray(sample_weight, dtype=float)
+        pos = np.average(X[y == 1], axis=0, weights=sample_weight[y == 1])
+        neg = np.average(X[y == 0], axis=0, weights=sample_weight[y == 0])
         self.weights = pos - neg
         self.bias = -0.5 * float(np.dot(self.weights, pos + neg))
+        self.n_features_in_ = int(X.shape[1])
+        self.coef_ = self.weights.reshape(1, -1)
+        self.intercept_ = np.array([self.bias], dtype=float)
+        self.classes_ = np.array([0, 1], dtype=int)
         return self
 
     def predict_proba(self, X):
@@ -142,6 +156,49 @@ class ProbeContractTests(unittest.TestCase):
         negative_scores = [record['probe_score'] for record in records if record['correctness'] == 0]
         self.assertGreater(min(positive_scores), max(negative_scores))
 
+    def test_build_probe_record_sets_uses_choice_candidates_for_strict_mc(self):
+        sampled_records = [
+            {
+                "record_id": 10,
+                "split": "train",
+                "question_id": "q_1",
+                "prompt_id": "q_1__neutral",
+                "dataset": "aqua_mc",
+                "template_type": "neutral",
+                "draw_idx": 0,
+                "question": "Question 1",
+                "prompt_text": "Question 1\n\nAnswer:",
+                "prompt_messages": [{"type": "human", "content": "Question 1\n\nAnswer:"}],
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "letters": "ABCD",
+                "correct_letter": "C",
+                "response_raw": "C",
+                "sampling_mode": "choice_probabilities",
+                "choice_probabilities": {"A": 0.1, "B": 0.2, "C": 0.6, "D": 0.1},
+            }
+        ]
+
+        bundles = build_probe_record_sets(
+            train_records=sampled_records,
+            val_records=[],
+            test_records=[],
+            all_records=sampled_records,
+            bias_types=[],
+            probe_construction="auto",
+            probe_example_weighting="model_probability",
+        )
+
+        neutral = bundles["neutral"]
+        self.assertEqual(neutral["probe_construction"], "choice_candidates")
+        self.assertEqual(len(neutral["train_records"]), 4)
+        self.assertEqual(len(neutral["score_records"]), 1)
+        self.assertEqual(len(neutral["candidate_score_records"]), 4)
+        candidate_rows = {row["candidate_choice"]: row for row in neutral["train_records"]}
+        self.assertAlmostEqual(candidate_rows["C"]["probe_sample_weight"], 0.6)
+        self.assertEqual(candidate_rows["C"]["correctness"], 1)
+        self.assertEqual(candidate_rows["A"]["correctness"], 0)
+
     def test_score_records_with_probe_none_contract(self):
         records = make_records(4)
         score_records_with_probe(
@@ -190,6 +247,191 @@ class ProbeContractTests(unittest.TestCase):
             )
 
         self.assertIsNotNone(clf)
+
+    def test_evaluate_probe_from_cache_reports_split_metrics(self):
+        labels_train = np.array([0, 1, 0, 1], dtype=int)
+        labels_val = np.array([0, 1], dtype=int)
+        labels_test = np.array([0, 1], dtype=int)
+        layer_one_train = np.array([[0.0, 2.0], [2.0, 0.0], [0.0, 2.5], [2.5, 0.0]])
+        layer_two_train = np.ones((4, 2), dtype=float)
+        train_features = np.stack([layer_one_train, layer_two_train], axis=1)
+        val_features = np.stack(
+            [
+                np.array([[0.0, 2.0], [2.0, 0.0]], dtype=float),
+                np.ones((2, 2), dtype=float),
+            ],
+            axis=1,
+        )
+        test_features = np.stack(
+            [
+                np.array([[0.0, 3.0], [3.0, 0.0]], dtype=float),
+                np.ones((2, 2), dtype=float),
+            ],
+            axis=1,
+        )
+
+        clf = FakeLogisticRegression().fit(layer_one_train, labels_train)
+        metrics = evaluate_probe_from_cache(
+            {
+                "layer_grid": [1, 2],
+                "splits": {
+                    "train": {"labels": labels_train, "features": train_features},
+                    "val": {"labels": labels_val, "features": val_features},
+                    "test": {"labels": labels_test, "features": test_features},
+                },
+            },
+            clf,
+            1,
+        )
+
+        self.assertEqual(metrics["evaluated_layer"], 1)
+        self.assertAlmostEqual(metrics["splits"]["train"]["accuracy"], 1.0)
+        self.assertAlmostEqual(metrics["splits"]["val"]["accuracy"], 1.0)
+        self.assertAlmostEqual(metrics["splits"]["test"]["accuracy"], 1.0)
+        self.assertAlmostEqual(metrics["splits"]["train"]["true_label_accuracy"], 1.0)
+        self.assertAlmostEqual(metrics["splits"]["train"]["false_label_accuracy"], 1.0)
+        self.assertAlmostEqual(metrics["splits"]["train"]["auc"], 1.0)
+
+    def test_save_probe_family_artifacts_writes_all_and_chosen_layout(self):
+        train_records = [
+            {
+                "record_id": 1,
+                "split": "train",
+                "question_id": "q_1",
+                "template_type": "neutral",
+                "draw_idx": 0,
+                "dataset": "toy",
+                "prompt_messages": [{"type": "human", "content": "q1"}],
+                "response": "answer 1",
+                "correctness": 1,
+                "usable_for_metrics": True,
+            },
+            {
+                "record_id": 2,
+                "split": "train",
+                "question_id": "q_2",
+                "template_type": "neutral",
+                "draw_idx": 0,
+                "dataset": "toy",
+                "prompt_messages": [{"type": "human", "content": "q2"}],
+                "response": "answer 2",
+                "correctness": 0,
+                "usable_for_metrics": True,
+            },
+        ]
+        val_records = [
+            {
+                "record_id": 3,
+                "split": "val",
+                "question_id": "q_3",
+                "template_type": "neutral",
+                "draw_idx": 0,
+                "dataset": "toy",
+                "prompt_messages": [{"type": "human", "content": "q3"}],
+                "response": "answer 3",
+                "correctness": 1,
+                "usable_for_metrics": True,
+            },
+            {
+                "record_id": 4,
+                "split": "val",
+                "question_id": "q_4",
+                "template_type": "neutral",
+                "draw_idx": 0,
+                "dataset": "toy",
+                "prompt_messages": [{"type": "human", "content": "q4"}],
+                "response": "answer 4",
+                "correctness": 0,
+                "usable_for_metrics": True,
+            },
+        ]
+        test_records = [
+            {
+                "record_id": 5,
+                "split": "test",
+                "question_id": "q_5",
+                "template_type": "neutral",
+                "draw_idx": 0,
+                "dataset": "toy",
+                "prompt_messages": [{"type": "human", "content": "q5"}],
+                "response": "answer 5",
+                "correctness": 1,
+                "usable_for_metrics": True,
+            },
+            {
+                "record_id": 6,
+                "split": "test",
+                "question_id": "q_6",
+                "template_type": "neutral",
+                "draw_idx": 0,
+                "dataset": "toy",
+                "prompt_messages": [{"type": "human", "content": "q6"}],
+                "response": "answer 6",
+                "correctness": 0,
+                "usable_for_metrics": True,
+            },
+        ]
+
+        clf = FakeLogisticRegression().fit(
+            np.array([[2.0, 0.0], [0.0, 2.0]], dtype=float),
+            np.array([1, 0], dtype=int),
+        )
+        metrics = {
+            "metric_schema_version": 1,
+            "metric_names": ["accuracy", "auc"],
+            "threshold": 0.5,
+            "evaluated_layer": 1,
+            "splits": {
+                "train": {"accuracy": 1.0, "auc": 1.0, "n_total": 2, "n_label_1": 1, "n_label_0": 1},
+                "val": {"accuracy": 1.0, "auc": 1.0, "n_total": 2, "n_label_1": 1, "n_label_0": 1},
+                "test": {"accuracy": 1.0, "auc": 1.0, "n_total": 2, "n_label_1": 1, "n_label_0": 1},
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
+            chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
+            summary = save_probe_family_artifacts(
+                run_dir=run_dir,
+                probe_name="probe_no_bias",
+                template_type="neutral",
+                desc="no_bias",
+                feature_source={"probe_feature_mode": "response_raw_final_token"},
+                split_records={"train": train_records, "val": val_records, "test": test_records},
+                selection_models={1: clf},
+                selection_metrics_by_layer={1: metrics},
+                auc_per_layer={1: 1.0},
+                best_layer=1,
+                best_dev_auc=1.0,
+                chosen_model=clf,
+                chosen_metrics=metrics,
+                selection_fit_records=train_records,
+                selection_val_records=val_records,
+                chosen_fit_records=train_records + val_records,
+                selection_fit_max_samples=100,
+                chosen_fit_max_samples=200,
+                probe_seed=7,
+                probe_construction="sampled_completions",
+                probe_example_weighting="uniform",
+            )
+
+            self.assertTrue((all_probes_dir / "probe_no_bias" / "layer_001" / "model.pkl").exists())
+            self.assertTrue((chosen_probe_dir / "probe_no_bias" / "model.pkl").exists())
+            self.assertTrue((all_probes_dir / "probe_no_bias" / "manifest.json").exists())
+            self.assertTrue((chosen_probe_dir / "probe_no_bias" / "manifest.json").exists())
+
+            metadata = json.loads(
+                (chosen_probe_dir / "probe_no_bias" / "metadata.json").read_text(encoding="utf-8")
+            )
+            membership_lines = (
+                chosen_probe_dir / "probe_no_bias" / "record_membership.jsonl"
+            ).read_text(encoding="utf-8").strip().splitlines()
+            self.assertEqual(metadata["training"]["fit_splits"], ["train", "val"])
+            self.assertEqual(metadata["model"]["input_dim"], 2)
+            self.assertEqual(len(membership_lines), 6)
+            self.assertEqual(summary["best_layer"], 1)
+            self.assertIsNotNone(summary["chosen_probe_metrics_path"])
 
 
 if __name__ == '__main__':

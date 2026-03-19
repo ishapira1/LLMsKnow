@@ -34,20 +34,20 @@ def to_hf_chat(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
 
 def encode_chat(tokenizer, messages: List[Dict[str, Any]], add_generation_prompt: bool = True):
     hf_messages = to_hf_chat(messages)
-    if hasattr(tokenizer, "apply_chat_template"):
-        return tokenizer.apply_chat_template(
-            hf_messages,
-            tokenize=True,
-            add_generation_prompt=add_generation_prompt,
-            return_tensors="pt",
+    apply_chat_template = getattr(tokenizer, "apply_chat_template", None)
+    if not callable(apply_chat_template):
+        tokenizer_name = getattr(tokenizer, "name_or_path", tokenizer.__class__.__name__)
+        raise TypeError(
+            f"Tokenizer {tokenizer_name!r} does not expose apply_chat_template(). "
+            "This pipeline now relies on model-native chat templates instead of a manual fallback format."
         )
 
-    text = ""
-    for message in hf_messages:
-        text += f"{message['role'].upper()}: {message['content']}\n"
-    if add_generation_prompt:
-        text += "ASSISTANT: "
-    return tokenizer(text, return_tensors="pt").input_ids
+    return apply_chat_template(
+        hf_messages,
+        tokenize=True,
+        add_generation_prompt=add_generation_prompt,
+        return_tensors="pt",
+    )
 
 
 def _token_id_list_from_encoded(encoded: Any, device: Any = None) -> List[int]:

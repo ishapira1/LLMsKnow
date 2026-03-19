@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
-from ..data import as_prompt_text, dataset_name as _dataset_name
+from ..data import as_prompt_text, dataset_name as _dataset_name, prompt_id_for
 from .grade import (
     extract_gold_answers_from_base as _extract_gold_answers_from_base,
     grade_response_from_base as _grade_response_from_base,
@@ -52,6 +52,10 @@ def refresh_sample_records_for_groups(
         row = None if group is None else group.get("rows_by_type", {}).get(template_type)
         if group is None or row is None:
             refreshed_record["split"] = split_name
+            refreshed_record.setdefault(
+                "prompt_id",
+                prompt_id_for(refreshed_record.get("question_id", ""), refreshed_record.get("template_type", "")),
+            )
             refreshed.append(refreshed_record)
             continue
 
@@ -76,6 +80,7 @@ def refresh_sample_records_for_groups(
             {
                 "split": split_name,
                 "question_id": group["question_id"],
+                "prompt_id": prompt_id_for(group["question_id"], template_type),
                 "dataset": str(group.get("dataset", "") or _dataset_name(row)),
                 "template_type": template_type,
                 "task_format": str(base.get("task_format", "") or ""),
@@ -113,6 +118,10 @@ def refresh_sample_records_for_groups(
                 "hit_max_new_tokens": bool(record.get("hit_max_new_tokens", False)),
                 "stopped_on_eos": bool(record.get("stopped_on_eos", False)),
                 "finish_reason": str(record.get("finish_reason", "") or ""),
+                "sampling_mode": str(record.get("sampling_mode", "generation") or "generation"),
+                "choice_probabilities": dict(record.get("choice_probabilities", {}) or {}),
+                "choice_probability_correct": record.get("choice_probability_correct", float("nan")),
+                "choice_probability_selected": record.get("choice_probability_selected", float("nan")),
             }
         )
         refreshed.append(refreshed_record)
@@ -121,13 +130,19 @@ def refresh_sample_records_for_groups(
 
 
 def add_empirical_t(records: List[Dict[str, Any]]) -> None:
+    direct_tvals: Dict[Tuple[str, str, str], float] = {}
     grouped: Dict[Tuple[str, str, str], List[int]] = {}
     for record in records:
+        key = (record["split"], record["question_id"], record["template_type"])
+        direct_prob = record.get("choice_probability_correct")
+        if isinstance(direct_prob, (int, float)) and not np.isnan(float(direct_prob)):
+            direct_tvals[key] = float(direct_prob)
+            continue
         if not record_is_usable_for_metrics(record):
             continue
-        key = (record["split"], record["question_id"], record["template_type"])
         grouped.setdefault(key, []).append(int(record["correctness"]))
     tvals = {key: float(np.mean(values)) for key, values in grouped.items()}
+    tvals.update(direct_tvals)
     for record in records:
         record["T_prompt"] = tvals.get(
             (record["split"], record["question_id"], record["template_type"]),

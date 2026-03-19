@@ -7,20 +7,23 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..logging_utils import log_status
+from .agreement_biases import get_agreement_bias, resolve_agreement_biases
+from .instruction_policies import (
+    DEFAULT_INSTRUCTION_POLICY_NAME,
+    get_instruction_policy,
+)
+from .prompt import Prompt
 from .prompts import (
     ALL_BIAS_TYPES,
     GRADING_SPEC_VERSION,
     MC_MODE_STRICT,
     PROMPT_SPEC_VERSION,
-    PROMPT_TEMPLATE_BY_TYPE,
     STRICT_OUTPUT_CONTRACT,
-    default_prompt_builder,
 )
+from .question import Question
 from .types import (
     BIAS_VARIANTS_FROM_DATASET,
     BIAS_VARIANTS_GENERATED_LOCALLY,
-    PromptVariant,
-    Question,
 )
 
 
@@ -179,15 +182,21 @@ def render_ays_mc_prompt_text(
     correct_answer: str,
     incorrect_answer: str,
     mc_mode: str = MC_MODE_STRICT,
+    instruction_policy: str | None = None,
 ) -> str:
     question_text = render_ays_mc_question_text(base, mc_mode=mc_mode)
-    return default_prompt_builder.render_prompt_text(
+    question = Question(
+        dataset=str(base.get("dataset", "") or ""),
         question_text=question_text,
-        template_type=template_type,
         correct_answer=correct_answer,
         incorrect_answer=incorrect_answer,
-        mc_mode=mc_mode,
+        base_metadata=dict(base),
     )
+    return Prompt(
+        question=question,
+        agreement_bias=get_agreement_bias(template_type),
+        instruction_policy=get_instruction_policy(instruction_policy or mc_mode),
+    ).prompt_text
 
 
 def _normalized_dataset_name(value: Any) -> str:
@@ -325,6 +334,7 @@ class BenchmarkDatasetAdapter:
         rows: Sequence[Dict[str, Any]],
         selected_bias_types: Sequence[str],
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
+        instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
         mc_mode: str = MC_MODE_STRICT,
     ) -> List[Dict[str, Any]]:
         raise NotImplementedError
@@ -343,9 +353,10 @@ class AnswerJsonDataset(BenchmarkDatasetAdapter):
         rows: Sequence[Dict[str, Any]],
         selected_bias_types: Sequence[str],
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
+        instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
         mc_mode: str = MC_MODE_STRICT,
     ) -> List[Dict[str, Any]]:
-        del selected_bias_types, selected_ays_mc_datasets, mc_mode
+        del selected_bias_types, selected_ays_mc_datasets, instruction_policy, mc_mode
         prepared: List[Dict[str, Any]] = []
         for row in rows:
             if not isinstance(row, dict):
@@ -379,9 +390,13 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
         rows: Sequence[Dict[str, Any]],
         selected_bias_types: Sequence[str],
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
+        instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
         mc_mode: str = MC_MODE_STRICT,
     ) -> List[Dict[str, Any]]:
-        wanted_types = ["neutral", *selected_bias_types]
+        biases = resolve_agreement_biases(selected_bias_types, include_neutral=True)
+        resolved_instruction_policy = get_instruction_policy(instruction_policy or mc_mode)
+        legacy_mc_mode = resolved_instruction_policy.legacy_mc_mode
+        response_prefix = resolved_instruction_policy.response_prefix
         wanted_datasets = set(selected_ays_mc_datasets or DEFAULT_AYS_MC_DATASETS)
         materialized: List[Dict[str, Any]] = []
 
@@ -394,6 +409,7 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
             option_items = multiple_choice_option_items(base)
             option_map = {letter: option_text for letter, option_text in option_items}
             letters = "".join(letter for letter, _ in option_items) or str(base.get("letters", "") or "").strip()
+            response_labels = [letter.upper() for letter, _ in option_items] or [letter.upper() for letter in letters]
             answers_list = [option_text for _, option_text in option_items]
             correct_letter = str(base.get("correct_letter", "") or "").strip()
             question_text = render_multiple_choice_question(base)
@@ -417,9 +433,12 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                     "incorrect_letter": incorrect_letter,
                     "correct_letter": correct_letter,
                     "letters": letters,
+                    "response_labels": response_labels,
                     "answers_list": answers_list,
                     "task_format": "multiple_choice",
-                    "mc_mode": mc_mode,
+                    "instruction_policy": resolved_instruction_policy.name,
+                    "mc_mode": legacy_mc_mode,
+                    "response_prefix": response_prefix,
                     "answer_channel": "letter",
                     "strict_output_contract": STRICT_OUTPUT_CONTRACT,
                     "prompt_spec_version": int(PROMPT_SPEC_VERSION),
@@ -436,23 +455,15 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                 base_metadata=derived_base,
             )
 
-            for template_type in wanted_types:
-                prompt_template = PROMPT_TEMPLATE_BY_TYPE[template_type]
-                rendered_prompt = default_prompt_builder.render_prompt_text(
-                    question_text=question.question_text,
-                    template_type=template_type,
-                    correct_answer=correct_answer,
-                    incorrect_answer=incorrect_answer,
-                    mc_mode=mc_mode,
-                )
-                variant = PromptVariant(
-                    question=question,
-                    template_type=template_type,
-                    prompt_template=prompt_template,
-                    prompt_text=rendered_prompt,
+            for bias in biases:
+                variant = bias.build_prompt_variant(
+                    question,
+                    instruction_policy=resolved_instruction_policy,
                     bias_construction_mode=self.bias_construction_mode,
                     metadata={
-                        "mc_mode": mc_mode,
+                        "instruction_policy": resolved_instruction_policy.name,
+                        "mc_mode": legacy_mc_mode,
+                        "response_prefix": response_prefix,
                         "answer_channel": "letter",
                         "strict_output_contract": STRICT_OUTPUT_CONTRACT,
                         "prompt_spec_version": int(PROMPT_SPEC_VERSION),
@@ -469,6 +480,7 @@ def materialize_ays_mc_single_turn_rows(
     rows: Sequence[Dict[str, Any]],
     selected_bias_types: Sequence[str],
     selected_ays_mc_datasets: Sequence[str],
+    instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
     mc_mode: str = MC_MODE_STRICT,
 ) -> List[Dict[str, Any]]:
     adapter = AysMcSingleTurnDataset()
@@ -476,6 +488,7 @@ def materialize_ays_mc_single_turn_rows(
         rows,
         selected_bias_types=selected_bias_types,
         selected_ays_mc_datasets=selected_ays_mc_datasets,
+        instruction_policy=instruction_policy,
         mc_mode=mc_mode,
     )
 
@@ -495,6 +508,7 @@ def prepare_benchmark_rows(
     input_jsonl: str,
     selected_bias_types: Optional[Sequence[str]] = None,
     selected_ays_mc_datasets: Optional[Sequence[str]] = None,
+    instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
     mc_mode: str = MC_MODE_STRICT,
 ) -> List[Dict[str, Any]]:
     adapter = dataset_adapter_for_benchmark(benchmark_source)
@@ -503,6 +517,7 @@ def prepare_benchmark_rows(
         rows,
         selected_bias_types=selected_bias_types or list(ALL_BIAS_TYPES),
         selected_ays_mc_datasets=selected_ays_mc_datasets,
+        instruction_policy=instruction_policy,
         mc_mode=mc_mode,
     )
 

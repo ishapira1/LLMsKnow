@@ -213,6 +213,19 @@ class AnswerUtilsContractTests(unittest.TestCase):
         self.assertFalse(no_commit["starts_with_answer_prefix"])
         self.assertFalse(no_commit["strict_format_exact"])
 
+    def test_strict_multiple_choice_accepts_prefilled_answer_prefix_prompts(self):
+        strict_base = make_strict_aqua_base()
+        strict_base["response_prefix"] = "Answer:"
+
+        correct = grade_multiple_choice_response("B", strict_base)
+
+        self.assertEqual(correct["status"], "correct")
+        self.assertEqual(correct["committed_answer"], "B")
+        self.assertEqual(correct["commitment_source"], "standalone_answer_line")
+        self.assertTrue(correct["starts_with_answer_prefix"])
+        self.assertTrue(correct["strict_format_exact"])
+        self.assertEqual(correct["commitment_line"], "B")
+
     def test_strict_multiple_choice_grades_late_committed_answers_and_conflicts(self):
         strict_base = make_strict_aqua_base()
 

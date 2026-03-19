@@ -534,14 +534,44 @@ def _answer_marker_count(text: str) -> int:
     return len(_ANSWER_MARKER_RE.findall(str(text or "")))
 
 
-def _strict_mc_starts_with_answer_prefix(text: str) -> bool:
-    lines = _strict_mc_nonempty_lines(text)
-    return bool(lines and _STRICT_MC_ANSWER_LINE_RE.match(lines[0]))
+def _strict_mc_expected_response_prefix(base: Dict[str, Any]) -> str:
+    return str(base.get("response_prefix", "") or "").strip()
 
 
-def _strict_mc_format_exact(text: str) -> bool:
+def _strict_mc_prefilled_prefix_candidates(text: str, letters: str) -> List[str]:
     lines = _strict_mc_nonempty_lines(text)
-    return len(lines) == 1 and bool(_STRICT_MC_EXACT_LINE_RE.match(lines[0]))
+    if not lines:
+        return []
+    return _extract_strict_mc_answer_payload_candidates(lines[0], letters)
+
+
+def _strict_mc_prefilled_prefix_exact(text: str, letters: str) -> bool:
+    lines = _strict_mc_nonempty_lines(text)
+    if len(lines) != 1:
+        return False
+    match = _MC_STANDALONE_LETTER_SEGMENT_RE.match(lines[0])
+    if not match:
+        return False
+    allowed = set(str(letters or "").strip().upper())
+    return bool(allowed and match.group(1).upper() in allowed)
+
+
+def _strict_mc_starts_with_answer_prefix(text: str, letters: str, base: Dict[str, Any]) -> bool:
+    lines = _strict_mc_nonempty_lines(text)
+    if lines and _STRICT_MC_ANSWER_LINE_RE.match(lines[0]):
+        return True
+    if _strict_mc_expected_response_prefix(base).lower() == "answer:":
+        return bool(_strict_mc_prefilled_prefix_candidates(text, letters))
+    return False
+
+
+def _strict_mc_format_exact(text: str, letters: str, base: Dict[str, Any]) -> bool:
+    lines = _strict_mc_nonempty_lines(text)
+    if len(lines) == 1 and bool(_STRICT_MC_EXACT_LINE_RE.match(lines[0])):
+        return True
+    if _strict_mc_expected_response_prefix(base).lower() == "answer:":
+        return _strict_mc_prefilled_prefix_exact(text, letters)
+    return False
 
 
 def _extract_strict_mc_answer_payload_candidates(text: str, letters: str) -> List[str]:
@@ -570,6 +600,7 @@ def _extract_strict_mc_answer_payload_candidates(text: str, letters: str) -> Lis
 def _extract_strict_mc_commitments(
     text: str,
     letters: str,
+    base: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     commitments: List[Dict[str, Any]] = []
     seen = set()
@@ -604,7 +635,7 @@ def _extract_strict_mc_commitments(
                 _extract_strict_mc_answer_payload_candidates(explicit_match.group(1), letters),
                 "explicit_answer_line" if idx == 0 else "late_explicit_answer_line",
                 line,
-                strict_format_exact=_strict_mc_format_exact(line),
+                strict_format_exact=_strict_mc_format_exact(line, letters, base),
             )
     if commitments:
         return commitments
@@ -614,6 +645,11 @@ def _extract_strict_mc_commitments(
             _extract_strict_mc_letter_candidates(line, letters),
             "standalone_answer_line" if idx == 0 else "late_standalone_answer_line",
             line,
+            strict_format_exact=(
+                idx == 0
+                and _strict_mc_expected_response_prefix(base).lower() == "answer:"
+                and _strict_mc_prefilled_prefix_exact(line, letters)
+            ),
         )
     return commitments
 
@@ -638,8 +674,8 @@ def _grade_multiple_choice_response_strict(
     correct_letter = str(base.get("correct_letter", "") or "").strip().upper()
     generation_info = generation_info or {}
     parsed_answer = extract_short_answer_from_generation(text)
-    starts_with_answer_prefix = _strict_mc_starts_with_answer_prefix(text)
-    strict_format_exact = _strict_mc_format_exact(text)
+    starts_with_answer_prefix = _strict_mc_starts_with_answer_prefix(text, letters, base)
+    strict_format_exact = _strict_mc_format_exact(text, letters, base)
     answer_marker_count = _answer_marker_count(text)
     multiple_answer_markers = answer_marker_count > 1
     if not correct_letter or not letters:
@@ -655,7 +691,7 @@ def _grade_multiple_choice_response_strict(
             multiple_answer_markers=multiple_answer_markers,
         )
 
-    commitments = _extract_strict_mc_commitments(text, letters)
+    commitments = _extract_strict_mc_commitments(text, letters, base)
     if not commitments:
         noncanonical_line, noncanonical_source = _find_noncanonical_explicit_answer(text)
         no_commit_reason = (

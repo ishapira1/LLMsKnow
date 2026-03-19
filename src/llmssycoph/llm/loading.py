@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..logging_utils import log_status
+from .huggingface import HuggingFaceLLM
+from .registry import load_llm
 
 
 def load_model_and_tokenizer(
@@ -11,37 +12,13 @@ def load_model_and_tokenizer(
     device_map_auto: bool,
     hf_cache_dir: Optional[str],
 ):
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    log_status("llm/loading.py", f"loading model={model_name} on device={device}")
-    if device == "cuda":
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            device_map="auto" if device_map_auto else None,
-            cache_dir=hf_cache_dir,
-        )
-        if not device_map_auto:
-            model = model.to("cuda")
-    elif device == "mps":
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float32,
-            cache_dir=hf_cache_dir,
-        )
-        model = model.to("mps")
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float32,
-            cache_dir=hf_cache_dir,
-        )
-        model = model.to("cpu")
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, cache_dir=hf_cache_dir)
-    model.eval()
-    return model, tokenizer
+    llm = HuggingFaceLLM(
+        model_name=model_name,
+        device=device,
+        device_map_auto=device_map_auto,
+        hf_cache_dir=hf_cache_dir,
+    )
+    return llm.get_model_and_tokenizer()
 
 
-__all__ = ["load_model_and_tokenizer"]
+__all__ = ["load_llm", "load_model_and_tokenizer"]

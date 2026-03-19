@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+from .question import Question
+
 
 BIAS_VARIANTS_FROM_DATASET = "bias_variants_from_dataset"
 BIAS_VARIANTS_GENERATED_LOCALLY = "bias_variants_generated_locally"
@@ -10,28 +12,6 @@ ALL_BIAS_CONSTRUCTION_MODES = (
     BIAS_VARIANTS_FROM_DATASET,
     BIAS_VARIANTS_GENERATED_LOCALLY,
 )
-
-
-@dataclass(frozen=True)
-class Question:
-    dataset: str
-    question_text: str
-    correct_answer: str
-    incorrect_answer: str
-    base_metadata: Dict[str, Any] = field(default_factory=dict)
-
-    def to_base_dict(self) -> Dict[str, Any]:
-        base = dict(self.base_metadata)
-        base.update(
-            {
-                "dataset": self.dataset,
-                "question": self.question_text,
-                "question_text": self.question_text,
-                "correct_answer": self.correct_answer,
-                "incorrect_answer": self.incorrect_answer,
-            }
-        )
-        return base
 
 
 @dataclass(frozen=True)

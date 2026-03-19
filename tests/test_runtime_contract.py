@@ -21,6 +21,7 @@ from llmssycoph.runtime import (
     assert_resume_compatible,
     make_run_dir,
     model_slug,
+    preferred_run_artifact_path,
     release_run_lock,
     run_lock_path,
     write_csv_atomic,
@@ -56,6 +57,8 @@ def make_args(**overrides):
             "temperature": 0.7,
             "top_p": 1.0,
             "max_new_tokens": 32,
+            "probe_construction": "auto",
+            "probe_example_weighting": "model_probability",
             "probe_layer_min": 1,
             "probe_layer_max": 32,
             "probe_val_frac": 0.2,
@@ -88,7 +91,7 @@ class RuntimeContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = make_run_dir(tmpdir, "model", "resume_case")
             args = make_args()
-            cfg_path = run_dir / "run_config.json"
+            cfg_path = preferred_run_artifact_path(run_dir, "run_config")
             write_json_atomic(cfg_path, {key: getattr(args, key, None) for key in RESUME_COMPAT_KEYS})
 
             assert_resume_compatible(run_dir, args)
@@ -112,7 +115,7 @@ class RuntimeContractTests(unittest.TestCase):
                 ays_mc_datasets="truthful_qa_mc, aqua_mc",
                 bias_types="incorrect_suggestion, doubt_correct, suggest_correct",
             )
-            cfg_path = run_dir / "run_config.json"
+            cfg_path = preferred_run_artifact_path(run_dir, "run_config")
             write_json_atomic(
                 cfg_path,
                 {
@@ -137,7 +140,9 @@ class RuntimeContractTests(unittest.TestCase):
                 acquire_run_lock(lock_path, run_dir)
 
             write_run_status(run_dir, args=args, status="failed", lock_path=lock_path, error="boom")
-            status_payload = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+            status_payload = json.loads(
+                preferred_run_artifact_path(run_dir, "status").read_text(encoding="utf-8")
+            )
             self.assertEqual(status_payload["status"], "failed")
             self.assertEqual(status_payload["error"], "boom")
             self.assertEqual(status_payload["lock_path"], str(lock_path))
@@ -153,7 +158,9 @@ class RuntimeContractTests(unittest.TestCase):
 
             write_run_status(run_dir, args=args, status="failed", lock_path=lock_path, error="boom")
             write_run_status(run_dir, args=args, status="completed", lock_path=lock_path, error=None)
-            status_payload = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+            status_payload = json.loads(
+                preferred_run_artifact_path(run_dir, "status").read_text(encoding="utf-8")
+            )
             self.assertEqual(status_payload["status"], "completed")
             self.assertNotIn("error", status_payload)
 

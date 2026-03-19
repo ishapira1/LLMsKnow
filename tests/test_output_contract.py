@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import unittest
 
-from llmssycoph.outputs import (
+from llmssycoph.saving_manager import (
+    PROBE_CANDIDATE_SCORE_COLUMNS,
+    SAMPLED_RESPONSE_COLUMNS,
     SUMMARY_COLUMNS,
     build_summary_df,
     build_tuple_rows,
+    to_probe_candidate_scores_df,
     to_samples_df,
     to_tuples_df,
 )
@@ -18,6 +21,7 @@ def make_records():
             "record_id": 0,
             "split": "test",
             "question_id": "q_1",
+            "prompt_id": "q_1__neutral",
             "dataset": "trivia_qa",
             "template_type": "neutral",
             "draw_idx": 0,
@@ -42,6 +46,7 @@ def make_records():
             "record_id": 1,
             "split": "test",
             "question_id": "q_1",
+            "prompt_id": "q_1__neutral",
             "dataset": "trivia_qa",
             "template_type": "neutral",
             "draw_idx": 1,
@@ -66,6 +71,7 @@ def make_records():
             "record_id": 2,
             "split": "test",
             "question_id": "q_1",
+            "prompt_id": "q_1__incorrect_suggestion",
             "dataset": "trivia_qa",
             "template_type": "incorrect_suggestion",
             "draw_idx": 0,
@@ -90,6 +96,7 @@ def make_records():
             "record_id": 3,
             "split": "test",
             "question_id": "q_1",
+            "prompt_id": "q_1__incorrect_suggestion",
             "dataset": "trivia_qa",
             "template_type": "incorrect_suggestion",
             "draw_idx": 1,
@@ -114,6 +121,7 @@ def make_records():
             "record_id": 4,
             "split": "test",
             "question_id": "q_1",
+            "prompt_id": "q_1__doubt_correct",
             "dataset": "trivia_qa",
             "template_type": "doubt_correct",
             "draw_idx": 0,
@@ -138,6 +146,7 @@ def make_records():
             "record_id": 5,
             "split": "test",
             "question_id": "q_1",
+            "prompt_id": "q_1__suggest_correct",
             "dataset": "trivia_qa",
             "template_type": "suggest_correct",
             "draw_idx": 0,
@@ -177,6 +186,8 @@ class OutputContractTests(unittest.TestCase):
         self.assertEqual(rows[0]["probe_x_name"], "probe_no_bias")
         self.assertEqual(rows[0]["probe_xprime_name"], "probe_bias_incorrect_suggestion")
         self.assertEqual(rows[0]["dataset"], "trivia_qa")
+        self.assertEqual(rows[0]["prompt_id_x"], "q_1__neutral")
+        self.assertEqual(rows[0]["prompt_id_xprime"], "q_1__incorrect_suggestion")
         self.assertEqual(json.loads(rows[0]["gold_answers"]), ["Paris"])
 
     def test_build_tuple_rows_skips_non_strict_multiple_choice_records(self):
@@ -186,6 +197,7 @@ class OutputContractTests(unittest.TestCase):
                     "record_id": 0,
                     "split": "test",
                     "question_id": "q_mc",
+                    "prompt_id": "q_mc__neutral",
                     "dataset": "aqua_mc",
                     "template_type": "neutral",
                     "draw_idx": 0,
@@ -211,6 +223,7 @@ class OutputContractTests(unittest.TestCase):
                     "record_id": 1,
                     "split": "test",
                     "question_id": "q_mc",
+                    "prompt_id": "q_mc__incorrect_suggestion",
                     "dataset": "aqua_mc",
                     "template_type": "incorrect_suggestion",
                     "draw_idx": 0,
@@ -244,69 +257,22 @@ class OutputContractTests(unittest.TestCase):
 
         self.assertEqual(
             list(samples_df.columns),
-            [
-                "model_name",
-                "record_id",
-                "split",
-                "question_id",
-                "dataset",
-                "template_type",
-                "draw_idx",
-                "question",
-                "correct_answer",
-                "incorrect_answer",
-                "incorrect_answer_source",
-                "task_format",
-                "mc_mode",
-                "answer_channel",
-                "prompt_spec_version",
-                "grading_spec_version",
-                "correct_letter",
-                "incorrect_letter",
-                "letters",
-                "answer_options",
-                "answers_list",
-                "gold_answers",
-                "prompt_template",
-                "prompt_text",
-                "response_raw",
-                "response",
-                "committed_answer",
-                "commitment_kind",
-                "commitment_source",
-                "starts_with_answer_prefix",
-                "strict_format_exact",
-                "commitment_line",
-                "answer_marker_count",
-                "multiple_answer_markers",
-                "correctness",
-                "grading_status",
-                "grading_reason",
-                "usable_for_metrics",
-                "completion_token_count",
-                "hit_max_new_tokens",
-                "stopped_on_eos",
-                "finish_reason",
-                "T_prompt",
-                "probe_x",
-                "probe_xprime",
-            ],
+            SAMPLED_RESPONSE_COLUMNS,
         )
         self.assertEqual(samples_df.iloc[0]["model_name"], "mistralai/Mistral-7B-Instruct-v0.2")
         self.assertEqual(samples_df.iloc[0]["dataset"], "trivia_qa")
-        self.assertEqual(samples_df.iloc[0]["incorrect_answer_source"], "")
+        self.assertEqual(samples_df.iloc[0]["prompt_id"], "q_1__neutral")
         self.assertEqual(samples_df.iloc[0]["task_format"], "")
         self.assertEqual(samples_df.iloc[0]["mc_mode"], "")
         self.assertEqual(samples_df.iloc[0]["answer_channel"], "")
-        self.assertEqual(samples_df.iloc[0]["commitment_kind"], "")
         self.assertFalse(samples_df.iloc[0]["starts_with_answer_prefix"])
         self.assertFalse(samples_df.iloc[0]["strict_format_exact"])
-        self.assertEqual(samples_df.iloc[0]["commitment_line"], "")
-        self.assertEqual(samples_df.iloc[0]["answer_marker_count"], 0)
-        self.assertFalse(samples_df.iloc[0]["multiple_answer_markers"])
         self.assertEqual(samples_df.iloc[0]["finish_reason"], "")
+        self.assertEqual(samples_df.iloc[0]["sampling_mode"], "generation")
         self.assertFalse(samples_df.iloc[0]["hit_max_new_tokens"])
-        self.assertEqual(json.loads(samples_df.iloc[0]["gold_answers"]), ["Paris"])
+        self.assertNotIn("choice_probabilities", samples_df.columns)
+        self.assertNotIn("committed_answer", samples_df.columns)
+        self.assertNotIn("gold_answers", samples_df.columns)
 
     def test_summary_df_schema_aggregation_and_empty_case(self):
         tuple_rows = build_tuple_rows(
@@ -322,6 +288,8 @@ class OutputContractTests(unittest.TestCase):
 
         incorrect_row = summary_df[summary_df["bias_type"] == "incorrect_suggestion"].iloc[0]
         self.assertEqual(incorrect_row["dataset"], "trivia_qa")
+        self.assertEqual(incorrect_row["prompt_id_x"], "q_1__neutral")
+        self.assertEqual(incorrect_row["prompt_id_xprime"], "q_1__incorrect_suggestion")
         self.assertEqual(incorrect_row["prompt_template_x"], "{question}")
         self.assertEqual(
             incorrect_row["prompt_template_xprime"],
@@ -340,6 +308,43 @@ class OutputContractTests(unittest.TestCase):
         empty_summary = build_summary_df(to_tuples_df([]))
         self.assertEqual(list(empty_summary.columns), SUMMARY_COLUMNS)
         self.assertEqual(len(empty_summary), 0)
+
+    def test_probe_candidate_scores_df_schema_and_values(self):
+        rows = [
+            {
+                "probe_name": "probe_no_bias",
+                "split": "test",
+                "question_id": "q_1",
+                "prompt_id": "q_1__neutral",
+                "dataset": "aqua_mc",
+                "template_type": "neutral",
+                "draw_idx": 0,
+                "source_record_id": 10,
+                "record_id": 1000,
+                "question": "Question",
+                "prompt_text": "Question\n\nAnswer:",
+                "correct_letter": "C",
+                "source_selected_choice": "C",
+                "candidate_choice": "A",
+                "candidate_rank": 0,
+                "candidate_probability": 0.1,
+                "probe_sample_weight": 0.1,
+                "candidate_correctness": 0,
+                "candidate_is_selected": False,
+                "probe_score": 0.2,
+            }
+        ]
+
+        df = to_probe_candidate_scores_df(
+            rows,
+            model_name="mistralai/Mistral-7B-Instruct-v0.2",
+        )
+
+        self.assertEqual(list(df.columns), PROBE_CANDIDATE_SCORE_COLUMNS)
+        self.assertEqual(df.iloc[0]["probe_name"], "probe_no_bias")
+        self.assertEqual(df.iloc[0]["candidate_choice"], "A")
+        self.assertEqual(df.iloc[0]["selected_choice"], "C")
+        self.assertAlmostEqual(df.iloc[0]["probe_score"], 0.2)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,10 @@ def dataset_name(row: Dict[str, Any]) -> str:
     return ""
 
 
+def prompt_id_for(question_id: Any, template_type: Any) -> str:
+    return f"{str(question_id or '').strip()}__{str(template_type or '').strip()}"
+
+
 def unique_dataset_names(rows: Sequence[Dict[str, Any]]) -> List[str]:
     return sorted({name for row in rows if (name := dataset_name(row))})
 
@@ -190,6 +194,7 @@ __all__ = [
     "build_question_groups",
     "dataset_name",
     "deduplicate_rows",
+    "prompt_id_for",
     "question_key",
     "split_groups",
     "split_groups_train_val_test",

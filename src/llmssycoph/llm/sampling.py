@@ -9,15 +9,22 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 from tqdm.auto import tqdm
 
 from ..constants import SAMPLING_SPEC_VERSION
-from ..data import as_prompt_text, dataset_name as _dataset_name
+from ..data import as_prompt_text, dataset_name as _dataset_name, prompt_id_for
 from ..grading import extract_gold_answers_from_base as _extract_gold_answers_from_base
 from ..grading import grade_response_from_base as _grade_response_from_base
 from ..logging_utils import log_status, tqdm_desc
-from ..runtime import model_slug
-from .generation import generate_many as _generate_many
+from ..runtime import model_slug, resolve_run_artifact_path
+from .base import GenerationResult
 
 
 def _generation_record_from_output(output: Any) -> Dict[str, Any]:
+    if isinstance(output, GenerationResult):
+        result = output.as_dict()
+        result.setdefault("sampling_mode", "generation")
+        result.setdefault("choice_probabilities", {})
+        result.setdefault("choice_probability_correct", float("nan"))
+        result.setdefault("choice_probability_selected", float("nan"))
+        return result
     if isinstance(output, dict):
         return {
             "response_raw": str(output.get("response_raw", "") or ""),
@@ -25,6 +32,10 @@ def _generation_record_from_output(output: Any) -> Dict[str, Any]:
             "hit_max_new_tokens": bool(output.get("hit_max_new_tokens", False)),
             "stopped_on_eos": bool(output.get("stopped_on_eos", False)),
             "finish_reason": str(output.get("finish_reason", "") or ""),
+            "sampling_mode": str(output.get("sampling_mode", "generation") or "generation"),
+            "choice_probabilities": dict(output.get("choice_probabilities", {}) or {}),
+            "choice_probability_correct": output.get("choice_probability_correct", float("nan")),
+            "choice_probability_selected": output.get("choice_probability_selected", float("nan")),
         }
     return {
         "response_raw": str(output or ""),
@@ -32,7 +43,28 @@ def _generation_record_from_output(output: Any) -> Dict[str, Any]:
         "hit_max_new_tokens": False,
         "stopped_on_eos": False,
         "finish_reason": "",
+        "sampling_mode": "generation",
+        "choice_probabilities": {},
+        "choice_probability_correct": float("nan"),
+        "choice_probability_selected": float("nan"),
     }
+
+
+def _strict_mc_choice_labels(base: Dict[str, Any]) -> List[str]:
+    if str(base.get("task_format", "") or "") != "multiple_choice":
+        return []
+    if str(base.get("mc_mode", "") or "") != "strict_mc":
+        return []
+    letters = str(base.get("letters", "") or "").strip().upper()
+    if not letters:
+        return []
+    return [letter for letter in letters if letter.strip()]
+
+
+def _planned_draw_count(base: Dict[str, Any], default_n_draws: int) -> int:
+    if _strict_mc_choice_labels(base):
+        return 1
+    return int(default_n_draws)
 
 
 def sample_record_key_values(
@@ -85,7 +117,8 @@ def enumerate_expected_sample_keys(
             prompt_messages = row.get("prompt", [])
             if not isinstance(prompt_messages, list) or not prompt_messages:
                 continue
-            for draw_idx in range(n_draws):
+            planned_n_draws = _planned_draw_count(base, n_draws)
+            for draw_idx in range(planned_n_draws):
                 keys.add(sample_record_key_values(split_name, group["question_id"], template_type, draw_idx))
     return keys
 
@@ -137,6 +170,8 @@ def build_sampling_spec(
         "bias_types": list(bias_types),
         "seed": int(getattr(args, "seed", 0)),
         "n_draws": int(args.n_draws),
+        "requested_n_draws": int(getattr(args, "requested_n_draws", args.n_draws)),
+        "strict_mc_choice_scoring": bool(getattr(args, "strict_mc_choice_scoring", False)),
         "sample_batch_size": int(getattr(args, "sample_batch_size", 1)),
         "temperature": float(args.temperature),
         "top_p": float(args.top_p),
@@ -177,8 +212,8 @@ def load_sampling_cache_candidate(
             continue
         if exclude_run_dir is not None and run_subdir.resolve() == exclude_run_dir.resolve():
             continue
-        manifest_path = run_subdir / "sampling_manifest.json"
-        records_path = run_subdir / "sampling_records.jsonl"
+        manifest_path = resolve_run_artifact_path(run_subdir, "sampling_manifest")
+        records_path = resolve_run_artifact_path(run_subdir, "sampling_records")
         if not manifest_path.exists() or not records_path.exists():
             continue
         try:
@@ -207,8 +242,7 @@ def load_sampling_cache_candidate(
 
 
 def sample_records_for_groups(
-    model,
-    tokenizer,
+    llm,
     groups: Sequence[Dict[str, Any]],
     split_name: str,
     bias_types: Sequence[str],
@@ -227,15 +261,20 @@ def sample_records_for_groups(
     for record in existing_records or []:
         if not isinstance(record, dict):
             continue
+        normalized_record = dict(record)
+        normalized_record.setdefault(
+            "prompt_id",
+            prompt_id_for(normalized_record.get("question_id", ""), normalized_record.get("template_type", "")),
+        )
         try:
-            key = sample_record_key(record)
+            key = sample_record_key(normalized_record)
         except Exception:
             continue
         if key[0] != split_name:
             continue
-        records_by_key[key] = record
+        records_by_key[key] = normalized_record
         try:
-            max_existing_record_id = max(max_existing_record_id, int(record.get("record_id", -1)))
+            max_existing_record_id = max(max_existing_record_id, int(normalized_record.get("record_id", -1)))
         except Exception:
             pass
 
@@ -282,8 +321,10 @@ def sample_records_for_groups(
             answer_options = str(base.get("answers", "") or "")
             answers_list = list(base.get("answers_list", []) or [])
             strict_mc_letters = letters if task_format == "multiple_choice" and mc_mode == "strict_mc" else ""
+            choice_labels = _strict_mc_choice_labels(base)
+            planned_n_draws = _planned_draw_count(base, n_draws)
             missing_draws: List[int] = []
-            for draw_idx in range(n_draws):
+            for draw_idx in range(planned_n_draws):
                 key = sample_record_key_values(split_name, group["question_id"], template_type, draw_idx)
                 expected_total += 1
                 if key in records_by_key:
@@ -295,19 +336,39 @@ def sample_records_for_groups(
                 continue
 
             batch_size = max(1, min(sample_batch_size, len(missing_draws)))
-            generated_outputs = _generate_many(
-                model,
-                tokenizer,
-                prompt_messages,
-                n=len(missing_draws),
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                batch_size=batch_size,
-                safe_fallback=True,
-                return_metadata=True,
-                strict_mc_letters=strict_mc_letters,
-            )
+            if choice_labels:
+                choice_probabilities = llm.score_choices(prompt_messages, choice_labels)
+                selected_choice = max(
+                    choice_labels,
+                    key=lambda choice: (float(choice_probabilities.get(choice, float("-inf"))), -choice_labels.index(choice)),
+                )
+                generated_outputs = [
+                    {
+                        "response_raw": selected_choice,
+                        "completion_token_count": 1,
+                        "hit_max_new_tokens": False,
+                        "stopped_on_eos": False,
+                        "finish_reason": "choice_probabilities",
+                        "sampling_mode": "choice_probabilities",
+                        "choice_probabilities": choice_probabilities,
+                        "choice_probability_correct": float(
+                            choice_probabilities.get(str(correct_letter or "").strip().upper(), 0.0)
+                        ),
+                        "choice_probability_selected": float(choice_probabilities.get(selected_choice, 0.0)),
+                    }
+                    for _ in missing_draws
+                ]
+            else:
+                generated_outputs = llm.generate(
+                    prompt_messages,
+                    n=len(missing_draws),
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    batch_size=batch_size,
+                    safe_fallback=True,
+                    strict_mc_letters=strict_mc_letters,
+                )
             for draw_idx, generated_output in zip(missing_draws, generated_outputs):
                 generation_record = _generation_record_from_output(generated_output)
                 response_raw = generation_record["response_raw"]
@@ -321,6 +382,7 @@ def sample_records_for_groups(
                 records_by_key[key] = {
                     "record_id": rec_id,
                     "question_id": group["question_id"],
+                    "prompt_id": prompt_id_for(group["question_id"], template_type),
                     "split": split_name,
                     "dataset": dataset,
                     "template_type": template_type,
@@ -361,6 +423,10 @@ def sample_records_for_groups(
                     "hit_max_new_tokens": generation_record.get("hit_max_new_tokens", False),
                     "stopped_on_eos": generation_record.get("stopped_on_eos", False),
                     "finish_reason": generation_record.get("finish_reason", ""),
+                    "sampling_mode": generation_record.get("sampling_mode", "generation"),
+                    "choice_probabilities": generation_record.get("choice_probabilities", {}),
+                    "choice_probability_correct": generation_record.get("choice_probability_correct", float("nan")),
+                    "choice_probability_selected": generation_record.get("choice_probability_selected", float("nan")),
                 }
                 rec_id += 1
                 generated += 1
