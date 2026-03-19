@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Sequence
 
 from .constants import MC_MODE_STRICT
 from .grading import record_is_usable_for_metrics
-from .logging_utils import log_status, warn_status
+from .logging_utils import log_status, ok_status, warn_status
 
 
 SAMPLING_INTEGRITY_VERSION = 1
@@ -219,6 +219,26 @@ def _selected_choice_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any
     }
 
 
+def _has_single_selected_choice(summary: Dict[str, Any]) -> bool:
+    selected_choice_counts = dict(summary.get("selected_choice_counts", {}) or {})
+    selected_choice_total = int(summary.get("selected_choice_total", 0) or 0)
+    dominant_selected_choice = str(summary.get("dominant_selected_choice", "") or "").strip().upper()
+    return selected_choice_total > 1 and len(selected_choice_counts) == 1 and bool(dominant_selected_choice)
+
+
+def _integrity_summary_is_clean(sampling_mode: str, summary: Dict[str, Any]) -> bool:
+    if sampling_mode == "generation":
+        format_failure = int(summary.get("buckets", {}).get("format_failure", {}).get("count", 0) or 0)
+        format_drift = int(
+            summary.get("buckets", {}).get("minor_format_deviation_still_scoreable", {}).get("count", 0) or 0
+        )
+        return format_failure == 0 and format_drift == 0
+    if sampling_mode == "choice_probabilities":
+        integrity_failure = int(summary.get("buckets", {}).get("integrity_failure", {}).get("count", 0) or 0)
+        return integrity_failure == 0 and not _has_single_selected_choice(summary)
+    return False
+
+
 def _summarize_generation_records(
     records: Sequence[Dict[str, Any]],
     *,
@@ -350,7 +370,8 @@ def log_sampling_integrity_summary(summary: Dict[str, Any]) -> None:
         lines = list(mode_summary.get("human_summary", []))
         if not lines:
             continue
-        log_status(
+        summary_logger = ok_status if _integrity_summary_is_clean(sampling_mode, mode_summary) else log_status
+        summary_logger(
             "sampling_integrity.py",
             f"sampling integrity mode={sampling_mode}: " + " | ".join(lines),
         )
@@ -384,10 +405,9 @@ def log_sampling_integrity_summary(summary: Dict[str, Any]) -> None:
                     f"{integrity_failure}/{total} choice-probability rows failed bookkeeping or integrity checks."
                     + (f" Top reasons: {details}" if details else ""),
                 )
-            selected_choice_counts = dict(mode_summary.get("selected_choice_counts", {}) or {})
             selected_choice_total = int(mode_summary.get("selected_choice_total", 0) or 0)
             dominant_selected_choice = str(mode_summary.get("dominant_selected_choice", "") or "").strip().upper()
-            if selected_choice_total > 1 and len(selected_choice_counts) == 1 and dominant_selected_choice:
+            if _has_single_selected_choice(mode_summary):
                 warn_status(
                     "sampling_integrity.py",
                     "choice_probability_single_selected_choice",
@@ -399,7 +419,8 @@ def log_sampling_integrity_summary(summary: Dict[str, Any]) -> None:
             template_lines = list(template_summary.get("human_summary", []))
             if not template_lines:
                 continue
-            log_status(
+            template_logger = ok_status if _integrity_summary_is_clean(sampling_mode, template_summary) else log_status
+            template_logger(
                 "sampling_integrity.py",
                 f"sampling integrity mode={sampling_mode} template={template_type}: "
                 + " | ".join(template_lines),

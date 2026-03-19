@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 
 _RUN_LOG_PATH: Optional[Path] = None
 _WARNING_LOG_PATH: Optional[Path] = None
+_ANSI_GREEN = "\033[32m"
 _ANSI_YELLOW = "\033[33m"
 _ANSI_RESET = "\033[0m"
 
@@ -75,10 +76,10 @@ def _stdout_supports_color() -> bool:
     )
 
 
-def _format_warning_for_console(line: str) -> str:
+def _format_console_line(line: str, ansi_code: str) -> str:
     if not _stdout_supports_color():
         return line
-    return f"{_ANSI_YELLOW}{line}{_ANSI_RESET}"
+    return f"{ansi_code}{line}{_ANSI_RESET}"
 
 
 def log_status(script_name: str, message: str) -> str:
@@ -90,9 +91,16 @@ def log_status(script_name: str, message: str) -> str:
 
 def warn_status(script_name: str, warning_code: str, message: str) -> str:
     line = format_warning(script_name, warning_code, message)
-    tqdm.write(_format_warning_for_console(line))
+    tqdm.write(_format_console_line(line, _ANSI_YELLOW))
     _append_log_line(_RUN_LOG_PATH, line)
     _append_log_line(_WARNING_LOG_PATH, line)
+    return line
+
+
+def ok_status(script_name: str, message: str) -> str:
+    line = format_status(script_name, message)
+    tqdm.write(_format_console_line(line, _ANSI_GREEN))
+    _append_log_line(_RUN_LOG_PATH, line)
     return line
 
 
@@ -102,6 +110,7 @@ __all__ = [
     "format_warning",
     "format_status",
     "log_status",
+    "ok_status",
     "tqdm_desc",
     "warn_status",
 ]

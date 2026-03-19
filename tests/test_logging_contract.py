@@ -9,6 +9,7 @@ from llmssycoph.logging_utils import (
     clear_run_logging,
     configure_run_logging,
     log_status,
+    ok_status,
     tqdm_desc,
     warn_status,
 )
@@ -79,6 +80,26 @@ class LoggingContractTests(unittest.TestCase):
         mock_write.assert_called_once_with(
             "\033[33m[warning][pipeline.py][mixed_strict_mc_modes]: "
             "strict-MC choice scoring and text generation are mixed in this run.\033[0m"
+        )
+
+    def test_ok_status_colors_console_output_when_stdout_supports_it(self):
+        with patch("llmssycoph.logging_utils.sys.stdout.isatty", return_value=True), patch.dict(
+            "llmssycoph.logging_utils.os.environ",
+            {"TERM": "xterm-256color"},
+            clear=True,
+        ), patch("llmssycoph.logging_utils.tqdm.write") as mock_write:
+            ok_line = ok_status(
+                "sampling_integrity.py",
+                "sampling integrity mode=choice_probabilities: Exact compliance: 100.00% | Integrity failure: 0.00%",
+            )
+
+        self.assertEqual(
+            ok_line,
+            "[sampling_integrity.py]: sampling integrity mode=choice_probabilities: Exact compliance: 100.00% | Integrity failure: 0.00%",
+        )
+        mock_write.assert_called_once_with(
+            "\033[32m[sampling_integrity.py]: sampling integrity mode=choice_probabilities: "
+            "Exact compliance: 100.00% | Integrity failure: 0.00%\033[0m"
         )
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import random
 from pathlib import Path
@@ -9,7 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 import numpy as np
 from tqdm.auto import tqdm
 
-from .cli import load_env_file, resolve_bias_types, resolve_device, resolve_hf_cache_dir
+from .cli import build_parser, load_env_file, resolve_bias_types, resolve_device, resolve_hf_cache_dir
 from .constants import (
     MC_MODE_STRICT,
     STRICT_MC_MAX_CAP_HIT_RATE,
@@ -30,7 +29,7 @@ from .data import (
     unique_dataset_names,
 )
 from .grading import add_empirical_t, build_probe_record_sets, refresh_sample_records_for_groups
-from .logging_utils import clear_run_logging, configure_run_logging, log_status, tqdm_desc, warn_status
+from .logging_utils import clear_run_logging, configure_run_logging, log_status, ok_status, tqdm_desc, warn_status
 from .llm import (
     build_sampling_spec,
     load_llm,
@@ -85,6 +84,46 @@ def _preview_text(value: Any, limit: int = 160) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _format_arg_value(value: Any) -> str:
+    if value is None:
+        return "<unset>"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple, set)):
+        rendered = ", ".join(str(item) for item in value)
+        return rendered or "<empty>"
+    rendered = str(value)
+    return rendered if rendered else "<empty>"
+
+
+def _format_parsed_argument_lines(args: Any) -> List[str]:
+    parsed_args = vars(args)
+    if not parsed_args:
+        return ["parsed arguments: <none>"]
+
+    cli_keys: List[str] = []
+    seen: Set[str] = set()
+    for action in build_parser()._actions:
+        dest = getattr(action, "dest", None)
+        if not isinstance(dest, str) or dest == "help" or dest in seen or dest not in parsed_args:
+            continue
+        cli_keys.append(dest)
+        seen.add(dest)
+
+    derived_keys = [key for key in parsed_args if key not in seen]
+    ordered_keys = [*cli_keys, *derived_keys]
+    width = max(len(key) for key in ordered_keys)
+
+    lines = ["parsed arguments:"]
+    for key in cli_keys:
+        lines.append(f"  {key.ljust(width)} = {_format_arg_value(parsed_args[key])}")
+    if derived_keys:
+        lines.append("  derived settings:")
+        for key in derived_keys:
+            lines.append(f"    {key.ljust(width)} = {_format_arg_value(parsed_args[key])}")
+    return lines
 
 
 def _count_expected_by_template(
@@ -527,10 +566,11 @@ def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, A
     }
 
 
-def _log_strict_mc_quality_summary(summary: Dict[str, Any]) -> None:
+def _log_strict_mc_quality_summary(summary: Dict[str, Any], issues: Optional[Sequence[str]] = None) -> None:
     if not summary:
         return
-    log_status(
+    summary_logger = ok_status if not list(issues or []) else log_status
+    summary_logger(
         "pipeline.py",
         "strict MC quality: "
         f"commitment_rate={summary['commitment_rate']:.1%} "
@@ -644,11 +684,8 @@ def run_pipeline(args) -> None:
         )
 
         begin_stage(1, "parsed arguments and execution plan")
-        log_status(
-            "pipeline.py",
-            "parsed arguments: "
-            + json.dumps(vars(args), ensure_ascii=False, sort_keys=True, default=str),
-        )
+        for line in _format_parsed_argument_lines(args):
+            log_status("pipeline.py", line)
         planned_bias_types = resolve_bias_types(args.bias_types)
         resolved_ays_mc_datasets = resolve_ays_mc_datasets(args.ays_mc_datasets)
         args.ays_mc_datasets = resolved_ays_mc_datasets
@@ -1006,8 +1043,8 @@ def run_pipeline(args) -> None:
             sampling_integrity_summary=sampling_integrity_summary,
         )
         strict_mc_quality_report = _strict_mc_quality_summary(all_records)
-        _log_strict_mc_quality_summary(strict_mc_quality_report)
         strict_mc_quality_failures = _strict_mc_quality_issues(strict_mc_quality_report)
+        _log_strict_mc_quality_summary(strict_mc_quality_report, issues=strict_mc_quality_failures)
         for issue in strict_mc_quality_failures:
             warn_status("pipeline.py", "strict_mc_quality_gate", issue)
         finish_stage()

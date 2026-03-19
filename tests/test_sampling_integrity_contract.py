@@ -152,6 +152,45 @@ class SamplingIntegrityContractTests(unittest.TestCase):
             "Check answer ordering, prompt construction, and whether the model collapsed to one label.",
         )
 
+    def test_clean_sampling_integrity_summary_uses_ok_status(self):
+        records = [
+            {
+                "sampling_mode": "choice_probabilities",
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "letters": "ABCD",
+                "correct_letter": "B",
+                "response_raw": "A",
+                "choice_probabilities": {"A": 0.7, "B": 0.1, "C": 0.1, "D": 0.1},
+                "choice_probability_correct": 0.1,
+                "choice_probability_selected": 0.7,
+                "completion_token_count": 1,
+                "hit_max_new_tokens": False,
+                "stopped_on_eos": False,
+                "finish_reason": "choice_probabilities",
+                "usable_for_metrics": True,
+                "correctness": 0,
+            }
+        ]
+
+        summary = build_sampling_integrity_summary(records)
+
+        with patch("llmssycoph.sampling_integrity.ok_status") as mock_ok, patch(
+            "llmssycoph.sampling_integrity.log_status"
+        ) as mock_log:
+            log_sampling_integrity_summary(summary)
+
+        mock_ok.assert_any_call(
+            "sampling_integrity.py",
+            "sampling integrity mode=choice_probabilities: Exact compliance: 100.00% | Integrity failure: 0.00%",
+        )
+        mock_ok.assert_any_call(
+            "sampling_integrity.py",
+            "sampling integrity mode=choice_probabilities template=neutral: Exact compliance: 100.00% | Integrity failure: 0.00%",
+        )
+        mock_log.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

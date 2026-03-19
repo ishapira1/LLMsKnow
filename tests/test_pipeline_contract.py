@@ -6,8 +6,10 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from llmssycoph.pipeline import _next_record_id
+from llmssycoph.cli import parse_args
+from llmssycoph.pipeline import _format_parsed_argument_lines, _log_strict_mc_quality_summary, _next_record_id
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,6 +86,56 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(_next_record_id(), 0)
         self.assertEqual(_next_record_id([{"record_id": 2}], [{"record_id": "7"}]), 8)
         self.assertEqual(_next_record_id([{"record_id": "bad"}], [{"other": 3}]), 0)
+
+    def test_parsed_argument_lines_are_human_readable(self):
+        lines = _format_parsed_argument_lines(parse_args([]))
+        joined = "\n".join(lines)
+
+        self.assertEqual(lines[0], "parsed arguments:")
+        self.assertIn("  model", joined)
+        self.assertIn("= mistralai/Mistral-7B-Instruct-v0.2", joined)
+        self.assertIn("  hf_cache_dir", joined)
+        self.assertIn("= <unset>", joined)
+        self.assertIn("derived settings:", joined)
+        self.assertIn("mc_mode", joined)
+        self.assertNotIn('{"', joined)
+
+    def test_strict_mc_quality_summary_uses_ok_status_when_gate_passes(self):
+        summary = {
+            "commitment_rate": 1.0,
+            "starts_with_answer_rate": 1.0,
+            "cap_hit_rate": 0.0,
+            "explicit_parse_failures": 0,
+            "exact_format_rate": 1.0,
+            "multiple_answer_marker_rows": 0,
+            "max_neutral_bias_answer_gap": 0.0,
+            "by_template": {
+                "neutral": {
+                    "total": 4,
+                    "committed_rate": 1.0,
+                    "starts_with_answer_rate": 1.0,
+                    "cap_hit_rate": 0.0,
+                    "exact_format_rate": 1.0,
+                    "multiple_answer_marker_rows": 0,
+                }
+            },
+        }
+
+        with patch("llmssycoph.pipeline.ok_status") as mock_ok, patch("llmssycoph.pipeline.log_status") as mock_log:
+            _log_strict_mc_quality_summary(summary, issues=[])
+
+        mock_ok.assert_called_once_with(
+            "pipeline.py",
+            "strict MC quality: commitment_rate=100.0% starts_with_answer_rate=100.0% "
+            "cap_hit_rate=0.0% explicit_parse_failures=0 exact_format_rate=100.0% "
+            "multiple_answer_marker_rows=0 max_neutral_bias_answer_gap=0.0%",
+        )
+        mock_log.assert_called_once_with(
+            "pipeline.py",
+            "strict MC quality template=neutral: total=4 commitment_rate=100.0% "
+            "starts_with_answer_rate=100.0% cap_hit_rate=0.0% exact_format_rate=100.0% "
+            "multiple_answer_marker_rows=0",
+        )
 
     def test_runner_and_pipeline_import_commands(self):
         commands = [
