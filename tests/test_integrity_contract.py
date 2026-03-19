@@ -224,6 +224,7 @@ class IntegrityContractTests(unittest.TestCase):
                 "run_name": run_dir.name,
                 "model": model_name,
                 "device": "cpu",
+                "requested_device": "cpu",
                 "resolved_device": "cpu",
                 "benchmark_source": "ays_mc_single_turn",
                 "input_jsonl": "are_you_sure.jsonl",
@@ -343,12 +344,13 @@ class IntegrityContractTests(unittest.TestCase):
             run_config_path = preferred_run_artifact_path(run_dir, "run_config")
             run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
             run_config["device"] = "auto"
+            run_config["requested_device"] = "auto"
             run_config["resolved_device"] = "cuda"
             write_json_atomic(run_config_path, run_config)
 
             report = check_run_integrity(run_dir)
 
-            self.assertEqual(report["configured_device"], "auto")
+            self.assertEqual(report["requested_device"], "auto")
             self.assertEqual(report["resolved_device"], "cuda")
 
     def test_check_run_integrity_rejects_duplicate_sample_keys(self):

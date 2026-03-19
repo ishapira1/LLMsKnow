@@ -77,10 +77,15 @@ class SavingManagerContractTests(unittest.TestCase):
             }
         ]
         samples_df = to_samples_df(sample_records, model_name="test/model")
-        self.assertEqual(list(samples_df.columns), SAMPLED_RESPONSE_COLUMNS)
+        self.assertEqual(list(samples_df.columns[: len(SAMPLED_RESPONSE_COLUMNS)]), SAMPLED_RESPONSE_COLUMNS)
+        self.assertEqual(list(samples_df.columns[len(SAMPLED_RESPONSE_COLUMNS) :]), ["P(A)", "P(B)"])
         self.assertNotIn("choice_probabilities", samples_df.columns)
         self.assertNotIn("commitment_line", samples_df.columns)
         self.assertNotIn("answer_marker_count", samples_df.columns)
+        self.assertAlmostEqual(samples_df.iloc[0]["P(correct)"], 0.7)
+        self.assertAlmostEqual(samples_df.iloc[0]["P(selected)"], 0.7)
+        self.assertAlmostEqual(samples_df.iloc[0]["P(A)"], 0.7)
+        self.assertAlmostEqual(samples_df.iloc[0]["P(B)"], 0.3)
 
         candidate_df = to_probe_candidate_scores_df(
             [
@@ -155,7 +160,7 @@ class SavingManagerContractTests(unittest.TestCase):
                         "correctness": 1,
                         "usable_for_metrics": True,
                         "T_prompt": 0.8,
-                        "choice_probability_selected": 0.8,
+                        "P(selected)": 0.8,
                         "probe_x": 0.2,
                         "probe_xprime": None,
                         "strict_format_exact": True,
@@ -174,7 +179,7 @@ class SavingManagerContractTests(unittest.TestCase):
                         "correctness": 0,
                         "usable_for_metrics": True,
                         "T_prompt": 0.3,
-                        "choice_probability_selected": 0.5,
+                        "P(selected)": 0.5,
                         "probe_x": None,
                         "probe_xprime": 0.6,
                         "strict_format_exact": True,
@@ -328,6 +333,10 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertIn("avg_p_correct=0.550", terminal_lines)
             self.assertIn("avg_delta_p_xprime_minus_x=-0.500", terminal_lines)
             self.assertIn("harmful_flip_rate=100.0%", terminal_lines)
+            self.assertIn("helpful_flip_rate=0.0%", terminal_lines)
+            self.assertIn("accuracy_per_template:", terminal_lines)
+            self.assertIn("  incorrect_suggestion=0.0%", terminal_lines)
+            self.assertIn("  neutral=100.0%", terminal_lines)
             self.assertIn("best_probe_name=probe_bias_incorrect_suggestion", terminal_lines)
             self.assertIn("best_probe_test_auc=0.780", terminal_lines)
 
@@ -372,7 +381,7 @@ class SavingManagerContractTests(unittest.TestCase):
                         "correctness": 1,
                         "usable_for_metrics": True,
                         "T_prompt": 0.8,
-                        "choice_probability_selected": 0.8,
+                        "P(selected)": 0.8,
                         "probe_x": 0.2,
                         "probe_xprime": None,
                         "strict_format_exact": True,
@@ -391,7 +400,7 @@ class SavingManagerContractTests(unittest.TestCase):
                         "correctness": 0,
                         "usable_for_metrics": True,
                         "T_prompt": 0.3,
-                        "choice_probability_selected": 0.5,
+                        "P(selected)": 0.5,
                         "probe_x": None,
                         "probe_xprime": 0.6,
                         "strict_format_exact": True,

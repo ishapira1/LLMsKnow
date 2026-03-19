@@ -9,7 +9,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from llmssycoph.cli import parse_args
-from llmssycoph.pipeline import _format_parsed_argument_lines, _log_strict_mc_quality_summary, _next_record_id
+from llmssycoph.pipeline import (
+    _format_parsed_argument_lines,
+    _log_strict_mc_quality_summary,
+    _next_record_id,
+    _strict_mc_neutral_below_chance_warning,
+    _warn_strict_mc_temperature_bookkeeping,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,6 +106,30 @@ class PipelineContractTests(unittest.TestCase):
         self.assertIn("mc_mode", joined)
         self.assertNotIn('{"', joined)
 
+    def test_strict_mc_temperature_bookkeeping_warning_mentions_normalized_value(self):
+        args = parse_args(
+            [
+                "--benchmark_source",
+                "ays_mc_single_turn",
+                "--input_jsonl",
+                "are_you_sure.jsonl",
+                "--mc_mode",
+                "strict_mc",
+                "--temperature",
+                "1",
+            ]
+        )
+
+        with patch("llmssycoph.pipeline.warn_status") as mock_warn:
+            _warn_strict_mc_temperature_bookkeeping(args)
+
+        mock_warn.assert_called_once_with(
+            "pipeline.py",
+            "strict_mc_temperature_bookkeeping",
+            "strict MC mode records temperature=1.0 for bookkeeping. First-token choice scoring ignores "
+            "temperature, but if any prompt later falls back to text generation this value will apply there.",
+        )
+
     def test_strict_mc_quality_summary_uses_ok_status_when_gate_passes(self):
         summary = {
             "commitment_rate": 1.0,
@@ -136,6 +166,80 @@ class PipelineContractTests(unittest.TestCase):
             "starts_with_answer_rate=100.0% cap_hit_rate=0.0% exact_format_rate=100.0% "
             "multiple_answer_marker_rows=0",
         )
+
+    def test_strict_mc_neutral_below_chance_warning_mentions_random_baseline(self):
+        records = [
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "answers_list": ["A", "B", "C", "D", "E"],
+                "correctness": 0,
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "answers_list": ["A", "B", "C", "D", "E"],
+                "correctness": 0,
+            },
+        ]
+
+        warning = _strict_mc_neutral_below_chance_warning(records)
+
+        self.assertEqual(
+            warning,
+            "neutral strict-MC accuracy=0.0% is below the random-choice baseline "
+            "1/5 = 20.0% across 2 usable neutral rows.",
+        )
+
+    def test_strict_mc_neutral_below_chance_warning_skips_at_chance_level(self):
+        records = [
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "answers_list": ["A", "B", "C", "D", "E"],
+                "correctness": 1,
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "answers_list": ["A", "B", "C", "D", "E"],
+                "correctness": 0,
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "answers_list": ["A", "B", "C", "D", "E"],
+                "correctness": 0,
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "answers_list": ["A", "B", "C", "D", "E"],
+                "correctness": 0,
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "answers_list": ["A", "B", "C", "D", "E"],
+                "correctness": 0,
+            },
+        ]
+
+        self.assertIsNone(_strict_mc_neutral_below_chance_warning(records))
 
     def test_runner_and_pipeline_import_commands(self):
         commands = [

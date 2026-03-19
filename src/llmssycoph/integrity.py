@@ -10,7 +10,12 @@ import pandas as pd
 from .data import prompt_id_for
 from .logging_utils import warn_status
 from .runtime import model_slug, resolve_run_artifact_path
-from .saving_manager import build_model_summary_by_bias_df, build_model_summary_by_template_df
+from .saving_manager import (
+    P_CORRECT_COLUMN,
+    P_SELECTED_COLUMN,
+    build_model_summary_by_bias_df,
+    build_model_summary_by_template_df,
+)
 
 
 REQUIRED_ARTIFACT_KEYS = (
@@ -24,6 +29,9 @@ REQUIRED_ARTIFACT_KEYS = (
     "probe_scores_by_prompt",
     "executive_summary",
 )
+
+ALLOWED_REQUESTED_DEVICE_VALUES = {"auto", "cpu", "cuda", "mps"}
+ALLOWED_RESOLVED_DEVICE_VALUES = {"cpu", "cuda", "mps"}
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
@@ -44,6 +52,18 @@ def _format_pct(value: float) -> str:
     return f"{100.0 * float(value):.1f}%"
 
 
+def _resolve_device_metadata(run_config: Dict[str, Any]) -> tuple[str, str]:
+    requested_device = str(run_config.get("requested_device", "") or "").strip()
+    legacy_device = str(run_config.get("device", "") or "").strip()
+    resolved_device = str(run_config.get("resolved_device", "") or "").strip()
+
+    if not requested_device:
+        requested_device = legacy_device
+    if not resolved_device and requested_device and requested_device != "auto":
+        resolved_device = requested_device
+    return requested_device, resolved_device
+
+
 def _check_probability_series(series: pd.Series, column_name: str, issues: List[str]) -> None:
     numeric = pd.to_numeric(series, errors="coerce").dropna()
     if numeric.empty:
@@ -51,6 +71,14 @@ def _check_probability_series(series: pd.Series, column_name: str, issues: List[
     bad_mask = (numeric < 0) | (numeric > 1)
     if bad_mask.any():
         issues.append(f"{column_name} contains values outside [0, 1]")
+
+
+def _sample_probability_series(samples: pd.DataFrame, column_name: str, legacy_column_name: str) -> pd.Series:
+    if column_name in samples.columns:
+        return samples[column_name]
+    if legacy_column_name in samples.columns:
+        return samples[legacy_column_name]
+    return pd.Series([pd.NA] * len(samples), index=samples.index)
 
 
 def _reconstruct_pairs_from_samples(samples: pd.DataFrame, bias_types: Sequence[str]) -> pd.DataFrame:
@@ -160,7 +188,7 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     probe_scores_by_prompt_df = pd.read_csv(probe_scores_by_prompt_path)
     tuples_df = _reconstruct_pairs_from_samples(samples, _parse_list_like(run_config.get("bias_types")))
 
-    sample_required_columns = {"question_id", "prompt_id", "question", "prompt_text"}
+    sample_required_columns = {"question_id", "prompt_id", "question", "prompt_text", P_CORRECT_COLUMN, P_SELECTED_COLUMN}
     missing_sample_columns = sorted(sample_required_columns.difference(samples.columns))
     if missing_sample_columns:
         issues.append(
@@ -214,14 +242,14 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         issues.append("dataset_name is not aqua_mc")
     if str(run_config.get("mc_mode")) != "strict_mc":
         issues.append("mc_mode is not strict_mc")
-    configured_device = str(run_config.get("device", "") or "").strip()
-    resolved_device = str(run_config.get("resolved_device", "") or "").strip()
-    if not configured_device:
-        issues.append("run_config.json is missing device")
-    allowed_devices = {"auto", "cpu", "cuda", "mps"}
-    if configured_device and configured_device not in allowed_devices:
-        issues.append(f"device has unexpected value {configured_device!r}")
-    if resolved_device and resolved_device not in allowed_devices:
+    requested_device, resolved_device = _resolve_device_metadata(run_config)
+    if not requested_device:
+        issues.append("run_config.json is missing requested_device/device")
+    if requested_device and requested_device not in ALLOWED_REQUESTED_DEVICE_VALUES:
+        issues.append(f"requested_device has unexpected value {requested_device!r}")
+    if requested_device == "auto" and not resolved_device:
+        issues.append("run_config.json is missing resolved_device for requested_device='auto'")
+    if resolved_device and resolved_device not in ALLOWED_RESOLVED_DEVICE_VALUES:
         issues.append(f"resolved_device has unexpected value {resolved_device!r}")
 
     bias_types = _parse_list_like(run_config.get("bias_types"))
@@ -393,6 +421,16 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     model_summary_by_bias_df = build_model_summary_by_bias_df(tuples_df)
 
     _check_probability_series(samples["T_prompt"], "sampled_responses.T_prompt", issues)
+    _check_probability_series(
+        _sample_probability_series(samples, P_CORRECT_COLUMN, "choice_probability_correct"),
+        f"sampled_responses.{P_CORRECT_COLUMN}",
+        issues,
+    )
+    _check_probability_series(
+        _sample_probability_series(samples, P_SELECTED_COLUMN, "choice_probability_selected"),
+        f"sampled_responses.{P_SELECTED_COLUMN}",
+        issues,
+    )
     if not model_summary_by_template_df.empty:
         _check_probability_series(model_summary_by_template_df["accuracy"], "reports.summary.accuracy_by_template.accuracy", issues)
         _check_probability_series(
@@ -548,8 +586,8 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         "sample_count": int(len(samples)),
         "tuple_count": int(len(tuples_df)),
         "question_count": int(len(expected_question_ids)),
-        "configured_device": configured_device,
-        "resolved_device": resolved_device or configured_device,
+        "requested_device": requested_device,
+        "resolved_device": resolved_device or requested_device,
         "reports_summary_path": str(reports_summary_path),
         "bias_types": bias_types,
         "usable_rate": usable_rate,
@@ -570,7 +608,7 @@ def _print_report(report: Dict[str, Any]) -> None:
     )
     print(
         "[integrity] device:"
-        f" requested={report['configured_device'] or 'unknown'}"
+        f" requested={report['requested_device'] or 'unknown'}"
         f" resolved={report['resolved_device'] or 'unknown'}"
     )
     print(
@@ -602,7 +640,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run_dir", type=str, default=None, help="Explicit run directory to validate.")
     parser.add_argument("--out_dir", type=str, default="results/sycophancy_bias_probe")
     parser.add_argument("--model", type=str, required=False, default="mistralai/Mistral-7B-Instruct-v0.2")
-    parser.add_argument("--run_name", type=str, required=False, default="smoke_aqua_mc_mistral7b_cpu_q12_l4")
+    parser.add_argument("--run_name", type=str, required=False, default="smoke_aqua_mc_mistral7b_auto_q12_l4")
     parser.add_argument(
         "--strict",
         action="store_true",

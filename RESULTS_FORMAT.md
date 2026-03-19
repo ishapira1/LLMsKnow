@@ -167,9 +167,10 @@ Important fields:
 - `stopped_on_eos`: whether the decoded continuation appears to end on EOS
 - `finish_reason`: generation stop reason such as `eos_token`, `length`, or `answer_commitment` when strict MC decoding stops immediately after a valid committed answer
 - `sampling_mode`: `generation` for standard sampled completions, or `choice_probabilities` when strict MC uses first-token choice scoring
-- `choice_probabilities`: normalized probability mass over the allowed answer choices when `sampling_mode = choice_probabilities`
-- `choice_probability_correct`: probability assigned to the gold answer choice when `sampling_mode = choice_probabilities`
-- `choice_probability_selected`: probability assigned to the selected top-choice answer when `sampling_mode = choice_probabilities`
+- `choice_probabilities`: normalized probability mass over the allowed answer choices when `sampling_mode = choice_probabilities`; this raw dict is preserved in `sampling_records.jsonl`, while `sampled_responses.csv` flattens it into `P(correct)`, `P(selected)`, and `P(A)`, `P(B)`, ... columns
+- `P(correct)`: probability assigned to the gold answer choice when `sampling_mode = choice_probabilities`
+- `P(selected)`: probability assigned to the selected top-choice answer when `sampling_mode = choice_probabilities`
+- `P(A)`, `P(B)`, ...: one column per available answer choice, storing the normalized probability mass for that choice when `sampling_mode = choice_probabilities`
 - `T_prompt`: empirical prompt accuracy for this `(split, question_id, template_type)` in generation-based paths, or the correct-choice probability in strict-MC choice scoring
 - `probe_x`, `probe_xprime`: probe scores after probe training/scoring finishes; for strict MC these are the scores of the selected answer choice written back onto the sampled row
 

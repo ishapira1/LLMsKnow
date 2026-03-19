@@ -72,7 +72,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="auto",
         choices=["auto", "cpu", "cuda", "mps"],
-        help="Execution device. 'auto' prefers cuda, then mps, then cpu.",
+        help=(
+            "Requested execution device. Saved run metadata records both the request and the "
+            "resolved runtime device. 'auto' prefers cuda, then mps, then cpu."
+        ),
     )
     model_group.add_argument(
         "--device_map_auto",
@@ -233,7 +236,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Sampling temperature.\n"
             "If omitted, answer_only under ays_mc_single_turn defaults to 0.1; all other cases default to 0.7.\n"
-            "For strict_mc / answer_only, this is forced to 0.0 because no stochastic sampling is used."
+            "For strict_mc / answer_only, this is normalized to 1.0 for bookkeeping because "
+            "first-token choice scoring does not use sampling temperature."
         ),
     )
     ap.set_defaults(temperature=None)
@@ -366,8 +370,9 @@ def _validate_cli_dependencies(ap: argparse.ArgumentParser, args: argparse.Names
 
 def _apply_effective_sampling_overrides(args: argparse.Namespace) -> None:
     if args.mc_mode == "strict_mc":
+        args.requested_temperature = float(args.temperature)
         args.n_draws = 1
-        args.temperature = 0.0
+        args.temperature = 1.0
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:

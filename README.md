@@ -57,10 +57,10 @@ For direct runs, `.env` is optional: the main pipeline only uses it to populate 
 
 ## Quick start
 
-Run the smoke / integrity test on the AYS-derived `aqua_mc` slice. The wrapper prefers GPU via `--device auto` and falls back to CPU if no accelerator is available:
+Run the smoke / integrity test on the AYS-derived `aqua_mc` slice. The wrapper requests `--device auto`, so it prefers GPU when available and falls back to CPU otherwise. If `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, or `HF_HOME` is set, the wrapper normalizes those into a single Hugging Face cache location and passes it through explicitly:
 
 ```bash
-bash jobs/sycophancy_bias_probe/smoke_aqua_mc_cpu.sh
+bash jobs/sycophancy_bias_probe/smoke_aqua_mc_auto.sh
 ```
 
 This wrapper now runs the pipeline first, then validates the produced artifacts and prints a compact health report.
@@ -161,7 +161,7 @@ Each run writes to:
 
 Main artifacts:
 
-- `sampled_responses.csv`: one row per sampled completion, including both `question_id` and `prompt_id`, the raw `question`, the rendered `prompt_text`/`prompt_template`, split membership, grading result, and for MC-derived runs the preserved choice metadata (`correct_letter`, `letters`, `answer_options`, `answers_list`)
+- `sampled_responses.csv`: one row per sampled completion, including both `question_id` and `prompt_id`, the raw `question`, the rendered `prompt_text`/`prompt_template`, split membership, grading result, and for MC-derived runs the preserved choice metadata (`correct_letter`, `letters`, `answer_options`, `answers_list`) plus exported strict-MC probability columns such as `P(correct)`, `P(selected)`, and `P(A)` / `P(B)` / ...
 - strict MC rows also expose compliance/audit fields such as `committed_answer`, `starts_with_answer_prefix`, `strict_format_exact`, `commitment_line`, `answer_marker_count`, `multiple_answer_markers`, and generation-stop metadata (`finish_reason`, `hit_max_new_tokens`)
 - `sampling_integrity_summary.json`: post-sampling compliance summary, including exact-compliance / minor-deviation / failure buckets by sampling mode and template
 - `final_tuples.csv`: paired neutral and biased records for the same question and draw index, including `question`, `prompt_id_x`, `prompt_id_xprime`, `prompt_x`, `prompt_with_bias`, and prompt-template provenance after dropping ambiguous samples

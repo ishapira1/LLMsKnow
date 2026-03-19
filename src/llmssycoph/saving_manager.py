@@ -55,12 +55,17 @@ SAMPLED_RESPONSE_COLUMNS = [
     "stopped_on_eos",
     "finish_reason",
     "sampling_mode",
-    "choice_probability_correct",
-    "choice_probability_selected",
+    "P(correct)",
+    "P(selected)",
     "T_prompt",
     "probe_x",
     "probe_xprime",
 ]
+
+P_CORRECT_COLUMN = "P(correct)"
+P_SELECTED_COLUMN = "P(selected)"
+_LEGACY_P_CORRECT_COLUMN = "choice_probability_correct"
+_LEGACY_P_SELECTED_COLUMN = "choice_probability_selected"
 
 SUMMARY_COLUMNS = [
     "model_name",
@@ -271,63 +276,64 @@ def build_tuple_rows(
 
 
 def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFrame:
+    choice_probability_columns = _sample_choice_probability_columns(records)
     rows = []
     for record in records:
         correctness = record.get("correctness")
-        rows.append(
-            {
-                "model_name": model_name,
-                "record_id": record["record_id"],
-                "split": record["split"],
-                "question_id": record["question_id"],
-                "prompt_id": record.get(
-                    "prompt_id",
-                    prompt_id_for(record.get("question_id", ""), record.get("template_type", "")),
-                ),
-                "dataset": record.get("dataset", ""),
-                "template_type": record["template_type"],
-                "draw_idx": record["draw_idx"],
-                "task_format": record.get("task_format", ""),
-                "mc_mode": record.get("mc_mode", ""),
-                "answer_channel": record.get("answer_channel", ""),
-                "question": record["question"],
-                "correct_answer": record["correct_answer"],
-                "incorrect_answer": record["incorrect_answer"],
-                "correct_letter": record.get("correct_letter", ""),
-                "incorrect_letter": record.get("incorrect_letter", ""),
-                "prompt_template": record["prompt_template"],
-                "prompt_text": record["prompt_text"],
-                "response_raw": record["response_raw"],
-                "response": record["response"],
-                "starts_with_answer_prefix": bool(record.get("starts_with_answer_prefix", False)),
-                "strict_format_exact": bool(record.get("strict_format_exact", False)),
-                "correctness": np.nan if correctness is None else int(correctness),
-                "grading_status": record.get(
-                    "grading_status",
-                    "graded" if _record_is_usable_for_metrics(record) else "ambiguous",
-                ),
-                "grading_reason": record.get("grading_reason", ""),
-                "usable_for_metrics": bool(
-                    record.get("usable_for_metrics", _record_is_usable_for_metrics(record))
-                ),
-                "completion_token_count": record.get("completion_token_count", np.nan),
-                "hit_max_new_tokens": bool(record.get("hit_max_new_tokens", False)),
-                "stopped_on_eos": bool(record.get("stopped_on_eos", False)),
-                "finish_reason": record.get("finish_reason", ""),
-                "sampling_mode": record.get("sampling_mode", "generation"),
-                "choice_probabilities": json.dumps(
-                    record.get("choice_probabilities", {}),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                ),
-                "choice_probability_correct": record.get("choice_probability_correct", np.nan),
-                "choice_probability_selected": record.get("choice_probability_selected", np.nan),
-                "T_prompt": float(record["T_prompt"]),
-                "probe_x": record.get("probe_x", np.nan),
-                "probe_xprime": record.get("probe_xprime", np.nan),
-            }
-        )
-    return pd.DataFrame(rows, columns=SAMPLED_RESPONSE_COLUMNS)
+        row = {
+            "model_name": model_name,
+            "record_id": record["record_id"],
+            "split": record["split"],
+            "question_id": record["question_id"],
+            "prompt_id": record.get(
+                "prompt_id",
+                prompt_id_for(record.get("question_id", ""), record.get("template_type", "")),
+            ),
+            "dataset": record.get("dataset", ""),
+            "template_type": record["template_type"],
+            "draw_idx": record["draw_idx"],
+            "task_format": record.get("task_format", ""),
+            "mc_mode": record.get("mc_mode", ""),
+            "answer_channel": record.get("answer_channel", ""),
+            "question": record["question"],
+            "correct_answer": record["correct_answer"],
+            "incorrect_answer": record["incorrect_answer"],
+            "correct_letter": record.get("correct_letter", ""),
+            "incorrect_letter": record.get("incorrect_letter", ""),
+            "prompt_template": record["prompt_template"],
+            "prompt_text": record["prompt_text"],
+            "response_raw": record["response_raw"],
+            "response": record["response"],
+            "starts_with_answer_prefix": bool(record.get("starts_with_answer_prefix", False)),
+            "strict_format_exact": bool(record.get("strict_format_exact", False)),
+            "correctness": np.nan if correctness is None else int(correctness),
+            "grading_status": record.get(
+                "grading_status",
+                "graded" if _record_is_usable_for_metrics(record) else "ambiguous",
+            ),
+            "grading_reason": record.get("grading_reason", ""),
+            "usable_for_metrics": bool(
+                record.get("usable_for_metrics", _record_is_usable_for_metrics(record))
+            ),
+            "completion_token_count": record.get("completion_token_count", np.nan),
+            "hit_max_new_tokens": bool(record.get("hit_max_new_tokens", False)),
+            "stopped_on_eos": bool(record.get("stopped_on_eos", False)),
+            "finish_reason": record.get("finish_reason", ""),
+            "sampling_mode": record.get("sampling_mode", "generation"),
+            P_CORRECT_COLUMN: record.get(P_CORRECT_COLUMN, record.get(_LEGACY_P_CORRECT_COLUMN, np.nan)),
+            P_SELECTED_COLUMN: record.get(P_SELECTED_COLUMN, record.get(_LEGACY_P_SELECTED_COLUMN, np.nan)),
+            "T_prompt": float(record["T_prompt"]),
+            "probe_x": record.get("probe_x", np.nan),
+            "probe_xprime": record.get("probe_xprime", np.nan),
+        }
+        probabilities_raw = record.get("choice_probabilities", {})
+        if isinstance(probabilities_raw, dict):
+            for raw_choice, probability in probabilities_raw.items():
+                choice = str(raw_choice or "").strip().upper()
+                if choice:
+                    row[_choice_probability_column(choice)] = probability
+        rows.append(row)
+    return pd.DataFrame(rows, columns=SAMPLED_RESPONSE_COLUMNS + choice_probability_columns)
 
 
 def to_tuples_df(rows: List[Dict[str, Any]]) -> pd.DataFrame:
@@ -473,6 +479,56 @@ def _series_from_df(df: pd.DataFrame, column_name: str, default: Any = np.nan) -
     return pd.Series([default] * len(df), index=df.index)
 
 
+def _choice_probability_column(choice_label: str) -> str:
+    return f"P({choice_label})"
+
+
+def _choice_labels_for_record(record: Dict[str, Any]) -> List[str]:
+    ordered: List[str] = []
+    seen: Set[str] = set()
+
+    letters = str(record.get("letters", "") or "").strip().upper()
+    for choice in letters:
+        if choice and choice not in seen:
+            ordered.append(choice)
+            seen.add(choice)
+
+    probabilities_raw = record.get("choice_probabilities", {})
+    if isinstance(probabilities_raw, dict):
+        for raw_choice in probabilities_raw:
+            choice = str(raw_choice or "").strip().upper()
+            if choice and choice not in seen:
+                ordered.append(choice)
+                seen.add(choice)
+
+    return ordered
+
+
+def _sample_choice_probability_columns(records: Sequence[Dict[str, Any]]) -> List[str]:
+    columns: List[str] = []
+    seen: Set[str] = set()
+    for record in records:
+        for choice in _choice_labels_for_record(record):
+            column_name = _choice_probability_column(choice)
+            if column_name not in seen:
+                columns.append(column_name)
+                seen.add(column_name)
+    return columns
+
+
+def _sample_probability_series(
+    df: pd.DataFrame,
+    current_column_name: str,
+    legacy_column_name: str,
+    default: Any = np.nan,
+) -> pd.Series:
+    if current_column_name in df.columns:
+        return df[current_column_name]
+    if legacy_column_name in df.columns:
+        return df[legacy_column_name]
+    return pd.Series([default] * len(df), index=df.index)
+
+
 def _selected_probe_score_series(samples_df: pd.DataFrame) -> pd.Series:
     if samples_df.empty:
         return pd.Series(dtype=float)
@@ -509,7 +565,10 @@ def _prompt_metrics_from_df(samples_df: pd.DataFrame) -> Dict[str, Any]:
 
     usable_series = pd.to_numeric(_series_from_df(samples_df, "usable_for_metrics", 0), errors="coerce").fillna(0.0)
     p_correct = pd.to_numeric(_series_from_df(samples_df, "T_prompt"), errors="coerce")
-    p_selected = pd.to_numeric(_series_from_df(samples_df, "choice_probability_selected"), errors="coerce")
+    p_selected = pd.to_numeric(
+        _sample_probability_series(samples_df, P_SELECTED_COLUMN, _LEGACY_P_SELECTED_COLUMN),
+        errors="coerce",
+    )
     selected_probe_score = _selected_probe_score_series(samples_df)
     metrics = {
         "n_rows": int(len(samples_df)),
@@ -1218,6 +1277,7 @@ def build_terminal_final_stats_lines(summary_payload: Dict[str, Any]) -> List[st
     headline_counts = summary_payload.get("headline_counts", {})
     overall = summary_payload.get("overall", {})
     best_probe = summary_payload.get("selected_probe_overview", {})
+    accuracy_by_template = summary_payload.get("accuracy_by_template", [])
     lines = ["final model stats:"]
 
     if summary_payload.get("model_name"):
@@ -1246,6 +1306,20 @@ def build_terminal_final_stats_lines(summary_payload: Dict[str, Any]) -> List[st
     ]
     for label, value, as_percent in overall_metrics:
         lines.append(f"{label}={_format_terminal_summary_value(value, as_percent=as_percent)}")
+
+    template_lines: List[str] = []
+    if isinstance(accuracy_by_template, list):
+        for row in accuracy_by_template:
+            if not isinstance(row, dict):
+                continue
+            template_type = str(row.get("template_type", "") or "").strip() or "<unknown>"
+            accuracy = _format_terminal_summary_value(row.get("accuracy"), as_percent=True)
+            template_lines.append(f"  {template_type}={accuracy}")
+    if template_lines:
+        lines.append("accuracy_per_template:")
+        lines.extend(template_lines)
+    else:
+        lines.append("accuracy_per_template=n/a")
 
     lines.append(
         "probe_training_status="
@@ -1612,6 +1686,16 @@ def save_run_results(
     write_text_atomic(executive_summary_path, executive_summary_text)
 
     run_cfg = dict(vars(args))
+    requested_device = str(getattr(args, "requested_device", getattr(args, "device", "")) or "")
+    resolved_device = str(getattr(args, "resolved_device", "") or "")
+    if not resolved_device and requested_device and requested_device != "auto":
+        resolved_device = requested_device
+    if requested_device:
+        run_cfg["requested_device"] = requested_device
+        # Keep the legacy field for backward compatibility with older artifacts and helpers.
+        run_cfg["device"] = requested_device
+    if resolved_device:
+        run_cfg["resolved_device"] = resolved_device
     run_cfg["run_dir"] = str(run_dir)
     run_cfg["run_name"] = run_dir.name
     run_cfg["model_slug"] = model_slug(args.model)
@@ -1655,6 +1739,8 @@ __all__ = [
     "MC_PROBE_SCORE_BY_PROMPT_BASE_COLUMNS",
     "MODEL_SUMMARY_BY_BIAS_COLUMNS",
     "MODEL_SUMMARY_BY_TEMPLATE_COLUMNS",
+    "P_CORRECT_COLUMN",
+    "P_SELECTED_COLUMN",
     "PROBE_SUMMARY_COLUMNS",
     "SUMMARY_COLUMNS",
     "PROBE_CANDIDATE_SCORE_COLUMNS",

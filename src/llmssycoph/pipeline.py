@@ -127,6 +127,33 @@ def _format_parsed_argument_lines(args: Any) -> List[str]:
     return lines
 
 
+def _warn_strict_mc_temperature_bookkeeping(args: Any) -> None:
+    if str(getattr(args, "mc_mode", "") or "") != MC_MODE_STRICT:
+        return
+
+    effective_temperature = float(getattr(args, "temperature", 1.0) or 1.0)
+    if effective_temperature != 1.0:
+        return
+
+    requested_temperature = float(getattr(args, "requested_temperature", effective_temperature) or effective_temperature)
+    if requested_temperature != effective_temperature:
+        warn_status(
+            "pipeline.py",
+            "strict_mc_temperature_bookkeeping",
+            f"strict MC mode overrides temperature from {requested_temperature} to 1.0 for bookkeeping. "
+            "First-token choice scoring ignores temperature, but if any prompt later falls back to text "
+            "generation this value will apply there.",
+        )
+        return
+
+    warn_status(
+        "pipeline.py",
+        "strict_mc_temperature_bookkeeping",
+        "strict MC mode records temperature=1.0 for bookkeeping. First-token choice scoring ignores "
+        "temperature, but if any prompt later falls back to text generation this value will apply there.",
+    )
+
+
 def _count_expected_by_template(
     expected_keys: Set[tuple[str, str, str, int]],
     bias_types: Sequence[str],
@@ -635,6 +662,56 @@ def _strict_mc_quality_issues(summary: Dict[str, Any]) -> List[str]:
     return issues
 
 
+def _strict_mc_neutral_below_chance_warning(records: Sequence[Dict[str, Any]]) -> Optional[str]:
+    neutral_rows: List[tuple[float, int]] = []
+    for record in records:
+        if str(record.get("template_type", "") or "") != "neutral":
+            continue
+        if str(record.get("task_format", "") or "") != "multiple_choice":
+            continue
+        if str(record.get("mc_mode", "") or "") != MC_MODE_STRICT:
+            continue
+        if not bool(record.get("usable_for_metrics", False)):
+            continue
+
+        answers_list = record.get("answers_list")
+        if isinstance(answers_list, list) and answers_list:
+            choice_count = len(answers_list)
+        else:
+            letters = [char for char in str(record.get("letters", "") or "") if not char.isspace()]
+            choice_count = len(letters)
+        if choice_count <= 0:
+            continue
+
+        try:
+            correctness = float(record.get("correctness"))
+        except (TypeError, ValueError):
+            continue
+        neutral_rows.append((correctness, choice_count))
+
+    if not neutral_rows:
+        return None
+
+    neutral_accuracy = sum(correctness for correctness, _ in neutral_rows) / len(neutral_rows)
+    chance_baseline = sum(1.0 / choice_count for _, choice_count in neutral_rows) / len(neutral_rows)
+    if neutral_accuracy >= chance_baseline:
+        return None
+
+    choice_counts = sorted({choice_count for _, choice_count in neutral_rows})
+    if len(choice_counts) == 1:
+        baseline_text = f"1/{choice_counts[0]} = {chance_baseline:.1%}"
+    else:
+        baseline_text = (
+            f"mean(1/num_choices) = {chance_baseline:.1%} "
+            f"across choice counts {choice_counts}"
+        )
+
+    return (
+        f"neutral strict-MC accuracy={neutral_accuracy:.1%} is below the random-choice baseline "
+        f"{baseline_text} across {len(neutral_rows)} usable neutral rows."
+    )
+
+
 def run_pipeline(args) -> None:
     import torch
 
@@ -687,6 +764,7 @@ def run_pipeline(args) -> None:
         begin_stage(1, "parsed arguments and execution plan")
         for line in _format_parsed_argument_lines(args):
             log_status("pipeline.py", line)
+        _warn_strict_mc_temperature_bookkeeping(args)
         planned_bias_types = resolve_bias_types(args.bias_types)
         resolved_ays_mc_datasets = resolve_ays_mc_datasets(args.ays_mc_datasets)
         args.ays_mc_datasets = resolved_ays_mc_datasets
@@ -717,6 +795,7 @@ def run_pipeline(args) -> None:
             log_status("pipeline.py", f"HF cache dir resolved to {hf_cache_dir}")
         else:
             log_status("pipeline.py", "HF cache dir not set; libraries may fallback to ~/.cache")
+        args.requested_device = str(args.device)
         device = resolve_device(args.device)
         args.resolved_device = device
         log_status("pipeline.py", f"resolved device: requested={args.device} actual={device}")
@@ -1298,7 +1377,14 @@ def run_pipeline(args) -> None:
             bias_types=planned_bias_types,
             probes_meta=probes_meta,
         )
+        neutral_accuracy_warning = _strict_mc_neutral_below_chance_warning(all_records)
         if args.smoke_test and strict_mc_quality_failures:
+            if neutral_accuracy_warning is not None:
+                warn_status(
+                    "pipeline.py",
+                    "strict_mc_neutral_below_chance_baseline",
+                    neutral_accuracy_warning,
+                )
             raise RuntimeError(
                 "strict MC quality gate failed: " + "; ".join(strict_mc_quality_failures)
             )
@@ -1310,6 +1396,12 @@ def run_pipeline(args) -> None:
             reports_summary_payload = {}
         for line in build_terminal_final_stats_lines(reports_summary_payload):
             ok_status("pipeline.py", line)
+        if neutral_accuracy_warning is not None:
+            warn_status(
+                "pipeline.py",
+                "strict_mc_neutral_below_chance_baseline",
+                neutral_accuracy_warning,
+            )
         finish_stage()
     except Exception as exc:
         run_error = f"{type(exc).__name__}: {exc}"

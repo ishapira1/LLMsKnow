@@ -40,7 +40,8 @@ class CliContractTests(unittest.TestCase):
         self.assertEqual(args.instruction_policy, "answer_only")
         self.assertEqual(args.mc_mode, "strict_mc")
         self.assertEqual(args.n_draws, 1)
-        self.assertEqual(args.temperature, 0.0)
+        self.assertEqual(args.temperature, 1.0)
+        self.assertEqual(args.requested_temperature, 0.1)
 
     def test_strict_mc_overrides_sampling_knobs_even_when_user_sets_them(self):
         args = parse_args(
@@ -60,7 +61,8 @@ class CliContractTests(unittest.TestCase):
 
         self.assertEqual(args.mc_mode, "strict_mc")
         self.assertEqual(args.n_draws, 1)
-        self.assertEqual(args.temperature, 0.0)
+        self.assertEqual(args.temperature, 1.0)
+        self.assertEqual(args.requested_temperature, 0.9)
 
     def test_parser_rejects_invalid_benchmark_input_pair(self):
         with contextlib.redirect_stderr(io.StringIO()):
