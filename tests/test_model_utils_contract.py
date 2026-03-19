@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import torch
 
-from llmssycoph.model_utils import (
+from llmssycoph.llm.generation import (
     _resolve_model_inputs,
     _strict_mc_generated_answer_complete,
 )

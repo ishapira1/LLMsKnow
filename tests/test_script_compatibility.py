@@ -13,7 +13,7 @@ from llmssycoph.answer_utils import (
     normalize_answer,
 )
 from llmssycoph.correctness import grade_short_answer
-from llmssycoph.model_utils import to_hf_chat
+from llmssycoph.llm import to_hf_chat
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,7 +80,7 @@ class ScriptCompatibilityTests(unittest.TestCase):
     def test_script_and_module_import_commands(self):
         commands = [
             "from script import generate_many, get_hidden_feature_for_answer; print('ok')",
-            "from llmssycoph.model_utils import generate_many; print('ok')",
+            "from llmssycoph.llm import generate_many; print('ok')",
             "from llmssycoph.feature_utils import get_hidden_feature_for_answer; print('ok')",
             "from llmssycoph.correctness import grade_short_answer; print(callable(grade_short_answer))",
             "from llmssycoph.data import build_question_groups; print(callable(build_question_groups))",

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..model_utils import _token_id_list_from_encoded, encode_chat
+from ..llm.generation import _token_id_list_from_encoded, encode_chat
 
 
 def _import_torch():

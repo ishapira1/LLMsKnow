@@ -45,7 +45,7 @@ from llmssycoph.io_utils import (
     ensure_sycophancy_eval_cached,
     read_jsonl,
 )
-from llmssycoph.model_utils import (
+from llmssycoph.llm import (
     _clear_device_cache,
     _should_fallback_to_sequential,
     encode_chat,

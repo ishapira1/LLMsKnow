@@ -44,12 +44,27 @@ from .feature_utils import (
     score_logprob_answer,
     score_p_true,
 )
-from .model_utils import (
+from .llm import (
     _clear_device_cache,
+    _resolve_model_inputs,
     _should_fallback_to_sequential,
+    _strict_mc_generated_answer_complete,
+    _token_id_list_from_encoded,
+    add_empirical_t,
+    build_sampling_spec,
     encode_chat,
+    enumerate_expected_sample_keys,
     generate_many,
     generate_one,
+    load_model_and_tokenizer,
+    load_sampling_cache_candidate,
+    normalize_sample_records,
+    refresh_sample_records_for_groups,
+    sample_record_key,
+    sample_record_key_values,
+    sample_records_for_groups,
+    sampling_spec_hash,
+    sort_sample_records,
     to_hf_chat,
 )
 from .probes import (
@@ -78,18 +93,6 @@ from .runtime import (
     write_pickle_atomic,
     write_run_status,
 )
-from .sampling import (
-    add_empirical_t,
-    build_sampling_spec,
-    enumerate_expected_sample_keys,
-    load_sampling_cache_candidate,
-    normalize_sample_records,
-    sample_record_key,
-    sample_record_key_values,
-    sample_records_for_groups,
-    sampling_spec_hash,
-    sort_sample_records,
-)
 
 __all__ = [
     "ALL_BIAS_TYPES",
@@ -105,7 +108,10 @@ __all__ = [
     "SUMMARY_COLUMNS",
     "_clear_device_cache",
     "_find_sublist",
+    "_resolve_model_inputs",
     "_should_fallback_to_sequential",
+    "_strict_mc_generated_answer_complete",
+    "_token_id_list_from_encoded",
     "acquire_run_lock",
     "add_empirical_t",
     "as_prompt_text",
@@ -133,6 +139,7 @@ __all__ = [
     "is_multiple_choice_base",
     "is_pid_alive",
     "load_env_file",
+    "load_model_and_tokenizer",
     "load_sampling_cache_candidate",
     "make_run_dir",
     "materialize_ays_mc_single_turn_rows",

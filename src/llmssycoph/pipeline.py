@@ -31,6 +31,18 @@ from .data import (
 )
 from .logging_utils import clear_run_logging, configure_run_logging, log_status, tqdm_desc
 from .outputs import build_summary_df, build_tuple_rows, to_samples_df, to_tuples_df
+from .llm import (
+    add_empirical_t,
+    build_sampling_spec,
+    load_model_and_tokenizer,
+    load_sampling_cache_candidate,
+    normalize_sample_records,
+    refresh_sample_records_for_groups,
+    sample_records_for_groups,
+    sampling_spec_hash,
+    sort_sample_records,
+    enumerate_expected_sample_keys,
+)
 from .probes import score_records_with_probe, select_best_layer_by_auc, train_probe_for_layer
 from .runtime import (
     acquire_run_lock,
@@ -46,56 +58,6 @@ from .runtime import (
     write_pickle_atomic,
     write_run_status,
 )
-from .sampling import (
-    add_empirical_t,
-    build_sampling_spec,
-    enumerate_expected_sample_keys,
-    load_sampling_cache_candidate,
-    normalize_sample_records,
-    refresh_sample_records_for_groups,
-    sample_records_for_groups,
-    sampling_spec_hash,
-    sort_sample_records,
-)
-
-
-def load_model_and_tokenizer(
-    model_name: str,
-    device: str,
-    device_map_auto: bool,
-    hf_cache_dir: Optional[str],
-):
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    log_status("pipeline.py", f"loading model={model_name} on device={device}")
-    if device == "cuda":
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            device_map="auto" if device_map_auto else None,
-            cache_dir=hf_cache_dir,
-        )
-        if not device_map_auto:
-            model = model.to("cuda")
-    elif device == "mps":
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float32,
-            cache_dir=hf_cache_dir,
-        )
-        model = model.to("mps")
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float32,
-            cache_dir=hf_cache_dir,
-        )
-        model = model.to("cpu")
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, cache_dir=hf_cache_dir)
-    model.eval()
-    return model, tokenizer
 
 
 def _next_record_id(*groups_of_records: Sequence[Dict[str, Any]]) -> int:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Tuple
 
-from .logging_utils import log_status
+from ..logging_utils import log_status
 
 
 def _import_torch():
@@ -276,7 +276,7 @@ def generate_many(
     batch_size = max(1, int(batch_size))
     if strict_mc_letters and batch_size != 1:
         log_status(
-            "model_utils.py",
+            "llm/generation.py",
             "strict MC generation uses sequential decoding so each sample can stop at the first committed answer.",
         )
         batch_size = 1
@@ -335,7 +335,7 @@ def generate_many(
                 if not safe_fallback or not _should_fallback_to_sequential(exc):
                     raise
                 log_status(
-                    "model_utils.py",
+                    "llm/generation.py",
                     "batched generation failed; falling back to sequential generation "
                     f"for this prompt chunk={chunk}. {type(exc).__name__}: {exc}",
                 )
@@ -360,6 +360,9 @@ def generate_many(
 
 
 __all__ = [
+    "_resolve_model_inputs",
+    "_strict_mc_generated_answer_complete",
+    "_token_id_list_from_encoded",
     "to_hf_chat",
     "encode_chat",
     "generate_one",

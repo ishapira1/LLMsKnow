@@ -16,7 +16,7 @@ from llmssycoph.constants import (
     SAMPLING_SPEC_VERSION,
 )
 from llmssycoph.runtime import model_slug
-from llmssycoph.sampling import (
+from llmssycoph.llm.sampling import (
     add_empirical_t,
     build_sampling_spec,
     enumerate_expected_sample_keys,
@@ -218,7 +218,7 @@ class SamplingContractTests(unittest.TestCase):
     def test_enumerate_expected_keys_and_empirical_t_contract(self):
         groups = [make_group("q_1"), make_group("q_2")]
 
-        with patch("llmssycoph.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])):
+        with patch("llmssycoph.llm.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])):
             keys = enumerate_expected_sample_keys(groups, split_name="train", bias_types=["incorrect_suggestion"], n_draws=2)
 
         self.assertEqual(len(keys), 8)
@@ -383,10 +383,10 @@ class SamplingContractTests(unittest.TestCase):
                 for _ in range(n)
             ]
 
-        with patch("llmssycoph.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])), patch(
-            "llmssycoph.sampling._generate_many", side_effect=fake_generate_many
+        with patch("llmssycoph.llm.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])), patch(
+            "llmssycoph.llm.sampling._generate_many", side_effect=fake_generate_many
         ), patch(
-            "llmssycoph.sampling._grade_response_from_base",
+            "llmssycoph.llm.sampling._grade_response_from_base",
             side_effect=lambda text, base, generation_info=None: {
                 "parsed_answer": text,
                 "correctness": int(text in set(base.get("answer", []))),

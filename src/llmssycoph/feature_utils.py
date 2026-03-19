@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
-from .model_utils import _resolve_model_inputs, _token_id_list_from_encoded, encode_chat
+from .llm.generation import _resolve_model_inputs, _token_id_list_from_encoded, encode_chat
 from .probes.features import (
     _assistant_text_last_token_index,
     _assistant_text_span,

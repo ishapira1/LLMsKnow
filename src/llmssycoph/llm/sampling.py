@@ -9,16 +9,16 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 from tqdm.auto import tqdm
 
-from .correctness import (
+from ..correctness import (
     extract_gold_answers_from_base as _extract_gold_answers_from_base,
     grade_response_from_base as _grade_response_from_base,
     record_is_usable_for_metrics as _record_is_usable_for_metrics,
 )
-from .constants import SAMPLING_SPEC_VERSION
-from .data import as_prompt_text, dataset_name as _dataset_name
-from .logging_utils import log_status, tqdm_desc
-from .model_utils import generate_many as _generate_many
-from .runtime import model_slug
+from ..constants import SAMPLING_SPEC_VERSION
+from ..data import as_prompt_text, dataset_name as _dataset_name
+from ..logging_utils import log_status, tqdm_desc
+from ..runtime import model_slug
+from .generation import generate_many as _generate_many
 
 
 def _generation_record_from_output(output: Any) -> Dict[str, Any]:
