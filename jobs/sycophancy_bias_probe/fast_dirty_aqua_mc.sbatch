@@ -57,3 +57,23 @@ mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME"
   --probe_layer_max 8 \
   --max_new_tokens 256 \
   --run_name fast_dirty_aqua_mc_mistral7b_instruct_V9
+
+
+
+"$ENV_PYTHON" run_sycophancy_bias_probe.py \
+  --model mistralai/Mistral-7B-Instruct-v0.2 \
+  --device auto \
+  --hf_cache_dir "$HUGGINGFACE_HUB_CACHE" \
+  --benchmark_source ays_mc_single_turn \
+  --input_jsonl are_you_sure.jsonl \
+  --dataset_name aqua_mc \
+  --ays_mc_datasets aqua_mc \
+  --mc_mode strict_mc \
+  --temperature 0.1 \
+  --smoke_test \
+  --smoke_questions 24 \
+  --n_draws 64 \
+  --probe_layer_min 1 \
+  --probe_layer_max 8 \
+  --max_new_tokens 256 \
+  --run_name fast_dirty_aqua_mc_mistral7b_instruct_V11
