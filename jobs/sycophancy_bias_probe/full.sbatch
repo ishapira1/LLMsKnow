@@ -12,6 +12,7 @@ set -euo pipefail
 
 REPO_DIR="/n/home12/ishapira/LLMsKnow"
 cd "$REPO_DIR"
+export PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 module load python/3.10.9-fasrc01
 ENV_PYTHON="/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python"

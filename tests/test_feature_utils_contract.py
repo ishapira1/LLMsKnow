@@ -7,19 +7,19 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sycophancy_bias_probe.feature_utils import (
+from llmssycoph.feature_utils import (
     _assistant_text_last_token_index,
     get_hidden_feature_for_completion,
     score_logprob_answer,
 )
-from sycophancy_bias_probe.probes import get_hidden_feature_all_layers_for_completion
+from llmssycoph.probes import get_hidden_feature_all_layers_for_completion
 
 
 class FakeTokenizer:
     def __call__(self, text, add_special_tokens=False):
-        if text == "Paris":
+        if text == 'Paris':
             return SimpleNamespace(input_ids=[7])
-        raise AssertionError(f"Unexpected tokenization request: {text!r}")
+        raise AssertionError(f'Unexpected tokenization request: {text!r}')
 
 
 class FakeTensor:
@@ -86,7 +86,7 @@ class FakeTorchModule:
 
 
 class FakeHiddenStateModel:
-    device = "cpu"
+    device = 'cpu'
 
     def __call__(self, input_tensor, use_cache=False, output_hidden_states=True, return_dict=True):
         seq_len = input_tensor.shape[1]
@@ -100,7 +100,7 @@ class FakeHiddenStateModel:
 
 
 class FakeLogitModel:
-    device = "cpu"
+    device = 'cpu'
 
     def __call__(self, input_tensor, use_cache=False, output_hidden_states=False, return_dict=True):
         seq_len = input_tensor.shape[1]
@@ -113,29 +113,27 @@ class FakeLogitModel:
 class FeatureUtilsContractTests(unittest.TestCase):
     def test_assistant_text_last_token_index_prefers_last_occurrence(self):
         tokenizer = FakeTokenizer()
-        self.assertEqual(_assistant_text_last_token_index(tokenizer, [11, 7, 22, 7], "Paris"), 3)
+        self.assertEqual(_assistant_text_last_token_index(tokenizer, [11, 7, 22, 7], 'Paris'), 3)
 
     def test_hidden_feature_helpers_use_assistant_completion_occurrence(self):
         encoded = FakeTensor([[11, 7, 22, 7]])
         tokenizer = FakeTokenizer()
         model = FakeHiddenStateModel()
 
-        with patch.dict(sys.modules, {"torch": FakeTorchModule()}):
-            with patch("sycophancy_bias_probe.feature_utils.encode_chat", return_value=encoded):
+        with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
+            with patch('llmssycoph.probes.features.encode_chat', return_value=encoded):
                 vec = get_hidden_feature_for_completion(
                     model=model,
                     tokenizer=tokenizer,
-                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
-                    completion="Paris",
+                    messages=[{'type': 'human', 'content': 'I think the answer is Paris'}],
+                    completion='Paris',
                     layer=1,
                 )
-
-            with patch("sycophancy_bias_probe.probes._encode_chat", return_value=encoded):
                 mat = get_hidden_feature_all_layers_for_completion(
                     model=model,
                     tokenizer=tokenizer,
-                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
-                    completion="Paris",
+                    messages=[{'type': 'human', 'content': 'I think the answer is Paris'}],
+                    completion='Paris',
                     layer_grid=[1, 2],
                 )
 
@@ -150,22 +148,20 @@ class FeatureUtilsContractTests(unittest.TestCase):
         tokenizer = FakeTokenizer()
         model = FakeHiddenStateModel()
 
-        with patch.dict(sys.modules, {"torch": FakeTorchModule()}):
-            with patch("sycophancy_bias_probe.feature_utils.encode_chat", return_value=encoded):
+        with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
+            with patch('llmssycoph.probes.features.encode_chat', return_value=encoded):
                 vec = get_hidden_feature_for_completion(
                     model=model,
                     tokenizer=tokenizer,
-                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
-                    completion="Paris",
+                    messages=[{'type': 'human', 'content': 'I think the answer is Paris'}],
+                    completion='Paris',
                     layer=1,
                 )
-
-            with patch("sycophancy_bias_probe.probes._encode_chat", return_value=encoded):
                 mat = get_hidden_feature_all_layers_for_completion(
                     model=model,
                     tokenizer=tokenizer,
-                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
-                    completion="Paris",
+                    messages=[{'type': 'human', 'content': 'I think the answer is Paris'}],
+                    completion='Paris',
                     layer_grid=[1, 2],
                 )
 
@@ -180,13 +176,13 @@ class FeatureUtilsContractTests(unittest.TestCase):
         tokenizer = FakeTokenizer()
         model = FakeLogitModel()
 
-        with patch.dict(sys.modules, {"torch": FakeTorchModule()}):
-            with patch("sycophancy_bias_probe.feature_utils.encode_chat", return_value=encoded):
+        with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
+            with patch('llmssycoph.feature_utils.encode_chat', return_value=encoded):
                 total_logp, mean_logp = score_logprob_answer(
                     model=model,
                     tokenizer=tokenizer,
-                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
-                    answer="Paris",
+                    messages=[{'type': 'human', 'content': 'I think the answer is Paris'}],
+                    answer='Paris',
                 )
 
         self.assertGreater(total_logp, -1.0)
@@ -197,18 +193,18 @@ class FeatureUtilsContractTests(unittest.TestCase):
         tokenizer = FakeTokenizer()
         model = FakeLogitModel()
 
-        with patch.dict(sys.modules, {"torch": FakeTorchModule()}):
-            with patch("sycophancy_bias_probe.feature_utils.encode_chat", return_value=encoded):
+        with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
+            with patch('llmssycoph.feature_utils.encode_chat', return_value=encoded):
                 total_logp, mean_logp = score_logprob_answer(
                     model=model,
                     tokenizer=tokenizer,
-                    messages=[{"type": "human", "content": "I think the answer is Paris"}],
-                    answer="Paris",
+                    messages=[{'type': 'human', 'content': 'I think the answer is Paris'}],
+                    answer='Paris',
                 )
 
         self.assertGreater(total_logp, -1.0)
         self.assertGreater(mean_logp, -1.0)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

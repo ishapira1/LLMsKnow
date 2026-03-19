@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sycophancy_bias_probe.logging_utils import (
+from llmssycoph.logging_utils import (
     clear_run_logging,
     configure_run_logging,
     log_status,

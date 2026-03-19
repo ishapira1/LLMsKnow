@@ -1,21 +1,31 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
-from sycophancy_bias_probe.answer_utils import (
+from llmssycoph.answer_utils import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
     is_correct_short_answer,
     normalize_answer,
 )
-from sycophancy_bias_probe.correctness import grade_short_answer
-from sycophancy_bias_probe.model_utils import to_hf_chat
+from llmssycoph.correctness import grade_short_answer
+from llmssycoph.model_utils import to_hf_chat
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = ROOT / "src"
+
+
+def _subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    src_path = str(SRC_ROOT)
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = src_path if not existing else f"{src_path}{os.pathsep}{existing}"
+    return env
 
 
 class ScriptCompatibilityTests(unittest.TestCase):
@@ -36,7 +46,7 @@ class ScriptCompatibilityTests(unittest.TestCase):
             "dataset": "truthful_qa",
             "correct_letter": "B",
             "letters": "AB",
-            "answers": "(A) London\\n(B) Paris is the capital of France.",
+            "answers": "(A) London\n(B) Paris is the capital of France.",
             "answers_list": ["London", "Paris is the capital of France."],
             "long_correct_answer": "Paris is the capital of France.",
             "correct_answer": "Paris",
@@ -70,9 +80,11 @@ class ScriptCompatibilityTests(unittest.TestCase):
     def test_script_and_module_import_commands(self):
         commands = [
             "from script import generate_many, get_hidden_feature_for_answer; print('ok')",
-            "from sycophancy_bias_probe.model_utils import generate_many; print('ok')",
-            "from sycophancy_bias_probe.feature_utils import get_hidden_feature_for_answer; print('ok')",
-            "from sycophancy_bias_probe.correctness import grade_short_answer; print(callable(grade_short_answer))",
+            "from llmssycoph.model_utils import generate_many; print('ok')",
+            "from llmssycoph.feature_utils import get_hidden_feature_for_answer; print('ok')",
+            "from llmssycoph.correctness import grade_short_answer; print(callable(grade_short_answer))",
+            "from llmssycoph.data import build_question_groups; print(callable(build_question_groups))",
+            "from llmssycoph.io_utils import read_jsonl; print(callable(read_jsonl))",
         ]
 
         for command in commands:
@@ -80,6 +92,7 @@ class ScriptCompatibilityTests(unittest.TestCase):
                 result = subprocess.run(
                     [sys.executable, "-c", command],
                     cwd=ROOT,
+                    env=_subprocess_env(),
                     capture_output=True,
                     text=True,
                 )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from sycophancy_bias_probe.outputs import (
+from llmssycoph.outputs import (
     SUMMARY_COLUMNS,
     build_summary_df,
     build_tuple_rows,

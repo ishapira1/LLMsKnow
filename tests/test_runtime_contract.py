@@ -9,14 +9,14 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from sycophancy_bias_probe.constants import (
+from llmssycoph.constants import (
     GENERATION_SPEC_VERSION,
     GRADING_SPEC_VERSION,
     MC_MODE_STRICT,
     PROMPT_SPEC_VERSION,
     RESUME_COMPAT_KEYS,
 )
-from sycophancy_bias_probe.runtime import (
+from llmssycoph.runtime import (
     acquire_run_lock,
     assert_resume_compatible,
     make_run_dir,

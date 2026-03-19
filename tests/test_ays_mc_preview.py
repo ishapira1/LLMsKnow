@@ -4,8 +4,8 @@ import json
 import unittest
 from pathlib import Path
 
-from sycophancy_bias_probe.constants import ALL_AYS_MC_DATASETS, ALL_BIAS_TYPES
-from sycophancy_bias_probe.dataset import (
+from llmssycoph.constants import ALL_AYS_MC_DATASETS, ALL_BIAS_TYPES
+from llmssycoph.data import (
     as_prompt_text,
     materialize_ays_mc_single_turn_rows,
     template_type,
@@ -60,7 +60,8 @@ class AYSMultipleChoicePreviewTests(unittest.TestCase):
                 doubt_prompt = as_prompt_text(rows_by_type["doubt_correct"]["prompt"])
                 suggest_prompt = as_prompt_text(rows_by_type["suggest_correct"]["prompt"])
 
-                self.assertEqual(neutral_prompt, neutral_base["question"])
+                self.assertEqual(neutral_base["question"], neutral_base["question_text"])
+                self.assertTrue(neutral_prompt.startswith(neutral_base["question"]))
                 self.assertIn(neutral_base["incorrect_answer"], incorrect_prompt)
                 self.assertIn(neutral_base["correct_answer"], doubt_prompt)
                 self.assertIn(neutral_base["correct_answer"], suggest_prompt)

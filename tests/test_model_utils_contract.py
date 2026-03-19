@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import torch
 
-from sycophancy_bias_probe.model_utils import (
+from llmssycoph.model_utils import (
     _resolve_model_inputs,
     _strict_mc_generated_answer_complete,
 )

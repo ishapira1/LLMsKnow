@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from sycophancy_bias_probe.constants import GRADING_SPEC_VERSION, MC_MODE_STRICT
-from sycophancy_bias_probe.correctness import (
+from llmssycoph.constants import GRADING_SPEC_VERSION, MC_MODE_STRICT
+from llmssycoph.correctness import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
     grade_multiple_choice_response,

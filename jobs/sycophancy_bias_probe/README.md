@@ -15,6 +15,7 @@ All jobs:
 - load `python/3.10.9-fasrc01`
 - activate `conda` env `itai_ml_env`
 - source `.env`
+- prepend `$REPO_DIR/src` to `PYTHONPATH` so `llmssycoph` resolves without an install step
 - enforce `HUGGINGFACE_HUB_CACHE` is set and not under `/home`
 - set HF cache env vars so model/tokenizer/dataset cache uses lab storage
 

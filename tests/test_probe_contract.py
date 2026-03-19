@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from sycophancy_bias_probe.probes import (
+from llmssycoph.probes import (
     find_sublist,
     maybe_subsample,
     score_records_with_probe,
@@ -21,10 +21,10 @@ def make_records(n: int = 20, offset: int = 0):
         correctness = idx % 2
         records.append(
             {
-                "record_id": idx,
-                "prompt_messages": [{"type": "human", "content": f"question {idx}"}],
-                "response": f"answer {idx}",
-                "correctness": correctness,
+                'record_id': idx,
+                'prompt_messages': [{'type': 'human', 'content': f'question {idx}'}],
+                'response': f'answer {idx}',
+                'correctness': correctness,
             }
         )
     return records
@@ -75,10 +75,10 @@ class ProbeContractTests(unittest.TestCase):
             return np.stack([layer_one, layer_two], axis=0)
 
         with patch(
-            "sycophancy_bias_probe.probes.get_hidden_feature_all_layers_for_completion",
+            'llmssycoph.probes.select_layer.get_hidden_feature_all_layers_for_completion',
             side_effect=fake_all_layer_features,
         ), patch(
-            "sycophancy_bias_probe.probes.LogisticRegression",
+            'llmssycoph.probes.select_layer.LogisticRegression',
             FakeLogisticRegression,
         ):
             best_layer, best_auc, auc_per_layer, clf_per_layer = select_best_layer_by_auc(
@@ -89,7 +89,7 @@ class ProbeContractTests(unittest.TestCase):
                 layer_grid=[1, 2],
                 seed=0,
                 max_selection_samples=None,
-                desc="test",
+                desc='test',
             )
 
         self.assertEqual(best_layer, 1)
@@ -108,10 +108,13 @@ class ProbeContractTests(unittest.TestCase):
             return np.array([float(label), float(1 - label)])
 
         with patch(
-            "sycophancy_bias_probe.probes._get_hidden_feature_for_completion",
+            'llmssycoph.probes.train._get_hidden_feature_for_completion',
             side_effect=fake_single_layer_feature,
         ), patch(
-            "sycophancy_bias_probe.probes.LogisticRegression",
+            'llmssycoph.probes.score._get_hidden_feature_for_completion',
+            side_effect=fake_single_layer_feature,
+        ), patch(
+            'llmssycoph.probes.train.LogisticRegression',
             FakeLogisticRegression,
         ):
             clf = train_probe_for_layer(
@@ -121,7 +124,7 @@ class ProbeContractTests(unittest.TestCase):
                 layer=3,
                 seed=0,
                 max_train_samples=None,
-                desc="test",
+                desc='test',
             )
             self.assertIsNotNone(clf)
 
@@ -131,12 +134,12 @@ class ProbeContractTests(unittest.TestCase):
                 records=records,
                 clf=clf,
                 layer=3,
-                score_key="probe_score",
-                desc="test",
+                score_key='probe_score',
+                desc='test',
             )
 
-        positive_scores = [record["probe_score"] for record in records if record["correctness"] == 1]
-        negative_scores = [record["probe_score"] for record in records if record["correctness"] == 0]
+        positive_scores = [record['probe_score'] for record in records if record['correctness'] == 1]
+        negative_scores = [record['probe_score'] for record in records if record['correctness'] == 0]
         self.assertGreater(min(positive_scores), max(negative_scores))
 
     def test_score_records_with_probe_none_contract(self):
@@ -147,20 +150,20 @@ class ProbeContractTests(unittest.TestCase):
             records=records,
             clf=None,
             layer=None,
-            score_key="probe_score",
-            desc="none",
+            score_key='probe_score',
+            desc='none',
         )
         for record in records:
-            self.assertTrue(math.isnan(record["probe_score"]))
+            self.assertTrue(math.isnan(record['probe_score']))
 
     def test_probe_training_ignores_unusable_records(self):
         records = make_records(20) + [
             {
-                "record_id": 99,
-                "prompt_messages": [{"type": "human", "content": "question ambiguous"}],
-                "response": "answer ambiguous",
-                "correctness": None,
-                "usable_for_metrics": False,
+                'record_id': 99,
+                'prompt_messages': [{'type': 'human', 'content': 'question ambiguous'}],
+                'response': 'answer ambiguous',
+                'correctness': None,
+                'usable_for_metrics': False,
             }
         ]
 
@@ -170,10 +173,10 @@ class ProbeContractTests(unittest.TestCase):
             return np.array([float(label), float(1 - label)])
 
         with patch(
-            "sycophancy_bias_probe.probes._get_hidden_feature_for_completion",
+            'llmssycoph.probes.train._get_hidden_feature_for_completion',
             side_effect=fake_single_layer_feature,
         ), patch(
-            "sycophancy_bias_probe.probes.LogisticRegression",
+            'llmssycoph.probes.train.LogisticRegression',
             FakeLogisticRegression,
         ):
             clf = train_probe_for_layer(
@@ -183,11 +186,11 @@ class ProbeContractTests(unittest.TestCase):
                 layer=3,
                 seed=0,
                 max_train_samples=None,
-                desc="test",
+                desc='test',
             )
 
         self.assertIsNotNone(clf)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

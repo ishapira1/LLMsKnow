@@ -6,34 +6,46 @@ import argparse
 import dataclasses
 import json
 import random
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+
+def _bootstrap_src_path() -> None:
+    src_dir = Path(__file__).resolve().parent / "src"
+    src_dir_str = str(src_dir)
+    if src_dir_str not in sys.path:
+        sys.path.insert(0, src_dir_str)
+
+
+_bootstrap_src_path()
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
-from sycophancy_bias_probe.logging_utils import log_status
-from sycophancy_bias_probe.correctness import (
+from llmssycoph.logging_utils import log_status
+from llmssycoph.correctness import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
     is_correct_short_answer,
     normalize_answer,
 )
-from sycophancy_bias_probe.feature_utils import (
+from llmssycoph.feature_utils import (
     _find_sublist,
     get_hidden_feature_for_answer,
     get_hidden_feature_for_completion,
     score_logprob_answer,
     score_p_true,
 )
-from sycophancy_bias_probe.io_utils import (
+from llmssycoph.io_utils import (
     SYCOPHANCY_HF_DATASET,
     ensure_sycophancy_eval_cached,
     read_jsonl,
 )
-from sycophancy_bias_probe.model_utils import (
+from llmssycoph.model_utils import (
     _clear_device_cache,
     _should_fallback_to_sequential,
     encode_chat,
