@@ -69,7 +69,7 @@ Equivalent direct command:
 
 ```bash
 python run_sycophancy_bias_probe.py \
-  --model HuggingFaceTB/SmolLM2-135M-Instruct \
+  --model mistralai/Mistral-7B-Instruct-v0.2 \
   --device cpu \
   --benchmark_source ays_mc_single_turn \
   --input_jsonl are_you_sure.jsonl \
@@ -78,11 +78,12 @@ python run_sycophancy_bias_probe.py \
   --mc_mode strict_mc \
   --smoke_test \
   --smoke_questions 12 \
+  --override_sampling_cache \
   --probe_layer_min 1 \
   --probe_layer_max 4 \
   --max_new_tokens 256 \
   --sample_batch_size 1 \
-  --run_name smoke_aqua_mc_smollm2_135m_cpu_q12_l4
+  --run_name smoke_aqua_mc_mistral7b_cpu_q12_l4
 ```
 
 Run a larger experiment:

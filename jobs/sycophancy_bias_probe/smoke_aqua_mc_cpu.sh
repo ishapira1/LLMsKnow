@@ -15,10 +15,10 @@ if [[ -f .env ]]; then
 fi
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
-RUN_NAME="${RUN_NAME:-smoke_aqua_mc_smollm2_135m_cpu_q12_n4_l4}"
+RUN_NAME="${RUN_NAME:-smoke_aqua_mc_mistral7b_cpu_q12_l4}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
-MODEL_ID="HuggingFaceTB/SmolLM2-135M-Instruct"
+MODEL_ID="mistralai/Mistral-7B-Instruct-v0.2"
 OUT_DIR="results/sycophancy_bias_probe"
 SHOW_HELP=0
 
@@ -71,6 +71,7 @@ cmd=(
   --mc_mode strict_mc
   --smoke_test
   --smoke_questions 12
+  --override_sampling_cache
   --n_draws 4
   --probe_layer_min 1
   --probe_layer_max 4

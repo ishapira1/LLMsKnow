@@ -575,8 +575,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate a completed smoke run and print a compact health report.")
     parser.add_argument("--run_dir", type=str, default=None, help="Explicit run directory to validate.")
     parser.add_argument("--out_dir", type=str, default="results/sycophancy_bias_probe")
-    parser.add_argument("--model", type=str, required=False, default="HuggingFaceTB/SmolLM2-135M-Instruct")
-    parser.add_argument("--run_name", type=str, required=False, default="smoke_aqua_mc_smollm2_135m_cpu_q12_n4_l4")
+    parser.add_argument("--model", type=str, required=False, default="mistralai/Mistral-7B-Instruct-v0.2")
+    parser.add_argument("--run_name", type=str, required=False, default="smoke_aqua_mc_mistral7b_cpu_q12_l4")
     args = parser.parse_args(argv)
 
     run_dir = _resolve_run_dir(
