@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +10,8 @@ from tqdm.auto import tqdm
 
 _RUN_LOG_PATH: Optional[Path] = None
 _WARNING_LOG_PATH: Optional[Path] = None
+_ANSI_YELLOW = "\033[33m"
+_ANSI_RESET = "\033[0m"
 
 
 def configure_run_logging(log_path: Path, warning_log_path: Optional[Path] = None) -> None:
@@ -56,6 +60,27 @@ def format_warning(script_name: str, warning_code: str, message: str) -> str:
     return f"[warning][{Path(script_name).name}]: {message}"
 
 
+def _stdout_supports_color() -> bool:
+    if os.environ.get("NO_COLOR"):
+        return False
+    force_color = os.environ.get("FORCE_COLOR")
+    if force_color and force_color != "0":
+        return True
+
+    stream = sys.stdout
+    return bool(
+        hasattr(stream, "isatty")
+        and stream.isatty()
+        and str(os.environ.get("TERM", "")).lower() != "dumb"
+    )
+
+
+def _format_warning_for_console(line: str) -> str:
+    if not _stdout_supports_color():
+        return line
+    return f"{_ANSI_YELLOW}{line}{_ANSI_RESET}"
+
+
 def log_status(script_name: str, message: str) -> str:
     line = format_status(script_name, message)
     tqdm.write(line)
@@ -65,7 +90,7 @@ def log_status(script_name: str, message: str) -> str:
 
 def warn_status(script_name: str, warning_code: str, message: str) -> str:
     line = format_warning(script_name, warning_code, message)
-    tqdm.write(line)
+    tqdm.write(_format_warning_for_console(line))
     _append_log_line(_RUN_LOG_PATH, line)
     _append_log_line(_WARNING_LOG_PATH, line)
     return line
