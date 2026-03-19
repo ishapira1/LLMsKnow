@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
 cd "$REPO_DIR"
 
 if [[ -z "${SLURM_JOB_ID:-}" ]]; then

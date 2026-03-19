@@ -10,10 +10,10 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
 RUN_NAME="${RUN_NAME:-medium_aqua_mc_mistral7b_auto_q300_l16_seas}"
 
-exec "$SCRIPT_DIR/aqua_mc_seas_common.sh" \
+exec "$REPO_DIR/jobs/sycophancy_bias_probe/aqua_mc_seas_common.sh" \
   --max_questions 300 \
   --probe_layer_min 1 \
   --probe_layer_max 16 \
