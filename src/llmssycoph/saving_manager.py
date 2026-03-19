@@ -110,6 +110,7 @@ PROBE_CANDIDATE_SCORE_COLUMNS = [
 RUN_SUMMARY_SCHEMA_VERSION = 2
 MODEL_SUMMARY_SCHEMA_VERSION = 1
 PROBE_SUMMARY_SCHEMA_VERSION = 1
+REPORTS_SUMMARY_SCHEMA_VERSION = 1
 
 MODEL_SUMMARY_BY_TEMPLATE_COLUMNS = [
     "template_type",
@@ -1095,6 +1096,99 @@ def build_probe_summary_df(probe_summary_payload: Dict[str, Any]) -> pd.DataFram
     return pd.DataFrame(rows, columns=PROBE_SUMMARY_COLUMNS)
 
 
+def _records_from_df(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if df.empty:
+        return []
+    return [_json_ready(row) for row in df.to_dict(orient="records")]
+
+
+def build_reports_summary_payload(
+    *,
+    args: Any,
+    run_dir: Path,
+    samples_df: pd.DataFrame,
+    tuples_df: pd.DataFrame,
+    probe_scores_by_prompt_df: pd.DataFrame,
+    probes_meta: Dict[str, Any],
+    probe_candidate_scores_df: pd.DataFrame,
+) -> Dict[str, Any]:
+    model_summary_payload = build_model_summary_payload(
+        args=args,
+        run_dir=run_dir,
+        samples_df=samples_df,
+        tuples_df=tuples_df,
+        probes_meta=probes_meta,
+    )
+    template_df = build_model_summary_by_template_df(samples_df)
+    bias_df = build_model_summary_by_bias_df(tuples_df).copy()
+    if not bias_df.empty:
+        bias_df["delta_accuracy_xprime_minus_x"] = (
+            pd.to_numeric(bias_df["accuracy_xprime"], errors="coerce")
+            - pd.to_numeric(bias_df["accuracy_x"], errors="coerce")
+        )
+        bias_df["avg_delta_p_xprime_minus_x"] = (
+            pd.to_numeric(bias_df["avg_p_xprime"], errors="coerce")
+            - pd.to_numeric(bias_df["avg_p_x"], errors="coerce")
+        )
+        bias_df["avg_delta_probe_xprime_minus_x"] = (
+            pd.to_numeric(bias_df["avg_probe_xprime"], errors="coerce")
+            - pd.to_numeric(bias_df["avg_probe_x"], errors="coerce")
+        )
+
+    probe_summary_payload = build_probe_summary_payload(
+        args=args,
+        run_dir=run_dir,
+        probes_meta=probes_meta,
+        probe_candidate_scores_df=probe_candidate_scores_df,
+        probe_scores_by_prompt_df=probe_scores_by_prompt_df,
+    )
+    probe_summary_df = build_probe_summary_df(probe_summary_payload)
+    selected_probe_overview = probe_summary_payload.get("overview", {}).get("best_probe_on_test")
+    prompt_overview = model_summary_payload.get("prompt_level", {}).get("all_rows", {})
+    pair_overview = model_summary_payload.get("paired_effects", {}).get("all_pairs", {})
+
+    return _json_ready(
+        {
+            "summary_schema_version": REPORTS_SUMMARY_SCHEMA_VERSION,
+            "generated_at_utc": utc_now_iso(),
+            "run_name": run_dir.name,
+            "run_dir": str(run_dir),
+            "model_name": str(args.model),
+            "dataset_name": str(getattr(args, "dataset_name", "") or ""),
+            "bias_types": _list_like_strings(getattr(args, "bias_types", [])),
+            "headline_counts": {
+                "sample_rows": int(len(samples_df)),
+                "question_count": int(samples_df["question_id"].nunique()) if not samples_df.empty else 0,
+                "usable_sample_rows": int(
+                    pd.to_numeric(_series_from_df(samples_df, "usable_for_metrics", 0), errors="coerce").fillna(0).sum()
+                ),
+                "paired_rows": int(len(tuples_df)),
+                "probe_score_prompt_rows": int(len(probe_scores_by_prompt_df)),
+                "probe_family_count": int(len(probe_summary_df)),
+            },
+            "overall": {
+                "accuracy": prompt_overview.get("accuracy"),
+                "avg_p_correct": prompt_overview.get("avg_p_correct"),
+                "avg_p_selected": prompt_overview.get("avg_p_selected"),
+                "avg_delta_p_xprime_minus_x": (
+                    None
+                    if pair_overview.get("avg_delta_p_x_minus_xprime") is None
+                    else float(-1.0 * float(pair_overview["avg_delta_p_x_minus_xprime"]))
+                ),
+                "harmful_flip_rate": pair_overview.get("harmful_flip_rate"),
+                "helpful_flip_rate": pair_overview.get("helpful_flip_rate"),
+                "unchanged_correctness_rate": pair_overview.get("unchanged_correctness_rate"),
+            },
+            "accuracy_by_template": _records_from_df(template_df),
+            "accuracy_by_bias_type": _records_from_df(bias_df),
+            "probe_score_summaries": _records_from_df(probe_summary_df),
+            "selected_probe_overview": _json_ready(selected_probe_overview),
+            "probe_training_status": probes_meta.get("probe_training_status", "completed"),
+            "strict_mc_quality": probes_meta.get("strict_mc_quality"),
+        }
+    )
+
+
 def _format_summary_value(value: Any) -> str:
     if value is None:
         return "n/a"
@@ -1139,68 +1233,50 @@ def _markdown_table(
 
 
 def build_executive_summary_markdown(
-    *,
-    args: Any,
-    run_dir: Path,
-    samples_df: pd.DataFrame,
-    tuples_df: pd.DataFrame,
-    model_summary_payload: Dict[str, Any],
-    model_summary_by_template_df: pd.DataFrame,
-    model_summary_by_bias_df: pd.DataFrame,
-    probe_summary_df: pd.DataFrame,
+    summary_payload: Dict[str, Any],
 ) -> str:
-    prompt_overview = model_summary_payload.get("prompt_level", {}).get("all_rows", {})
-    pair_overview = model_summary_payload.get("paired_effects", {}).get("all_pairs", {})
-    best_probe_row = None
-    if not probe_summary_df.empty and "test_auc" in probe_summary_df.columns:
-        ranked_probe_df = probe_summary_df.dropna(subset=["test_auc"]).sort_values(
-            by=["test_auc", "best_dev_auc"],
-            ascending=[False, False],
-        )
-        if not ranked_probe_df.empty:
-            best_probe_row = ranked_probe_df.iloc[0]
-
-    model_overview_df = pd.DataFrame(
-        [
-            {"metric": "sample_rows", "value": len(samples_df)},
-            {"metric": "pair_rows", "value": len(tuples_df)},
-            {"metric": "overall_accuracy", "value": prompt_overview.get("accuracy")},
-            {"metric": "overall_avg_p_correct", "value": prompt_overview.get("avg_p_correct")},
-            {"metric": "overall_avg_p_selected", "value": prompt_overview.get("avg_p_selected")},
-            {"metric": "usable_rate", "value": prompt_overview.get("usable_rate")},
-            {"metric": "avg_delta_p_x_minus_xprime", "value": pair_overview.get("avg_delta_p_x_minus_xprime")},
-            {"metric": "harmful_flip_rate", "value": pair_overview.get("harmful_flip_rate")},
-        ]
-    )
+    generated_at_utc = summary_payload.get("generated_at_utc")
+    headline_counts = summary_payload.get("headline_counts", {})
+    overall = summary_payload.get("overall", {})
+    template_df = pd.DataFrame(summary_payload.get("accuracy_by_template", []))
+    bias_df = pd.DataFrame(summary_payload.get("accuracy_by_bias_type", []))
+    probe_df = pd.DataFrame(summary_payload.get("probe_score_summaries", []))
     best_probe_df = pd.DataFrame(
-        []
-        if best_probe_row is None
-        else [
-            {
-                "probe_name": best_probe_row.get("probe_name"),
-                "best_layer": best_probe_row.get("best_layer"),
-                "best_dev_auc": best_probe_row.get("best_dev_auc"),
-                "test_auc": best_probe_row.get("test_auc"),
-                "test_accuracy": best_probe_row.get("test_accuracy"),
-                "probe_prefers_correct_rate": best_probe_row.get("probe_prefers_correct_rate"),
-            }
+        [summary_payload.get("selected_probe_overview", {})]
+        if isinstance(summary_payload.get("selected_probe_overview"), dict)
+        and summary_payload.get("selected_probe_overview")
+        else []
+    )
+
+    overview_df = pd.DataFrame(
+        [
+            {"metric": "sample_rows", "value": headline_counts.get("sample_rows")},
+            {"metric": "question_count", "value": headline_counts.get("question_count")},
+            {"metric": "paired_rows", "value": headline_counts.get("paired_rows")},
+            {"metric": "probe_families", "value": headline_counts.get("probe_family_count")},
+            {"metric": "overall_accuracy", "value": overall.get("accuracy")},
+            {"metric": "overall_avg_p_correct", "value": overall.get("avg_p_correct")},
+            {"metric": "overall_avg_p_selected", "value": overall.get("avg_p_selected")},
+            {"metric": "avg_delta_p_xprime_minus_x", "value": overall.get("avg_delta_p_xprime_minus_x")},
+            {"metric": "harmful_flip_rate", "value": overall.get("harmful_flip_rate")},
+            {"metric": "helpful_flip_rate", "value": overall.get("helpful_flip_rate")},
         ]
     )
 
     sections = [
         "# Executive Summary",
         "",
-        f"- Run: `{run_dir.name}`",
-        f"- Model: `{args.model}`",
-        f"- Dataset: `{str(getattr(args, 'dataset_name', '') or '')}`",
-        f"- Generated: `{utc_now_iso()}`",
+        f"- Run: `{summary_payload.get('run_name', '')}`",
+        f"- Model: `{summary_payload.get('model_name', '')}`",
+        f"- Dataset: `{summary_payload.get('dataset_name', '')}`",
+        f"- Generated: `{generated_at_utc or 'n/a'}`",
         "",
         "## Model Overview",
-        _markdown_table(model_overview_df, ["metric", "value"], {"metric": "Metric", "value": "Value"}),
+        _markdown_table(overview_df, ["metric", "value"], {"metric": "Metric", "value": "Value"}),
         "",
         "## Accuracy by Template",
         _markdown_table(
-            model_summary_by_template_df,
+            template_df,
             [
                 "template_type",
                 "n_rows",
@@ -1221,7 +1297,7 @@ def build_executive_summary_markdown(
         "",
         "## Effect by Bias",
         _markdown_table(
-            model_summary_by_bias_df,
+            bias_df,
             [
                 "bias_type",
                 "n_pairs",
@@ -1229,8 +1305,9 @@ def build_executive_summary_markdown(
                 "accuracy_xprime",
                 "avg_p_x",
                 "avg_p_xprime",
-                "avg_delta_p_x_minus_xprime",
+                "avg_delta_p_xprime_minus_x",
                 "harmful_flip_rate",
+                "helpful_flip_rate",
             ],
             {
                 "bias_type": "Bias",
@@ -1239,8 +1316,9 @@ def build_executive_summary_markdown(
                 "accuracy_xprime": "Acc x'",
                 "avg_p_x": "Avg p(x)",
                 "avg_p_xprime": "Avg p(x')",
-                "avg_delta_p_x_minus_xprime": "Avg delta p",
+                "avg_delta_p_xprime_minus_x": "Avg delta p",
                 "harmful_flip_rate": "Harmful flip",
+                "helpful_flip_rate": "Helpful flip",
             },
         ),
         "",
@@ -1267,7 +1345,7 @@ def build_executive_summary_markdown(
         "",
         "## Probe Overview",
         _markdown_table(
-            probe_summary_df,
+            probe_df,
             [
                 "probe_name",
                 "best_layer",
@@ -1364,11 +1442,7 @@ def build_run_summary_payload(
             },
             "paths": {
                 "sampled_responses": str(preferred_run_artifact_path(run_dir, "sampled_responses")),
-                "final_tuples": str(preferred_run_artifact_path(run_dir, "final_tuples")),
-                "summary_by_question": str(preferred_run_artifact_path(run_dir, "summary_by_question")),
-                "model_summary_by_template": str(preferred_run_artifact_path(run_dir, "model_summary_by_template")),
-                "model_summary_by_bias": str(preferred_run_artifact_path(run_dir, "model_summary_by_bias")),
-                "probe_summary_csv": str(preferred_run_artifact_path(run_dir, "probe_summary_csv")),
+                "reports_summary": str(preferred_run_artifact_path(run_dir, "reports_summary")),
                 "probe_scores_by_prompt": str(preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")),
                 "executive_summary": str(preferred_run_artifact_path(run_dir, "executive_summary")),
             },
@@ -1440,75 +1514,33 @@ def save_run_results(
 ) -> Dict[str, Path]:
     tuple_rows = build_tuple_rows(all_records, model_name=args.model, bias_types=bias_types)
     tuples_df = to_tuples_df(tuple_rows)
-    summary_df = build_summary_df(tuples_df)
     samples_df = to_samples_df(all_records, model_name=args.model)
     probe_candidate_scores_df = to_probe_candidate_scores_df(
         probe_candidate_score_rows,
         model_name=args.model,
     )
     probe_scores_by_prompt_df = build_mc_probe_scores_by_prompt_df(probe_candidate_scores_df)
-    model_summary_payload = build_model_summary_payload(
+    reports_summary_payload = build_reports_summary_payload(
         args=args,
         run_dir=run_dir,
         samples_df=samples_df,
         tuples_df=tuples_df,
-        probes_meta=probes_meta,
-    )
-    model_summary_by_template_df = build_model_summary_by_template_df(samples_df)
-    model_summary_by_bias_df = build_model_summary_by_bias_df(tuples_df)
-    probe_summary_payload = build_probe_summary_payload(
-        args=args,
-        run_dir=run_dir,
+        probe_scores_by_prompt_df=probe_scores_by_prompt_df,
         probes_meta=probes_meta,
         probe_candidate_scores_df=probe_candidate_scores_df,
-        probe_scores_by_prompt_df=probe_scores_by_prompt_df,
     )
-    probe_summary_df = build_probe_summary_df(probe_summary_payload)
-    executive_summary_text = build_executive_summary_markdown(
-        args=args,
-        run_dir=run_dir,
-        samples_df=samples_df,
-        tuples_df=tuples_df,
-        model_summary_payload=model_summary_payload,
-        model_summary_by_template_df=model_summary_by_template_df,
-        model_summary_by_bias_df=model_summary_by_bias_df,
-        probe_summary_df=probe_summary_df,
-    )
-    run_summary_payload = build_run_summary_payload(
-        args=args,
-        run_dir=run_dir,
-        samples_df=samples_df,
-        tuples_df=tuples_df,
-        summary_df=summary_df,
-        probes_meta=probes_meta,
-        model_summary_payload=model_summary_payload,
-        probe_summary_payload=probe_summary_payload,
-    )
+    executive_summary_text = build_executive_summary_markdown(reports_summary_payload)
 
     samples_path = preferred_run_artifact_path(run_dir, "sampled_responses")
-    tuples_path = preferred_run_artifact_path(run_dir, "final_tuples")
-    summary_path = preferred_run_artifact_path(run_dir, "summary_by_question")
-    model_summary_by_template_path = preferred_run_artifact_path(run_dir, "model_summary_by_template")
-    model_summary_by_bias_path = preferred_run_artifact_path(run_dir, "model_summary_by_bias")
-    run_summary_path = preferred_run_artifact_path(run_dir, "run_summary")
-    probe_candidate_scores_path = preferred_run_artifact_path(run_dir, "probe_candidate_scores")
+    reports_summary_path = preferred_run_artifact_path(run_dir, "reports_summary")
     probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
-    probe_summary_csv_path = preferred_run_artifact_path(run_dir, "probe_summary_csv")
     executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
-    meta_path = preferred_run_artifact_path(run_dir, "probe_metadata")
     config_path = preferred_run_artifact_path(run_dir, "run_config")
 
     write_csv_atomic(samples_path, samples_df)
-    write_csv_atomic(tuples_path, tuples_df)
-    write_csv_atomic(summary_path, summary_df)
-    write_csv_atomic(model_summary_by_template_path, model_summary_by_template_df)
-    write_csv_atomic(model_summary_by_bias_path, model_summary_by_bias_df)
-    write_json_atomic(run_summary_path, run_summary_payload)
-    write_csv_atomic(probe_candidate_scores_path, probe_candidate_scores_df)
+    write_json_atomic(reports_summary_path, reports_summary_payload)
     write_csv_atomic(probe_scores_by_prompt_path, probe_scores_by_prompt_df)
-    write_csv_atomic(probe_summary_csv_path, probe_summary_df)
     write_text_atomic(executive_summary_path, executive_summary_text)
-    write_json_atomic(meta_path, probes_meta)
 
     run_cfg = dict(vars(args))
     run_cfg["run_dir"] = str(run_dir)
@@ -1519,13 +1551,14 @@ def save_run_results(
     run_cfg["sampling_records_path"] = str(sampling_records_path)
     run_cfg["sampling_manifest_path"] = str(sampling_manifest_path)
     run_cfg["sampling_integrity_summary_path"] = str(sampling_integrity_summary_path)
-    run_cfg["model_summary_by_template_path"] = str(model_summary_by_template_path)
-    run_cfg["model_summary_by_bias_path"] = str(model_summary_by_bias_path)
-    run_cfg["run_summary_path"] = str(run_summary_path)
-    run_cfg["probe_candidate_scores_path"] = str(probe_candidate_scores_path)
+    run_cfg["sampled_responses_path"] = str(samples_path)
+    run_cfg["reports_summary_path"] = str(reports_summary_path)
     run_cfg["probe_scores_by_prompt_path"] = str(probe_scores_by_prompt_path)
-    run_cfg["probe_summary_csv_path"] = str(probe_summary_csv_path)
     run_cfg["executive_summary_path"] = str(executive_summary_path)
+    if probes_meta.get("all_probes_dir"):
+        run_cfg["all_probes_dir"] = str(probes_meta["all_probes_dir"])
+    if probes_meta.get("chosen_probe_dir"):
+        run_cfg["chosen_probe_dir"] = str(probes_meta["chosen_probe_dir"])
     run_cfg["run_log_path"] = str(run_log_path)
     if warning_log_path is not None and warning_log_path.exists():
         run_cfg["warnings_log_path"] = str(warning_log_path)
@@ -1533,16 +1566,9 @@ def save_run_results(
 
     saved_paths = {
         "samples_path": samples_path,
-        "tuples_path": tuples_path,
-        "summary_path": summary_path,
-        "model_summary_by_template_path": model_summary_by_template_path,
-        "model_summary_by_bias_path": model_summary_by_bias_path,
-        "run_summary_path": run_summary_path,
-        "probe_candidate_scores_path": probe_candidate_scores_path,
+        "reports_summary_path": reports_summary_path,
         "probe_scores_by_prompt_path": probe_scores_by_prompt_path,
-        "probe_summary_csv_path": probe_summary_csv_path,
         "executive_summary_path": executive_summary_path,
-        "meta_path": meta_path,
         "config_path": config_path,
         "sampling_records_path": sampling_records_path,
         "sampling_manifest_path": sampling_manifest_path,
@@ -1565,11 +1591,13 @@ __all__ = [
     "PROBE_CANDIDATE_SCORE_COLUMNS",
     "SAMPLED_RESPONSE_COLUMNS",
     "build_mc_probe_scores_by_prompt_df",
+    "build_executive_summary_markdown",
     "build_model_summary_by_bias_df",
     "build_model_summary_by_template_df",
     "build_model_summary_payload",
     "build_probe_summary_df",
     "build_probe_summary_payload",
+    "build_reports_summary_payload",
     "build_run_summary_payload",
     "build_summary_df",
     "build_tuple_rows",

@@ -4,405 +4,265 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
 from llmssycoph.integrity import check_run_integrity
-from llmssycoph.runtime import preferred_run_artifact_path
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+from llmssycoph.runtime import preferred_run_artifact_path, write_csv_atomic, write_json_atomic, write_text_atomic
+from llmssycoph.saving_manager import (
+    build_executive_summary_markdown,
+    build_mc_probe_scores_by_prompt_df,
+    build_reports_summary_payload,
+    build_tuple_rows,
+    to_probe_candidate_scores_df,
+    to_samples_df,
+    to_tuples_df,
+)
 
 
 class IntegrityContractTests(unittest.TestCase):
     def _build_smoke_run(self, run_dir: Path) -> None:
         run_dir.mkdir(parents=True, exist_ok=True)
-        samples_path = preferred_run_artifact_path(run_dir, "sampled_responses")
-        sampling_records_path = preferred_run_artifact_path(run_dir, "sampling_records")
-        tuples_path = preferred_run_artifact_path(run_dir, "final_tuples")
-        summary_path = preferred_run_artifact_path(run_dir, "summary_by_question")
-        model_summary_by_template_path = preferred_run_artifact_path(run_dir, "model_summary_by_template")
-        model_summary_by_bias_path = preferred_run_artifact_path(run_dir, "model_summary_by_bias")
-        probe_candidate_scores_path = preferred_run_artifact_path(run_dir, "probe_candidate_scores")
-        probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
-        probe_summary_csv_path = preferred_run_artifact_path(run_dir, "probe_summary_csv")
-        executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
-        for path in (
-            samples_path,
-            sampling_records_path,
-            tuples_path,
-            summary_path,
-            model_summary_by_template_path,
-            model_summary_by_bias_path,
-            probe_candidate_scores_path,
-            probe_scores_by_prompt_path,
-            probe_summary_csv_path,
-            executive_summary_path,
-        ):
-            path.parent.mkdir(parents=True, exist_ok=True)
         question_splits = {"train": ["q_1"], "val": ["q_2"], "test": ["q_3"]}
         bias_types = ["incorrect_suggestion"]
-        draw_count = 1
         templates = ["neutral", *bias_types]
-        rows = []
-        record_id = 0
+        model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+        dataset_name = "aqua_mc"
+
+        samples_path = preferred_run_artifact_path(run_dir, "sampled_responses")
+        sampling_records_path = preferred_run_artifact_path(run_dir, "sampling_records")
+        probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
+        reports_summary_path = preferred_run_artifact_path(run_dir, "reports_summary")
+        executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
+
+        all_records = []
+        probe_candidate_rows = []
+        record_id = 1
+        candidate_record_id = 100
         for split_name, question_ids in question_splits.items():
             for question_id in question_ids:
                 for template_type in templates:
-                    rows.append(
+                    is_neutral = template_type == "neutral"
+                    prompt_id = f"{question_id}__{template_type}"
+                    t_prompt = 0.9 if is_neutral else 0.7
+                    probe_score = 0.25 if is_neutral else 0.65
+                    all_records.append(
                         {
-                            "model_name": "HuggingFaceTB/SmolLM2-135M-Instruct",
                             "record_id": record_id,
                             "split": split_name,
                             "question_id": question_id,
-                            "prompt_id": f"{question_id}__{template_type}",
-                            "dataset": "aqua_mc",
+                            "prompt_id": prompt_id,
+                            "dataset": dataset_name,
                             "template_type": template_type,
                             "draw_idx": 0,
-                            "question": f"Question {question_id}",
-                            "correct_answer": "A",
-                            "incorrect_answer": "B",
-                            "incorrect_answer_source": "",
                             "task_format": "multiple_choice",
                             "mc_mode": "strict_mc",
                             "answer_channel": "letter",
-                            "prompt_spec_version": 1,
-                            "grading_spec_version": 1,
+                            "question": f"Question {question_id}",
+                            "correct_answer": "Option A",
+                            "incorrect_answer": "Option B",
                             "correct_letter": "A",
                             "incorrect_letter": "B",
-                            "letters": "ABCD",
-                            "answer_options": "(A) one\n(B) two",
-                            "answers_list": json.dumps(["one", "two"]),
-                            "gold_answers": json.dumps(["A"]),
+                            "gold_answers": ["A"],
                             "prompt_template": "{question}",
                             "prompt_text": f"Prompt {question_id} {template_type}",
-                            "response_raw": "Answer: A",
+                            "response_raw": "A",
                             "response": "A",
-                            "committed_answer": "A",
-                            "commitment_kind": "letter",
-                            "commitment_source": "explicit_answer_line",
                             "starts_with_answer_prefix": True,
                             "strict_format_exact": True,
-                            "commitment_line": "Answer: A",
-                            "answer_marker_count": 1,
-                            "multiple_answer_markers": False,
                             "correctness": 1,
                             "grading_status": "correct",
                             "grading_reason": "single_letter_match",
                             "usable_for_metrics": True,
-                            "completion_token_count": 3,
+                            "completion_token_count": 1,
                             "hit_max_new_tokens": False,
                             "stopped_on_eos": False,
-                            "finish_reason": "answer_commitment",
-                            "sampling_mode": "generation",
-                            "choice_probabilities": "{}",
-                            "choice_probability_correct": None,
-                            "choice_probability_selected": None,
-                            "T_prompt": 1.0,
-                            "probe_x": 0.3 if template_type == "neutral" else float("nan"),
-                            "probe_xprime": 0.7 if template_type != "neutral" else float("nan"),
+                            "finish_reason": "choice_probabilities",
+                            "sampling_mode": "choice_probabilities",
+                            "choice_probabilities": {"A": t_prompt, "B": 1.0 - t_prompt},
+                            "choice_probability_correct": t_prompt,
+                            "choice_probability_selected": t_prompt,
+                            "T_prompt": t_prompt,
+                            "probe_x": probe_score if is_neutral else None,
+                            "probe_xprime": probe_score if not is_neutral else None,
                         }
                     )
+                    probe_name = "probe_no_bias" if is_neutral else "probe_bias_incorrect_suggestion"
+                    for candidate_choice, candidate_probability, candidate_correctness, candidate_is_selected, score in (
+                        ("A", t_prompt, 1, True, probe_score),
+                        ("B", 1.0 - t_prompt, 0, False, probe_score - 0.2),
+                    ):
+                        probe_candidate_rows.append(
+                            {
+                                "probe_name": probe_name,
+                                "split": split_name,
+                                "question_id": question_id,
+                                "prompt_id": prompt_id,
+                                "dataset": dataset_name,
+                                "template_type": template_type,
+                                "draw_idx": 0,
+                                "source_record_id": record_id,
+                                "record_id": candidate_record_id,
+                                "correct_letter": "A",
+                                "source_selected_choice": "A",
+                                "candidate_choice": candidate_choice,
+                                "candidate_rank": 0 if candidate_choice == "A" else 1,
+                                "candidate_probability": candidate_probability,
+                                "probe_sample_weight": candidate_probability,
+                                "candidate_correctness": candidate_correctness,
+                                "candidate_is_selected": candidate_is_selected,
+                                "probe_score": score,
+                            }
+                        )
+                        candidate_record_id += 1
                     record_id += 1
 
-        sampled_df = pd.DataFrame(rows)
-        sampled_df.to_csv(samples_path, index=False)
-        sampling_records_path.write_text(
-            "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
-            encoding="utf-8",
+        samples_df = to_samples_df(all_records, model_name=model_name)
+        tuple_rows = build_tuple_rows(all_records, model_name=model_name, bias_types=bias_types)
+        tuples_df = to_tuples_df(tuple_rows)
+        probe_candidate_scores_df = to_probe_candidate_scores_df(probe_candidate_rows, model_name=model_name)
+        probe_scores_by_prompt_df = build_mc_probe_scores_by_prompt_df(probe_candidate_scores_df)
+
+        probe_no_bias_metrics = run_dir / "probe_no_bias_metrics.json"
+        probe_bias_metrics = run_dir / "probe_bias_metrics.json"
+        write_text_atomic(
+            probe_no_bias_metrics,
+            json.dumps(
+                {
+                    "splits": {
+                        "train": {"auc": 0.72, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                        "val": {"auc": 0.7, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                        "test": {"auc": 0.68, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                    }
+                }
+            ),
+        )
+        write_text_atomic(
+            probe_bias_metrics,
+            json.dumps(
+                {
+                    "splits": {
+                        "train": {"auc": 0.84, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                        "val": {"auc": 0.82, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                        "test": {"auc": 0.8, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                    }
+                }
+            ),
         )
 
-        tuples_df = pd.DataFrame(
-            [
-                {
-                    "model_name": "HuggingFaceTB/SmolLM2-135M-Instruct",
-                    "split": split_name,
-                    "question_id": question_id,
-                    "prompt_id_x": f"{question_id}__neutral",
-                    "prompt_id_xprime": f"{question_id}__incorrect_suggestion",
-                    "dataset": "aqua_mc",
-                    "bias_type": "incorrect_suggestion",
-                    "draw_idx": 0,
-                    "question": f"Question {question_id}",
-                    "correct_answer": "A",
-                    "incorrect_answer": "B",
-                    "gold_answers": json.dumps(["A"]),
-                    "prompt_x": f"Prompt {question_id} neutral",
-                    "prompt_with_bias": f"Prompt {question_id} incorrect_suggestion",
-                    "prompt_template_x": "{question}",
-                    "prompt_template_xprime": "{question} bias",
-                    "y_x": "A",
-                    "y_xprime": "A",
-                    "C_x_y": 1,
-                    "C_xprime_yprime": 1,
-                    "T_x": 1.0,
-                    "T_xprime": 1.0,
-                    "probe_x_name": "probe_no_bias",
-                    "probe_xprime_name": "probe_bias_incorrect_suggestion",
-                    "probe_x": 0.3,
-                    "probe_xprime": 0.7,
-                }
-                for split_name, question_ids in question_splits.items()
-                for question_id in question_ids
-            ]
-        )
-        tuples_df.to_csv(tuples_path, index=False)
-
-        summary_df = pd.DataFrame(
-            [
-                {
-                    "model_name": "HuggingFaceTB/SmolLM2-135M-Instruct",
-                    "split": split_name,
-                    "question_id": question_id,
-                    "prompt_id_x": f"{question_id}__neutral",
-                    "prompt_id_xprime": f"{question_id}__incorrect_suggestion",
-                    "dataset": "aqua_mc",
-                    "bias_type": "incorrect_suggestion",
-                    "question": f"Question {question_id}",
-                    "correct_answer": "A",
-                    "incorrect_answer": "B",
-                    "prompt_template_x": "{question}",
-                    "prompt_template_xprime": "{question} bias",
-                    "prompt_x": f"Prompt {question_id} neutral",
-                    "prompt_with_bias": f"Prompt {question_id} incorrect_suggestion",
-                    "T_x": 1.0,
-                    "T_xprime": 1.0,
-                    "mean_C_x": 1.0,
-                    "mean_C_xprime": 1.0,
-                    "mean_probe_x": 0.3,
-                    "mean_probe_xprime": 0.7,
-                    "n_draws": 1,
-                }
-                for split_name, question_ids in question_splits.items()
-                for question_id in question_ids
-            ]
-        )
-        summary_df.to_csv(summary_path, index=False)
-        pd.DataFrame(
-            [
-                {
-                    "model_name": "HuggingFaceTB/SmolLM2-135M-Instruct",
-                    "probe_name": "probe_no_bias" if template_type == "neutral" else "probe_bias_incorrect_suggestion",
-                    "split": split_name,
-                    "question_id": question_id,
-                    "prompt_id": f"{question_id}__{template_type}",
-                    "dataset": "aqua_mc",
-                    "template_type": template_type,
-                    "draw_idx": 0,
-                    "source_record_id": idx + 1,
-                    "candidate_record_id": (idx + 1) * 100,
-                    "question": f"Question {question_id}",
-                    "prompt_text": f"Prompt {question_id} {template_type}",
-                    "correct_letter": "A",
-                    "selected_choice": "A",
-                    "candidate_choice": "A",
-                    "candidate_rank": 0,
-                    "candidate_probability": 1.0,
-                    "probe_sample_weight": 1.0,
-                    "candidate_correctness": 1,
-                    "candidate_is_selected": True,
-                    "probe_score": 0.8,
-                }
-                for idx, (split_name, question_ids) in enumerate(question_splits.items())
-                for question_id in question_ids
-                for template_type in templates
-            ]
-        ).to_csv(probe_candidate_scores_path, index=False)
-        pd.DataFrame(
-            [
-                {
-                    "model_name": "HuggingFaceTB/SmolLM2-135M-Instruct",
-                    "probe_name": "probe_no_bias" if template_type == "neutral" else "probe_bias_incorrect_suggestion",
-                    "split": split_name,
-                    "question_id": question_id,
-                    "prompt_id": f"{question_id}__{template_type}",
-                    "dataset": "aqua_mc",
-                    "template_type": template_type,
-                    "draw_idx": 0,
-                    "source_record_id": idx + 1,
-                    "correct_letter": "A",
-                    "selected_choice": "A",
-                    "selected_choice_is_correct": True,
-                    "probe_score_correct_choice": 0.8,
-                    "probe_score_selected_choice": 0.8,
-                    "correct_choice_probability": 1.0,
-                    "selected_choice_probability": 1.0,
-                    "probe_argmax_choice": "A",
-                    "probe_argmax_score": 0.8,
-                    "probe_prefers_correct": True,
-                    "probe_prefers_selected": True,
-                    "probe_score_gap_correct_minus_selected": 0.0,
-                    "score_A": 0.8,
-                }
-                for idx, (split_name, question_ids) in enumerate(question_splits.items())
-                for question_id in question_ids
-                for template_type in templates
-            ]
-        ).to_csv(probe_scores_by_prompt_path, index=False)
-        pd.DataFrame(
-            [
-                {
-                    "template_type": template_type,
-                    "n_rows": 3,
-                    "n_questions": 3,
-                    "n_usable_rows": 3,
-                    "usable_rate": 1.0,
-                    "ambiguous_rate": 0.0,
-                    "accuracy": 1.0,
-                    "avg_p_correct": 1.0,
-                    "avg_p_selected": 1.0,
-                    "avg_selected_minus_correct_probability_gap": 0.0,
-                    "avg_probe_score_selected_prompt": 0.3 if template_type == "neutral" else 0.7,
+        probes_meta = {
+            "probe_training_status": "completed",
+            "probe_no_bias": {
+                "template_type": "neutral",
+                "best_layer": 1,
+                "best_dev_auc": 0.7,
+                "trained_layers": [1],
+                "auc_per_layer": {1: 0.7},
+                "probe_construction": "choice_candidates",
+                "probe_example_weighting": "model_probability",
+                "chosen_probe_metrics_path": str(probe_no_bias_metrics),
+            },
+            "probe_bias_incorrect_suggestion": {
+                "template_type": "incorrect_suggestion",
+                "best_layer": 1,
+                "best_dev_auc": 0.82,
+                "trained_layers": [1],
+                "auc_per_layer": {1: 0.82},
+                "probe_construction": "choice_candidates",
+                "probe_example_weighting": "model_probability",
+                "chosen_probe_metrics_path": str(probe_bias_metrics),
+            },
+            "strict_mc_quality": {
+                "status": "passed",
+                "issues": [],
+                "summary": {
+                    "commitment_rate": 1.0,
+                    "starts_with_answer_rate": 1.0,
                     "exact_format_rate": 1.0,
-                    "starts_with_answer_prefix_rate": 1.0,
                     "cap_hit_rate": 0.0,
-                    "stopped_on_eos_rate": 0.0,
-                    "avg_completion_token_count": 3.0,
-                }
-                for template_type in templates
-            ]
-        ).to_csv(model_summary_by_template_path, index=False)
-        pd.DataFrame(
-            [
-                {
-                    "bias_type": "incorrect_suggestion",
-                    "n_pairs": 3,
-                    "n_questions": 3,
-                    "accuracy_x": 1.0,
-                    "accuracy_xprime": 1.0,
-                    "delta_accuracy_x_minus_xprime": 0.0,
-                    "avg_p_x": 1.0,
-                    "avg_p_xprime": 1.0,
-                    "avg_delta_p_x_minus_xprime": 0.0,
-                    "avg_probe_x": 0.3,
-                    "avg_probe_xprime": 0.7,
-                    "avg_delta_probe_x_minus_xprime": -0.4,
-                    "harmful_flip_rate": 0.0,
-                    "helpful_flip_rate": 0.0,
-                    "unchanged_correctness_rate": 1.0,
-                    "answer_change_rate": 0.0,
-                }
-            ]
-        ).to_csv(model_summary_by_bias_path, index=False)
-        pd.DataFrame(
-            [
-                {
-                    "probe_name": "probe_no_bias",
-                    "template_type": "neutral",
-                    "probe_construction": "choice_candidates",
-                    "probe_example_weighting": "model_probability",
-                    "best_layer": 1,
-                    "best_dev_auc": 0.8,
-                    "train_auc": 0.82,
-                    "val_auc": 0.8,
-                    "test_auc": 0.75,
-                    "train_accuracy": 1.0,
-                    "val_accuracy": 1.0,
-                    "test_accuracy": 1.0,
-                    "train_balanced_accuracy": 1.0,
-                    "val_balanced_accuracy": 1.0,
-                    "test_balanced_accuracy": 1.0,
-                    "train_n_total": 3,
-                    "val_n_total": 3,
-                    "test_n_total": 3,
-                    "train_minus_val_auc": 0.02,
-                    "val_minus_test_auc": 0.05,
-                    "train_minus_test_auc": 0.07,
-                    "probe_prefers_correct_rate": 1.0,
-                    "probe_prefers_selected_rate": 1.0,
-                    "mean_probe_score_correct_candidate": 0.8,
-                    "mean_probe_score_incorrect_candidate": 0.2,
-                    "mean_probe_score_selected_candidate": 0.8,
-                    "mean_probe_score_non_selected_candidate": 0.2,
-                    "mean_probe_score_correct_choice": 0.8,
-                    "mean_probe_score_selected_choice": 0.8,
-                    "mean_correct_minus_selected_probe_gap": 0.0,
+                    "explicit_parse_failures": 0,
+                    "max_neutral_bias_answer_gap": 0.0,
+                    "by_template": {
+                        "neutral": {"total": 3},
+                        "incorrect_suggestion": {"total": 3},
+                    },
                 },
-                {
-                    "probe_name": "probe_bias_incorrect_suggestion",
-                    "template_type": "incorrect_suggestion",
-                    "probe_construction": "choice_candidates",
-                    "probe_example_weighting": "model_probability",
-                    "best_layer": 1,
-                    "best_dev_auc": 0.82,
-                    "train_auc": 0.84,
-                    "val_auc": 0.82,
-                    "test_auc": 0.8,
-                    "train_accuracy": 1.0,
-                    "val_accuracy": 1.0,
-                    "test_accuracy": 1.0,
-                    "train_balanced_accuracy": 1.0,
-                    "val_balanced_accuracy": 1.0,
-                    "test_balanced_accuracy": 1.0,
-                    "train_n_total": 3,
-                    "val_n_total": 3,
-                    "test_n_total": 3,
-                    "train_minus_val_auc": 0.02,
-                    "val_minus_test_auc": 0.02,
-                    "train_minus_test_auc": 0.04,
-                    "probe_prefers_correct_rate": 1.0,
-                    "probe_prefers_selected_rate": 1.0,
-                    "mean_probe_score_correct_candidate": 0.8,
-                    "mean_probe_score_incorrect_candidate": 0.2,
-                    "mean_probe_score_selected_candidate": 0.8,
-                    "mean_probe_score_non_selected_candidate": 0.2,
-                    "mean_probe_score_correct_choice": 0.8,
-                    "mean_probe_score_selected_choice": 0.8,
-                    "mean_correct_minus_selected_probe_gap": 0.0,
-                },
-            ]
-        ).to_csv(probe_summary_csv_path, index=False)
-        executive_summary_path.write_text(
-            "# Executive Summary\n\n## Model Overview\n\nA compact human summary.\n",
+            },
+        }
+
+        args = SimpleNamespace(
+            model=model_name,
+            dataset_name=dataset_name,
+            bias_types=bias_types,
+        )
+        reports_summary = build_reports_summary_payload(
+            args=args,
+            run_dir=run_dir,
+            samples_df=samples_df,
+            tuples_df=tuples_df,
+            probe_scores_by_prompt_df=probe_scores_by_prompt_df,
+            probes_meta=probes_meta,
+            probe_candidate_scores_df=probe_candidate_scores_df,
+        )
+        executive_summary = build_executive_summary_markdown(reports_summary)
+
+        write_csv_atomic(samples_path, samples_df)
+        sampling_records_path.parent.mkdir(parents=True, exist_ok=True)
+        sampling_records_path.write_text(
+            "\n".join(json.dumps(row, ensure_ascii=False) for row in all_records) + "\n",
             encoding="utf-8",
         )
+        write_csv_atomic(probe_scores_by_prompt_path, probe_scores_by_prompt_df)
+        write_json_atomic(reports_summary_path, reports_summary)
+        write_text_atomic(executive_summary_path, executive_summary)
 
-        _write_json(
+        write_json_atomic(
             preferred_run_artifact_path(run_dir, "run_config"),
             {
                 "run_dir": str(run_dir),
                 "run_name": run_dir.name,
-                "model": "HuggingFaceTB/SmolLM2-135M-Instruct",
-                "model_slug": "HuggingFaceTB_SmolLM2_135M_Instruct",
+                "model": model_name,
                 "device": "cpu",
                 "benchmark_source": "ays_mc_single_turn",
                 "input_jsonl": "are_you_sure.jsonl",
-                "dataset_name": "aqua_mc",
-                "ays_mc_datasets": ["aqua_mc"],
+                "dataset_name": dataset_name,
+                "ays_mc_datasets": [dataset_name],
                 "mc_mode": "strict_mc",
                 "bias_types": bias_types,
                 "smoke_test": True,
                 "smoke_questions": 3,
                 "max_questions": 3,
-                "n_draws": draw_count,
+                "n_draws": 1,
                 "sample_batch_size": 1,
                 "temperature": 1.0,
-                "max_new_tokens": 256,
+                "max_new_tokens": 32,
                 "probe_construction": "auto",
                 "probe_example_weighting": "model_probability",
                 "strict_mc_choice_scoring": True,
-                "model_summary_by_template_path": str(model_summary_by_template_path),
-                "model_summary_by_bias_path": str(model_summary_by_bias_path),
+                "sampling_records_path": str(sampling_records_path),
+                "sampling_manifest_path": str(preferred_run_artifact_path(run_dir, "sampling_manifest")),
+                "sampling_integrity_summary_path": str(
+                    preferred_run_artifact_path(run_dir, "sampling_integrity_summary")
+                ),
+                "sampled_responses_path": str(samples_path),
+                "reports_summary_path": str(reports_summary_path),
                 "probe_scores_by_prompt_path": str(probe_scores_by_prompt_path),
-                "probe_summary_csv_path": str(probe_summary_csv_path),
-                "probe_candidate_scores_path": str(probe_candidate_scores_path),
                 "executive_summary_path": str(executive_summary_path),
             },
         )
-        _write_json(
+        write_json_atomic(
             preferred_run_artifact_path(run_dir, "status"),
             {
                 "status": "completed",
                 "run_dir": str(run_dir),
             },
         )
-        _write_json(
+        write_json_atomic(
             preferred_run_artifact_path(run_dir, "sampling_manifest"),
             {
-                "expected_records": len(rows),
-                "n_records": len(rows),
+                "expected_records": len(all_records),
+                "n_records": len(all_records),
                 "is_complete": True,
                 "sampling_spec": {
                     "train_question_ids": question_splits["train"],
@@ -410,24 +270,22 @@ class IntegrityContractTests(unittest.TestCase):
                     "test_question_ids": question_splits["test"],
                 },
                 "split_stats": {
-                    split_name: {
-                        "expected_records": len(question_ids) * len(templates) * draw_count,
-                    }
+                    split_name: {"expected_records": len(question_ids) * len(templates)}
                     for split_name, question_ids in question_splits.items()
                 },
             },
         )
-        _write_json(
+        write_json_atomic(
             preferred_run_artifact_path(run_dir, "sampling_integrity_summary"),
             {
                 "sampling_integrity_version": 1,
-                "total_records": len(rows),
-                "sampling_modes_present": ["generation"],
+                "total_records": len(all_records),
+                "sampling_modes_present": ["choice_probabilities"],
                 "by_sampling_mode": {
-                    "generation": {
-                        "total": len(rows),
+                    "choice_probabilities": {
+                        "total": len(all_records),
                         "buckets": {
-                            "exact_compliance": {"count": len(rows), "rate": 1.0},
+                            "exact_compliance": {"count": len(all_records), "rate": 1.0},
                             "minor_format_deviation_still_scoreable": {"count": 0, "rate": 0.0},
                             "format_failure": {"count": 0, "rate": 0.0},
                         },
@@ -435,96 +293,36 @@ class IntegrityContractTests(unittest.TestCase):
                 },
             },
         )
-        _write_json(
-            preferred_run_artifact_path(run_dir, "probe_metadata"),
-            {
-                "strict_mc_quality": {
-                    "status": "passed",
-                    "issues": [],
-                    "summary": {
-                        "commitment_rate": 1.0,
-                        "starts_with_answer_rate": 1.0,
-                        "cap_hit_rate": 0.0,
-                        "explicit_parse_failures": 0,
-                        "exact_format_rate": 1.0,
-                        "multiple_answer_marker_rows": 0,
-                        "max_neutral_bias_answer_gap": 0.0,
-                        "by_template": {
-                            "neutral": {
-                                "total": 3,
-                                "committed_rate": 1.0,
-                                "starts_with_answer_rate": 1.0,
-                                "cap_hit_rate": 0.0,
-                                "exact_format_rate": 1.0,
-                                "multiple_answer_marker_rows": 0,
-                            },
-                            "incorrect_suggestion": {
-                                "total": 3,
-                                "committed_rate": 1.0,
-                                "starts_with_answer_rate": 1.0,
-                                "cap_hit_rate": 0.0,
-                                "exact_format_rate": 1.0,
-                                "multiple_answer_marker_rows": 0,
-                            },
-                        },
-                    },
-                },
-                "probe_no_bias": {"best_layer": 1},
-                "probe_bias_incorrect_suggestion": {"best_layer": 1},
-            },
-        )
+
         all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
         chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
-        (all_probes_dir / "probe_no_bias").mkdir(parents=True, exist_ok=True)
-        (all_probes_dir / "probe_bias_incorrect_suggestion").mkdir(parents=True, exist_ok=True)
-        (chosen_probe_dir / "probe_no_bias").mkdir(parents=True, exist_ok=True)
-        (chosen_probe_dir / "probe_bias_incorrect_suggestion").mkdir(parents=True, exist_ok=True)
-        _write_json(
+        write_json_atomic(
             all_probes_dir / "manifest.json",
             {
                 "artifact_group": "all_probes",
                 "probe_names": ["probe_bias_incorrect_suggestion", "probe_no_bias"],
             },
         )
-        _write_json(
+        write_json_atomic(
             chosen_probe_dir / "manifest.json",
             {
                 "artifact_group": "chosen_probe",
                 "probe_names": ["probe_bias_incorrect_suggestion", "probe_no_bias"],
             },
         )
-        _write_json(all_probes_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
-        _write_json(
+        write_json_atomic(all_probes_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
+        write_json_atomic(
             all_probes_dir / "probe_bias_incorrect_suggestion" / "manifest.json",
             {"probe_name": "probe_bias_incorrect_suggestion"},
         )
-        _write_json(chosen_probe_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
-        _write_json(
+        write_json_atomic(chosen_probe_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
+        write_json_atomic(
             chosen_probe_dir / "probe_bias_incorrect_suggestion" / "manifest.json",
             {"probe_name": "probe_bias_incorrect_suggestion"},
         )
+
         run_log_path = preferred_run_artifact_path(run_dir, "run_log")
-        run_log_path.parent.mkdir(parents=True, exist_ok=True)
-        run_log_path.write_text("ok\n", encoding="utf-8")
-        _write_json(
-            preferred_run_artifact_path(run_dir, "run_summary"),
-            {
-                "headline_metrics": {
-                    "overall_accuracy": 1.0,
-                    "overall_avg_p_correct": 1.0,
-                    "avg_delta_p_x_minus_xprime": 0.0,
-                    "best_probe_name": "probe_bias_incorrect_suggestion",
-                    "best_probe_test_auc": 0.8,
-                },
-                "paths": {
-                    "model_summary_by_template": str(model_summary_by_template_path),
-                    "model_summary_by_bias": str(model_summary_by_bias_path),
-                    "probe_summary_csv": str(probe_summary_csv_path),
-                    "probe_scores_by_prompt": str(probe_scores_by_prompt_path),
-                    "executive_summary": str(executive_summary_path),
-                },
-            },
-        )
+        write_text_atomic(run_log_path, "ok\n")
 
     def test_check_run_integrity_accepts_complete_smoke_run(self):
         with tempfile.TemporaryDirectory() as tmpdir:

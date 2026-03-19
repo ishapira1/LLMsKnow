@@ -9,6 +9,7 @@ import pandas as pd
 
 from .data import prompt_id_for
 from .runtime import model_slug, resolve_run_artifact_path
+from .saving_manager import build_model_summary_by_bias_df, build_model_summary_by_template_df
 
 
 REQUIRED_ARTIFACT_KEYS = (
@@ -17,17 +18,10 @@ REQUIRED_ARTIFACT_KEYS = (
     "sampling_manifest",
     "sampling_records",
     "sampling_integrity_summary",
-    "run_summary",
     "sampled_responses",
-    "final_tuples",
-    "summary_by_question",
-    "model_summary_by_template",
-    "model_summary_by_bias",
-    "probe_candidate_scores",
+    "reports_summary",
     "probe_scores_by_prompt",
-    "probe_summary_csv",
     "executive_summary",
-    "probe_metadata",
 )
 
 
@@ -58,6 +52,72 @@ def _check_probability_series(series: pd.Series, column_name: str, issues: List[
         issues.append(f"{column_name} contains values outside [0, 1]")
 
 
+def _reconstruct_pairs_from_samples(samples: pd.DataFrame, bias_types: Sequence[str]) -> pd.DataFrame:
+    if samples.empty:
+        return pd.DataFrame(
+            columns=[
+                "split",
+                "question_id",
+                "bias_type",
+                "draw_idx",
+                "C_x_y",
+                "C_xprime_yprime",
+                "T_x",
+                "T_xprime",
+                "probe_x",
+                "probe_xprime",
+                "y_x",
+                "y_xprime",
+            ]
+        )
+
+    neutral = samples[samples["template_type"].astype(str) == "neutral"].copy()
+    if neutral.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, Any]] = []
+    for bias_type in bias_types:
+        biased = samples[samples["template_type"].astype(str) == str(bias_type)].copy()
+        if biased.empty:
+            continue
+        merged = neutral.merge(
+            biased,
+            on=["split", "question_id", "draw_idx"],
+            how="inner",
+            suffixes=("_x", "_xprime"),
+        )
+        if merged.empty:
+            continue
+        usable_mask = (
+            pd.to_numeric(merged.get("usable_for_metrics_x", 0), errors="coerce").fillna(0) > 0
+        ) & (
+            pd.to_numeric(merged.get("usable_for_metrics_xprime", 0), errors="coerce").fillna(0) > 0
+        )
+        merged = merged[usable_mask].copy()
+        for _, row in merged.iterrows():
+            rows.append(
+                {
+                    "split": str(row["split"]),
+                    "question_id": str(row["question_id"]),
+                    "bias_type": str(bias_type),
+                    "draw_idx": int(row["draw_idx"]),
+                    "C_x_y": pd.to_numeric(pd.Series([row.get("correctness_x")]), errors="coerce").iloc[0],
+                    "C_xprime_yprime": pd.to_numeric(pd.Series([row.get("correctness_xprime")]), errors="coerce").iloc[0],
+                    "T_x": pd.to_numeric(pd.Series([row.get("T_prompt_x")]), errors="coerce").iloc[0],
+                    "T_xprime": pd.to_numeric(pd.Series([row.get("T_prompt_xprime")]), errors="coerce").iloc[0],
+                    "probe_x": pd.to_numeric(pd.Series([row.get("probe_x_x")]), errors="coerce").iloc[0]
+                    if "probe_x_x" in merged.columns
+                    else pd.to_numeric(pd.Series([row.get("probe_x")]), errors="coerce").iloc[0],
+                    "probe_xprime": pd.to_numeric(pd.Series([row.get("probe_xprime_xprime")]), errors="coerce").iloc[0]
+                    if "probe_xprime_xprime" in merged.columns
+                    else pd.to_numeric(pd.Series([row.get("probe_xprime")]), errors="coerce").iloc[0],
+                    "y_x": str(row.get("response_x", "") or ""),
+                    "y_xprime": str(row.get("response_xprime", "") or ""),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def _resolve_run_dir(run_dir: str | None, out_dir: str, model: str, run_name: str) -> Path:
     if run_dir:
         return Path(run_dir)
@@ -85,32 +145,19 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     sampling_records_path = resolve_run_artifact_path(run_dir, "sampling_records")
     sampling_integrity_path = resolve_run_artifact_path(run_dir, "sampling_integrity_summary")
     samples_path = resolve_run_artifact_path(run_dir, "sampled_responses")
-    tuples_path = resolve_run_artifact_path(run_dir, "final_tuples")
-    summary_path = resolve_run_artifact_path(run_dir, "summary_by_question")
-    model_summary_by_template_path = resolve_run_artifact_path(run_dir, "model_summary_by_template")
-    model_summary_by_bias_path = resolve_run_artifact_path(run_dir, "model_summary_by_bias")
-    probe_candidate_scores_path = resolve_run_artifact_path(run_dir, "probe_candidate_scores")
+    reports_summary_path = resolve_run_artifact_path(run_dir, "reports_summary")
     probe_scores_by_prompt_path = resolve_run_artifact_path(run_dir, "probe_scores_by_prompt")
-    probe_summary_csv_path = resolve_run_artifact_path(run_dir, "probe_summary_csv")
     executive_summary_path = resolve_run_artifact_path(run_dir, "executive_summary")
-    probe_metadata_path = resolve_run_artifact_path(run_dir, "probe_metadata")
-    run_summary_path = resolve_run_artifact_path(run_dir, "run_summary")
 
     run_config = _load_json(run_config_path)
     status = _load_json(status_path)
     manifest = _load_json(manifest_path)
-    probe_meta = _load_json(probe_metadata_path)
-    run_summary = _load_json(run_summary_path)
+    reports_summary = _load_json(reports_summary_path)
     sampling_integrity = _load_json(sampling_integrity_path)
 
     samples = pd.read_csv(samples_path)
-    tuples_df = pd.read_csv(tuples_path)
-    summary_df = pd.read_csv(summary_path)
-    model_summary_by_template_df = pd.read_csv(model_summary_by_template_path)
-    model_summary_by_bias_df = pd.read_csv(model_summary_by_bias_path)
-    probe_candidate_scores_df = pd.read_csv(probe_candidate_scores_path)
     probe_scores_by_prompt_df = pd.read_csv(probe_scores_by_prompt_path)
-    probe_summary_csv_df = pd.read_csv(probe_summary_csv_path)
+    tuples_df = _reconstruct_pairs_from_samples(samples, _parse_list_like(run_config.get("bias_types")))
 
     sample_required_columns = {"question_id", "prompt_id", "question", "prompt_text"}
     missing_sample_columns = sorted(sample_required_columns.difference(samples.columns))
@@ -118,43 +165,18 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         issues.append(
             f"sampled_responses.csv is missing required columns: {missing_sample_columns}"
         )
+    reports_summary_required_keys = {
+        "headline_counts",
+        "overall",
+        "accuracy_by_template",
+        "accuracy_by_bias_type",
+        "probe_score_summaries",
+        "selected_probe_overview",
+    }
+    missing_reports_summary_keys = sorted(reports_summary_required_keys.difference(reports_summary.keys()))
+    if missing_reports_summary_keys:
+        issues.append(f"reports/summary.json is missing required keys: {missing_reports_summary_keys}")
 
-    tuple_required_columns = {"question_id", "question", "prompt_id_x", "prompt_id_xprime", "prompt_x", "prompt_with_bias"}
-    missing_tuple_columns = sorted(tuple_required_columns.difference(tuples_df.columns))
-    if missing_tuple_columns:
-        issues.append(
-            f"final_tuples.csv is missing required columns: {missing_tuple_columns}"
-        )
-
-    summary_required_columns = {"question_id", "question", "prompt_id_x", "prompt_id_xprime", "prompt_x", "prompt_with_bias"}
-    missing_summary_columns = sorted(summary_required_columns.difference(summary_df.columns))
-    if missing_summary_columns:
-        issues.append(
-            f"summary_by_question.csv is missing required columns: {missing_summary_columns}"
-        )
-    model_summary_template_required_columns = {"template_type", "accuracy", "avg_p_correct"}
-    missing_model_template_columns = sorted(
-        model_summary_template_required_columns.difference(model_summary_by_template_df.columns)
-    )
-    if missing_model_template_columns:
-        issues.append(
-            "model_summary_by_template.csv is missing required columns: "
-            f"{missing_model_template_columns}"
-        )
-    model_summary_bias_required_columns = {"bias_type", "accuracy_x", "accuracy_xprime", "avg_p_x", "avg_p_xprime"}
-    missing_model_bias_columns = sorted(
-        model_summary_bias_required_columns.difference(model_summary_by_bias_df.columns)
-    )
-    if missing_model_bias_columns:
-        issues.append(
-            f"model_summary_by_bias.csv is missing required columns: {missing_model_bias_columns}"
-        )
-    candidate_score_required_columns = {"probe_name", "question_id", "prompt_id", "candidate_choice", "probe_score"}
-    missing_candidate_score_columns = sorted(candidate_score_required_columns.difference(probe_candidate_scores_df.columns))
-    if missing_candidate_score_columns:
-        issues.append(
-            f"probe_candidate_scores.csv is missing required columns: {missing_candidate_score_columns}"
-        )
     probe_scores_by_prompt_required_columns = {
         "probe_name",
         "question_id",
@@ -172,14 +194,6 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         issues.append(
             "probe_scores_by_prompt.csv is missing required columns: "
             f"{missing_probe_scores_by_prompt_columns}"
-        )
-    probe_summary_csv_required_columns = {"probe_name", "best_layer", "best_dev_auc", "test_auc"}
-    missing_probe_summary_csv_columns = sorted(
-        probe_summary_csv_required_columns.difference(probe_summary_csv_df.columns)
-    )
-    if missing_probe_summary_csv_columns:
-        issues.append(
-            f"probe_summary.csv is missing required columns: {missing_probe_summary_csv_columns}"
         )
 
     if status.get("status") != "completed":
@@ -367,71 +381,49 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
             "not every (split, question_id, template_type) has the configured number of draws"
         )
 
+    model_summary_by_template_df = build_model_summary_by_template_df(samples)
+    model_summary_by_bias_df = build_model_summary_by_bias_df(tuples_df)
+
     _check_probability_series(samples["T_prompt"], "sampled_responses.T_prompt", issues)
-    _check_probability_series(summary_df["T_x"], "summary_by_question.T_x", issues)
-    _check_probability_series(summary_df["T_xprime"], "summary_by_question.T_xprime", issues)
-    _check_probability_series(summary_df["mean_C_x"], "summary_by_question.mean_C_x", issues)
-    _check_probability_series(summary_df["mean_C_xprime"], "summary_by_question.mean_C_xprime", issues)
+    if not model_summary_by_template_df.empty:
+        _check_probability_series(model_summary_by_template_df["accuracy"], "reports.summary.accuracy_by_template.accuracy", issues)
+        _check_probability_series(
+            model_summary_by_template_df["avg_p_correct"],
+            "reports.summary.accuracy_by_template.avg_p_correct",
+            issues,
+        )
+    if not model_summary_by_bias_df.empty:
+        _check_probability_series(model_summary_by_bias_df["accuracy_x"], "reports.summary.accuracy_by_bias_type.accuracy_x", issues)
+        _check_probability_series(
+            model_summary_by_bias_df["accuracy_xprime"],
+            "reports.summary.accuracy_by_bias_type.accuracy_xprime",
+            issues,
+        )
+        _check_probability_series(model_summary_by_bias_df["avg_p_x"], "reports.summary.accuracy_by_bias_type.avg_p_x", issues)
+        _check_probability_series(
+            model_summary_by_bias_df["avg_p_xprime"],
+            "reports.summary.accuracy_by_bias_type.avg_p_xprime",
+            issues,
+        )
 
     correctness_numeric = pd.to_numeric(samples["correctness"], errors="coerce").dropna()
     if not correctness_numeric.isin([0, 1]).all():
         issues.append("sampled_responses.correctness contains values other than 0/1/NaN")
 
-    if tuples_df.empty:
-        issues.append("final_tuples.csv is empty")
-    if summary_df.empty:
-        issues.append("summary_by_question.csv is empty")
-
     if not tuples_df.empty:
         tuple_key_cols = ["split", "question_id", "bias_type", "draw_idx"]
         duplicate_tuple_keys = int(tuples_df.duplicated(subset=tuple_key_cols).sum())
         if duplicate_tuple_keys:
-            issues.append(f"final_tuples.csv has {duplicate_tuple_keys} duplicate tuple keys")
+            issues.append(f"reconstructed pair table has {duplicate_tuple_keys} duplicate tuple keys")
         tuple_biases = set(tuples_df["bias_type"].dropna().astype(str))
         if not tuple_biases.issubset(set(bias_types)):
             issues.append(
-                f"final_tuples.csv contains unexpected bias types: {sorted(tuple_biases - set(bias_types))}"
+                f"reconstructed pair table contains unexpected bias types: {sorted(tuple_biases - set(bias_types))}"
             )
-        if {"question_id", "bias_type", "prompt_id_x", "prompt_id_xprime"}.issubset(tuples_df.columns):
-            expected_prompt_x = tuples_df["question_id"].astype(str).map(lambda question_id: prompt_id_for(question_id, "neutral"))
-            expected_prompt_xprime = tuples_df.apply(
-                lambda row: prompt_id_for(row["question_id"], row["bias_type"]),
-                axis=1,
-            )
-            if not tuples_df["prompt_id_x"].astype(str).equals(expected_prompt_x):
-                issues.append("final_tuples.csv has inconsistent prompt_id_x values")
-            if not tuples_df["prompt_id_xprime"].astype(str).equals(expected_prompt_xprime):
-                issues.append("final_tuples.csv has inconsistent prompt_id_xprime values")
 
-    if not summary_df.empty:
-        expected_summary_rows = len(
-            tuples_df[["model_name", "split", "question_id", "dataset", "bias_type"]].drop_duplicates()
-        )
-        if len(summary_df) != expected_summary_rows:
-            issues.append(
-                f"summary_by_question.csv has {len(summary_df)} rows, expected {expected_summary_rows} "
-                "from final_tuples.csv"
-            )
-        if int(summary_df.duplicated(subset=["model_name", "split", "question_id", "dataset", "bias_type"]).sum()):
-            issues.append("summary_by_question.csv has duplicate group keys")
-        summary_draws = pd.to_numeric(summary_df["n_draws"], errors="coerce").dropna()
-        max_expected_draws = 1 if strict_mc_choice_scoring and str(run_config.get("mc_mode")) == "strict_mc" else draws_per_prompt
-        if summary_draws.empty or (summary_draws <= 0).any() or (summary_draws > max_expected_draws).any():
-            issues.append("summary_by_question.csv has invalid n_draws values")
-        if {"question_id", "bias_type", "prompt_id_x", "prompt_id_xprime"}.issubset(summary_df.columns):
-            expected_prompt_x = summary_df["question_id"].astype(str).map(lambda question_id: prompt_id_for(question_id, "neutral"))
-            expected_prompt_xprime = summary_df.apply(
-                lambda row: prompt_id_for(row["question_id"], row["bias_type"]),
-                axis=1,
-            )
-            if not summary_df["prompt_id_x"].astype(str).equals(expected_prompt_x):
-                issues.append("summary_by_question.csv has inconsistent prompt_id_x values")
-            if not summary_df["prompt_id_xprime"].astype(str).equals(expected_prompt_xprime):
-                issues.append("summary_by_question.csv has inconsistent prompt_id_xprime values")
-
-    strict_quality = probe_meta.get("strict_mc_quality")
+    strict_quality = reports_summary.get("strict_mc_quality")
     if not isinstance(strict_quality, dict):
-        issues.append("probe_metadata.json is missing strict_mc_quality")
+        issues.append("reports/summary.json is missing strict_mc_quality")
     else:
         if strict_quality.get("status") != "passed":
             issues.append(
@@ -447,11 +439,38 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
                 f"strict_mc_quality summary is missing templates: {sorted(missing_quality_templates)}"
             )
 
-    if "probe_no_bias" not in probe_meta:
-        issues.append("probe_metadata.json is missing probe_no_bias")
-    for bias_type in bias_types:
-        if f"probe_bias_{bias_type}" not in probe_meta:
-            issues.append(f"probe_metadata.json is missing probe_bias_{bias_type}")
+    headline_counts = reports_summary.get("headline_counts", {})
+    if int(headline_counts.get("sample_rows", -1)) != len(samples):
+        issues.append("reports/summary.json headline_counts.sample_rows does not match sampled_responses.csv")
+    if int(headline_counts.get("question_count", -1)) != len(expected_question_ids):
+        issues.append("reports/summary.json headline_counts.question_count does not match sampling_manifest.json")
+    if int(headline_counts.get("probe_score_prompt_rows", -1)) != len(probe_scores_by_prompt_df):
+        issues.append("reports/summary.json headline_counts.probe_score_prompt_rows does not match probe_scores_by_prompt.csv")
+
+    summary_template_df = pd.DataFrame(reports_summary.get("accuracy_by_template", []))
+    if not summary_template_df.empty:
+        summary_template_templates = set(summary_template_df["template_type"].dropna().astype(str))
+        if summary_template_templates != expected_templates:
+            issues.append("reports/summary.json accuracy_by_template has unexpected template coverage")
+    else:
+        issues.append("reports/summary.json accuracy_by_template is empty")
+
+    summary_bias_df = pd.DataFrame(reports_summary.get("accuracy_by_bias_type", []))
+    if bias_types and summary_bias_df.empty:
+        issues.append("reports/summary.json accuracy_by_bias_type is empty")
+    if not summary_bias_df.empty:
+        summary_biases = set(summary_bias_df["bias_type"].dropna().astype(str))
+        if summary_biases != set(bias_types):
+            issues.append("reports/summary.json accuracy_by_bias_type has unexpected bias coverage")
+
+    probe_summary_df = pd.DataFrame(reports_summary.get("probe_score_summaries", []))
+    expected_probe_names = {"probe_no_bias", *[f"probe_bias_{bias_type}" for bias_type in bias_types]}
+    if not probe_summary_df.empty:
+        present_probe_names = set(probe_summary_df["probe_name"].dropna().astype(str))
+        if present_probe_names != expected_probe_names:
+            issues.append("reports/summary.json probe_score_summaries has unexpected probe coverage")
+    elif expected_probe_names:
+        issues.append("reports/summary.json probe_score_summaries is empty")
 
     executive_summary_text = executive_summary_path.read_text(encoding="utf-8").strip()
     if not executive_summary_text:
@@ -479,12 +498,6 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
             family_manifest = chosen_probe_dir / probe_name / "manifest.json"
             if not family_manifest.exists():
                 issues.append(f"chosen_probe manifest is missing for {probe_name}")
-
-    if run_summary_path.exists():
-        if "headline_metrics" not in run_summary:
-            issues.append("run_summary.json is missing headline_metrics")
-        if "paths" not in run_summary:
-            issues.append("run_summary.json is missing paths")
 
     if issues:
         raise RuntimeError("\n".join(issues))
@@ -526,9 +539,8 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         "run_dir": str(run_dir),
         "sample_count": int(len(samples)),
         "tuple_count": int(len(tuples_df)),
-        "summary_count": int(len(summary_df)),
         "question_count": int(len(expected_question_ids)),
-        "run_summary_path": str(run_summary_path) if run_summary_path.exists() else None,
+        "reports_summary_path": str(reports_summary_path),
         "bias_types": bias_types,
         "usable_rate": usable_rate,
         "ambiguous_rate": ambiguous_rate,
@@ -544,7 +556,6 @@ def _print_report(report: Dict[str, Any]) -> None:
         "[integrity] artifacts:"
         f" samples={report['sample_count']}"
         f" tuples={report['tuple_count']}"
-        f" summary_rows={report['summary_count']}"
         f" questions={report['question_count']}"
     )
     print(

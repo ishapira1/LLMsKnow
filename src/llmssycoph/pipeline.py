@@ -1047,9 +1047,6 @@ def run_pipeline(args) -> None:
             probes_meta["chosen_probe_manifest"] = str(chosen_probe_manifest_path)
             probes_meta["probe_construction"] = str(args.probe_construction)
             probes_meta["probe_example_weighting"] = str(args.probe_example_weighting)
-            probes_meta["probe_candidate_scores_path"] = str(
-                preferred_run_artifact_path(run_dir, "probe_candidate_scores")
-            )
             probes_meta["probe_candidate_score_rows"] = 0
         else:
             n_layers = int(getattr(model.config, "num_hidden_layers", args.probe_layer_max))
@@ -1243,9 +1240,6 @@ def run_pipeline(args) -> None:
             probes_meta["chosen_probe_manifest"] = str(chosen_probe_manifest_path)
             probes_meta["probe_construction"] = str(args.probe_construction)
             probes_meta["probe_example_weighting"] = str(args.probe_example_weighting)
-            probes_meta["probe_candidate_scores_path"] = str(
-                preferred_run_artifact_path(run_dir, "probe_candidate_scores")
-            )
             probes_meta["probe_candidate_score_rows"] = int(len(probe_candidate_score_rows))
         finish_stage()
 

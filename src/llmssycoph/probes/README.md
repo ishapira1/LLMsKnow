@@ -5,7 +5,7 @@ This subpackage owns the probe pipeline and the probe-specific hidden-state feat
 - Probe-example assembly lives just outside this package in `llmssycoph.grading.probe_data`.
 - For generation-based paths, probe examples are the sampled completions themselves.
 - For `mc_mode=strict_mc`, probe examples are teacher-forced `(prompt, answer_choice)` candidate rows, weighted by model choice probability by default.
-- The selected-answer probe score is written back to `sampling/sampled_responses.csv`, while the full per-choice table is saved as `probes/probe_candidate_scores.csv`.
+- The selected-answer probe score is written back to `sampling/sampled_responses.csv`, while the saved probe inspection table is `probes/probe_scores_by_prompt.csv`.
 
 - `features.py`: assistant-token alignment plus single-layer and all-layer hidden-state features.
 - `records.py`: lightweight record helpers such as completion-text lookup and deterministic subsampling.

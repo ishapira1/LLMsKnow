@@ -57,6 +57,11 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("analysis") / "summary_by_question.csv",
         Path("summary_by_question.csv"),
     ),
+    "reports_summary": (
+        Path("reports") / "summary.json",
+        Path("internal") / "run_summary.json",
+        Path("analysis") / "run_summary.json",
+    ),
     "model_summary_by_template": (
         Path("analysis") / "model_summary_by_template.csv",
     ),
@@ -78,6 +83,7 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("probes") / "probe_summary.csv",
     ),
     "executive_summary": (
+        Path("reports") / "executive_summary.md",
         Path("summary") / "executive_summary.md",
     ),
     "probe_metadata": (

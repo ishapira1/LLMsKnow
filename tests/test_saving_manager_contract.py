@@ -12,15 +12,16 @@ from llmssycoph.saving_manager import (
     MODEL_SUMMARY_BY_BIAS_COLUMNS,
     MODEL_SUMMARY_BY_TEMPLATE_COLUMNS,
     PROBE_SUMMARY_COLUMNS,
+    build_executive_summary_markdown,
     build_mc_probe_scores_by_prompt_df,
     build_model_summary_by_bias_df,
     build_model_summary_by_template_df,
     build_model_summary_payload,
     build_probe_summary_df,
     build_probe_summary_payload,
+    build_reports_summary_payload,
     PROBE_CANDIDATE_SCORE_COLUMNS,
     SAMPLED_RESPONSE_COLUMNS,
-    build_run_summary_payload,
     to_probe_candidate_scores_df,
     to_samples_df,
 )
@@ -112,7 +113,7 @@ class SavingManagerContractTests(unittest.TestCase):
         self.assertNotIn("question", candidate_df.columns)
         self.assertNotIn("prompt_text", candidate_df.columns)
 
-    def test_build_run_summary_payload_is_compact_and_tracks_headline_metrics(self):
+    def test_reports_summary_payload_and_markdown_capture_single_summary_cache(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir) / "run"
             run_dir.mkdir(parents=True, exist_ok=True)
@@ -120,75 +121,202 @@ class SavingManagerContractTests(unittest.TestCase):
             probe_no_bias_metrics = run_dir / "probe_no_bias_metrics.json"
             probe_bias_metrics = run_dir / "probe_bias_metrics.json"
             probe_no_bias_metrics.write_text(
-                json.dumps({"splits": {"test": {"auc": 0.55, "accuracy": 0.5, "balanced_accuracy": 0.5, "n_total": 4}}}),
+                json.dumps(
+                    {
+                        "splits": {
+                            "train": {"auc": 0.6, "accuracy": 0.5, "balanced_accuracy": 0.5, "n_total": 4},
+                            "val": {"auc": 0.58, "accuracy": 0.5, "balanced_accuracy": 0.5, "n_total": 4},
+                            "test": {"auc": 0.55, "accuracy": 0.5, "balanced_accuracy": 0.5, "n_total": 4},
+                        }
+                    }
+                ),
                 encoding="utf-8",
             )
             probe_bias_metrics.write_text(
-                json.dumps({"splits": {"test": {"auc": 0.78, "accuracy": 0.75, "balanced_accuracy": 0.75, "n_total": 4}}}),
+                json.dumps(
+                    {
+                        "splits": {
+                            "train": {"auc": 0.84, "accuracy": 0.75, "balanced_accuracy": 0.75, "n_total": 4},
+                            "val": {"auc": 0.8, "accuracy": 0.75, "balanced_accuracy": 0.75, "n_total": 4},
+                            "test": {"auc": 0.78, "accuracy": 0.75, "balanced_accuracy": 0.75, "n_total": 4},
+                        }
+                    }
+                ),
                 encoding="utf-8",
             )
 
-            samples_df = pd.DataFrame([{"question_id": "q_1"}, {"question_id": "q_2"}])
+            samples_df = pd.DataFrame(
+                [
+                    {
+                        "question_id": "q_1",
+                        "split": "test",
+                        "template_type": "neutral",
+                        "correctness": 1,
+                        "usable_for_metrics": True,
+                        "T_prompt": 0.8,
+                        "choice_probability_selected": 0.8,
+                        "probe_x": 0.2,
+                        "probe_xprime": None,
+                        "strict_format_exact": True,
+                        "starts_with_answer_prefix": True,
+                        "hit_max_new_tokens": False,
+                        "stopped_on_eos": False,
+                        "completion_token_count": 1,
+                        "grading_status": "correct",
+                        "finish_reason": "choice_probabilities",
+                        "sampling_mode": "choice_probabilities",
+                    },
+                    {
+                        "question_id": "q_1",
+                        "split": "test",
+                        "template_type": "incorrect_suggestion",
+                        "correctness": 0,
+                        "usable_for_metrics": True,
+                        "T_prompt": 0.3,
+                        "choice_probability_selected": 0.5,
+                        "probe_x": None,
+                        "probe_xprime": 0.6,
+                        "strict_format_exact": True,
+                        "starts_with_answer_prefix": True,
+                        "hit_max_new_tokens": False,
+                        "stopped_on_eos": False,
+                        "completion_token_count": 1,
+                        "grading_status": "incorrect",
+                        "finish_reason": "choice_probabilities",
+                        "sampling_mode": "choice_probabilities",
+                    },
+                ]
+            )
             tuples_df = pd.DataFrame(
                 [
                     {
                         "bias_type": "incorrect_suggestion",
-                        "split": "train",
+                        "split": "test",
                         "question_id": "q_1",
                         "draw_idx": 0,
                         "C_x_y": 1,
                         "C_xprime_yprime": 0,
                         "T_x": 0.8,
                         "T_xprime": 0.3,
-                    },
-                    {
-                        "bias_type": "incorrect_suggestion",
-                        "split": "test",
-                        "question_id": "q_2",
-                        "draw_idx": 0,
-                        "C_x_y": 0,
-                        "C_xprime_yprime": 0,
-                        "T_x": 0.4,
-                        "T_xprime": 0.2,
+                        "probe_x": 0.2,
+                        "probe_xprime": 0.6,
+                        "y_x": "A",
+                        "y_xprime": "B",
                     },
                 ]
             )
-            summary_df = pd.DataFrame([{"question_id": "q_1"}, {"question_id": "q_2"}])
             probes_meta = {
                 "probe_no_bias": {
+                    "template_type": "neutral",
                     "best_layer": 3,
                     "best_dev_auc": 0.61,
+                    "probe_construction": "choice_candidates",
+                    "probe_example_weighting": "model_probability",
                     "chosen_probe_metrics_path": str(probe_no_bias_metrics),
                 },
                 "probe_bias_incorrect_suggestion": {
+                    "template_type": "incorrect_suggestion",
                     "best_layer": 2,
                     "best_dev_auc": 0.67,
+                    "probe_construction": "choice_candidates",
+                    "probe_example_weighting": "model_probability",
                     "chosen_probe_metrics_path": str(probe_bias_metrics),
                 },
+                "strict_mc_quality": {
+                    "status": "passed",
+                    "issues": [],
+                    "summary": {
+                        "commitment_rate": 1.0,
+                        "starts_with_answer_rate": 1.0,
+                        "exact_format_rate": 1.0,
+                        "cap_hit_rate": 0.0,
+                        "explicit_parse_failures": 0,
+                        "max_neutral_bias_answer_gap": 0.0,
+                        "by_template": {
+                            "neutral": {"total": 1},
+                            "incorrect_suggestion": {"total": 1},
+                        },
+                    },
+                },
             }
+            candidate_scores_df = pd.DataFrame(
+                [
+                    {
+                        "model_name": "test/model",
+                        "probe_name": "probe_bias_incorrect_suggestion",
+                        "split": "test",
+                        "question_id": "q_1",
+                        "prompt_id": "q_1__incorrect_suggestion",
+                        "dataset": "aqua_mc",
+                        "template_type": "incorrect_suggestion",
+                        "draw_idx": 0,
+                        "source_record_id": 10,
+                        "candidate_record_id": 100,
+                        "correct_letter": "A",
+                        "selected_choice": "B",
+                        "candidate_choice": "A",
+                        "candidate_rank": 0,
+                        "candidate_probability": 0.3,
+                        "probe_sample_weight": 0.3,
+                        "candidate_correctness": 1,
+                        "candidate_is_selected": False,
+                        "probe_score": 0.4,
+                    },
+                    {
+                        "model_name": "test/model",
+                        "probe_name": "probe_bias_incorrect_suggestion",
+                        "split": "test",
+                        "question_id": "q_1",
+                        "prompt_id": "q_1__incorrect_suggestion",
+                        "dataset": "aqua_mc",
+                        "template_type": "incorrect_suggestion",
+                        "draw_idx": 0,
+                        "source_record_id": 10,
+                        "candidate_record_id": 101,
+                        "correct_letter": "A",
+                        "selected_choice": "B",
+                        "candidate_choice": "B",
+                        "candidate_rank": 1,
+                        "candidate_probability": 0.5,
+                        "probe_sample_weight": 0.5,
+                        "candidate_correctness": 0,
+                        "candidate_is_selected": True,
+                        "probe_score": 0.9,
+                    },
+                ]
+            )
             args = SimpleNamespace(
                 model="test/model",
                 dataset_name="aqua_mc",
                 bias_types=["incorrect_suggestion"],
             )
+            probe_scores_by_prompt_df = build_mc_probe_scores_by_prompt_df(candidate_scores_df)
 
-            payload = build_run_summary_payload(
+            payload = build_reports_summary_payload(
                 args=args,
                 run_dir=run_dir,
                 samples_df=samples_df,
                 tuples_df=tuples_df,
-                summary_df=summary_df,
+                probe_scores_by_prompt_df=probe_scores_by_prompt_df,
                 probes_meta=probes_meta,
+                probe_candidate_scores_df=candidate_scores_df,
             )
+            markdown = build_executive_summary_markdown(payload)
 
-            self.assertEqual(payload["counts"]["sample_rows"], 2)
-            self.assertEqual(payload["counts"]["tuple_rows"], 2)
-            self.assertIn("headline_metrics", payload)
-            self.assertIn("paths", payload)
-            self.assertAlmostEqual(payload["headline_metrics"]["overall_accuracy"], 0.5)
-            self.assertAlmostEqual(payload["headline_metrics"]["overall_avg_p_correct"], 0.6)
-            self.assertEqual(payload["headline_metrics"]["best_probe_name"], "probe_bias_incorrect_suggestion")
-            self.assertAlmostEqual(payload["headline_metrics"]["best_probe_test_auc"], 0.78)
+            self.assertEqual(payload["headline_counts"]["sample_rows"], 2)
+            self.assertEqual(payload["headline_counts"]["paired_rows"], 1)
+            self.assertEqual(payload["headline_counts"]["probe_score_prompt_rows"], 1)
+            self.assertEqual(payload["headline_counts"]["probe_family_count"], 2)
+            self.assertAlmostEqual(payload["overall"]["accuracy"], 0.5)
+            self.assertAlmostEqual(payload["overall"]["avg_p_correct"], 0.55)
+            self.assertAlmostEqual(payload["overall"]["avg_delta_p_xprime_minus_x"], -0.5)
+            self.assertEqual(payload["selected_probe_overview"]["probe_name"], "probe_bias_incorrect_suggestion")
+            self.assertAlmostEqual(payload["selected_probe_overview"]["test_auc"], 0.78)
+            self.assertEqual(payload["strict_mc_quality"]["status"], "passed")
+            self.assertEqual(markdown.splitlines()[0], "# Executive Summary")
+            self.assertIn(payload["generated_at_utc"], markdown)
+            self.assertIn("## Accuracy by Template", markdown)
+            self.assertIn("## Probe Overview", markdown)
 
     def test_model_and_probe_summary_artifacts_capture_global_metrics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
