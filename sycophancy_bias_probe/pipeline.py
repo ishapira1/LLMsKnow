@@ -9,8 +9,6 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 import numpy as np
 from tqdm.auto import tqdm
 
-from script import ensure_sycophancy_eval_cached, read_jsonl
-
 from .cli import load_env_file, resolve_bias_types, resolve_device, resolve_hf_cache_dir
 from .constants import (
     MC_MODE_STRICT,
@@ -29,6 +27,7 @@ from .dataset import (
     split_groups_train_val_test,
     unique_dataset_names,
 )
+from .io_utils import ensure_sycophancy_eval_cached, read_jsonl
 from .logging_utils import clear_run_logging, configure_run_logging, log_status, tqdm_desc
 from .outputs import build_summary_df, build_tuple_rows, to_samples_df, to_tuples_df
 from .probes import score_records_with_probe, select_best_layer_by_auc, train_probe_for_layer

@@ -35,7 +35,7 @@ The main question is whether bias changes only the model's output, or also chang
 - `notebooks/`: downstream analysis notebooks
 - `data/`: local datasets used by the experiments
 - `src/`: older scripts from the earlier codebase; retained for reference, not the main workflow
-- `script.py`: legacy compatibility and shared helper functions still used by the current runner
+- `script.py`: legacy compatibility surface retained for older workflows; not used by the main runner
 
 ## Setup
 
