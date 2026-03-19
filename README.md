@@ -57,7 +57,7 @@ For direct runs, `.env` is optional: the main pipeline only uses it to populate 
 
 ## Quick start
 
-Run the CPU smoke / integrity test on the AYS-derived `aqua_mc` slice:
+Run the smoke / integrity test on the AYS-derived `aqua_mc` slice. The wrapper prefers GPU via `--device auto` and falls back to CPU if no accelerator is available:
 
 ```bash
 bash jobs/sycophancy_bias_probe/smoke_aqua_mc_cpu.sh
@@ -70,7 +70,7 @@ Equivalent direct command:
 ```bash
 python run_sycophancy_bias_probe.py \
   --model mistralai/Mistral-7B-Instruct-v0.2 \
-  --device cpu \
+  --device auto \
   --benchmark_source ays_mc_single_turn \
   --input_jsonl are_you_sure.jsonl \
   --dataset_name aqua_mc \
@@ -83,7 +83,7 @@ python run_sycophancy_bias_probe.py \
   --probe_layer_max 4 \
   --max_new_tokens 256 \
   --sample_batch_size 1 \
-  --run_name smoke_aqua_mc_mistral7b_cpu_q12_l4
+  --run_name smoke_aqua_mc_mistral7b_auto_q12_l4
 ```
 
 Run a larger experiment:

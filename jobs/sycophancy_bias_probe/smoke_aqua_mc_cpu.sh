@@ -15,7 +15,8 @@ if [[ -f .env ]]; then
 fi
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
-RUN_NAME="${RUN_NAME:-smoke_aqua_mc_mistral7b_cpu_q12_l4}"
+DEVICE="${DEVICE:-auto}"
+RUN_NAME="${RUN_NAME:-smoke_aqua_mc_mistral7b_auto_q12_l4}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 MODEL_ID="mistralai/Mistral-7B-Instruct-v0.2"
@@ -32,6 +33,9 @@ for arg in "$@"; do
       ;;
     --out_dir=*)
       OUT_DIR="${arg#--out_dir=}"
+      ;;
+    --device=*)
+      DEVICE="${arg#--device=}"
       ;;
     --run_name=*)
       RUN_NAME="${arg#--run_name=}"
@@ -52,6 +56,11 @@ for ((i = 0; i < ${#args[@]}; i++)); do
         OUT_DIR="${args[$((i + 1))]}"
       fi
       ;;
+    --device)
+      if (( i + 1 < ${#args[@]} )); then
+        DEVICE="${args[$((i + 1))]}"
+      fi
+      ;;
     --run_name)
       if (( i + 1 < ${#args[@]} )); then
         RUN_NAME="${args[$((i + 1))]}"
@@ -63,7 +72,7 @@ done
 cmd=(
   "$PYTHON_BIN" run_sycophancy_bias_probe.py
   --model "$MODEL_ID"
-  --device cpu
+  --device "$DEVICE"
   --benchmark_source ays_mc_single_turn
   --input_jsonl are_you_sure.jsonl
   --dataset_name aqua_mc

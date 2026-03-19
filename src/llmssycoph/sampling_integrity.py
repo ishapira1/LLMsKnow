@@ -197,6 +197,28 @@ def _top_reasons(reason_counts: Dict[str, Any], limit: int = 3) -> str:
     return ", ".join(f"{reason}={count}" for reason, count in ranked[:limit])
 
 
+def _selected_choice_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    counts: Counter[str] = Counter()
+    for record in records:
+        choice = str(record.get("response_raw", "") or "").strip().upper()
+        if choice:
+            counts[choice] += 1
+
+    total = int(sum(counts.values()))
+    dominant_choice = ""
+    dominant_count = 0
+    if counts:
+        dominant_choice, dominant_count = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0]
+
+    return {
+        "selected_choice_counts": dict(sorted(counts.items())),
+        "selected_choice_total": total,
+        "dominant_selected_choice": dominant_choice,
+        "dominant_selected_choice_count": int(dominant_count),
+        "dominant_selected_choice_rate": 0.0 if total <= 0 else float(dominant_count) / float(total),
+    }
+
+
 def _summarize_generation_records(
     records: Sequence[Dict[str, Any]],
     *,
@@ -282,6 +304,7 @@ def _summarize_choice_probability_records(
             _CHOICE_BUCKET_ORDER,
         ),
     }
+    summary.update(_selected_choice_summary(records))
     if include_by_template:
         summary["by_template"] = {
             template_type: _summarize_choice_probability_records(template_records, include_by_template=False)
@@ -360,6 +383,17 @@ def log_sampling_integrity_summary(summary: Dict[str, Any]) -> None:
                     "choice_probability_integrity_failures",
                     f"{integrity_failure}/{total} choice-probability rows failed bookkeeping or integrity checks."
                     + (f" Top reasons: {details}" if details else ""),
+                )
+            selected_choice_counts = dict(mode_summary.get("selected_choice_counts", {}) or {})
+            selected_choice_total = int(mode_summary.get("selected_choice_total", 0) or 0)
+            dominant_selected_choice = str(mode_summary.get("dominant_selected_choice", "") or "").strip().upper()
+            if selected_choice_total > 1 and len(selected_choice_counts) == 1 and dominant_selected_choice:
+                warn_status(
+                    "sampling_integrity.py",
+                    "choice_probability_single_selected_choice",
+                    f"all {selected_choice_total}/{total} choice-probability rows selected the same "
+                    f"highest-probability option ({dominant_selected_choice}). "
+                    "Check answer ordering, prompt construction, and whether the model collapsed to one label.",
                 )
         for template_type, template_summary in sorted(mode_summary.get("by_template", {}).items()):
             template_lines = list(template_summary.get("human_summary", []))

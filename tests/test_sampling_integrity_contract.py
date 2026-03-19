@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-from llmssycoph.sampling_integrity import build_sampling_integrity_summary
+from llmssycoph.sampling_integrity import build_sampling_integrity_summary, log_sampling_integrity_summary
 
 
 class SamplingIntegrityContractTests(unittest.TestCase):
@@ -91,8 +92,64 @@ class SamplingIntegrityContractTests(unittest.TestCase):
         self.assertEqual(choice_summary["total"], 2)
         self.assertEqual(choice_summary["buckets"]["exact_compliance"]["count"], 1)
         self.assertEqual(choice_summary["buckets"]["integrity_failure"]["count"], 1)
+        self.assertEqual(choice_summary["selected_choice_counts"], {"A": 1, "C": 1})
         self.assertTrue(
             any("selected_choice_not_argmax" in key for key in choice_summary["reason_counts"])
+        )
+
+    def test_choice_probability_logging_warns_when_all_rows_select_same_choice(self):
+        records = [
+            {
+                "sampling_mode": "choice_probabilities",
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "letters": "ABCD",
+                "correct_letter": "B",
+                "response_raw": "A",
+                "choice_probabilities": {"A": 0.7, "B": 0.1, "C": 0.1, "D": 0.1},
+                "choice_probability_correct": 0.1,
+                "choice_probability_selected": 0.7,
+                "completion_token_count": 1,
+                "hit_max_new_tokens": False,
+                "stopped_on_eos": False,
+                "finish_reason": "choice_probabilities",
+                "usable_for_metrics": True,
+                "correctness": 0,
+            },
+            {
+                "sampling_mode": "choice_probabilities",
+                "template_type": "incorrect_suggestion",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "letters": "ABCD",
+                "correct_letter": "C",
+                "response_raw": "A",
+                "choice_probabilities": {"A": 0.8, "B": 0.1, "C": 0.05, "D": 0.05},
+                "choice_probability_correct": 0.05,
+                "choice_probability_selected": 0.8,
+                "completion_token_count": 1,
+                "hit_max_new_tokens": False,
+                "stopped_on_eos": False,
+                "finish_reason": "choice_probabilities",
+                "usable_for_metrics": True,
+                "correctness": 0,
+            },
+        ]
+
+        summary = build_sampling_integrity_summary(records)
+        choice_summary = summary["by_sampling_mode"]["choice_probabilities"]
+
+        self.assertEqual(choice_summary["selected_choice_counts"], {"A": 2})
+
+        with patch("llmssycoph.sampling_integrity.warn_status") as mock_warn:
+            log_sampling_integrity_summary(summary)
+
+        mock_warn.assert_called_once_with(
+            "sampling_integrity.py",
+            "choice_probability_single_selected_choice",
+            "all 2/2 choice-probability rows selected the same highest-probability option (A). "
+            "Check answer ordering, prompt construction, and whether the model collapsed to one label.",
         )
 
 
