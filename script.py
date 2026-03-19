@@ -33,14 +33,11 @@ from llmssycoph.grading import (
     is_correct_short_answer,
     normalize_answer,
 )
-from llmssycoph.feature_utils import (
-    _find_sublist,
+from llmssycoph.probes import (
     get_hidden_feature_for_answer,
     get_hidden_feature_for_completion,
-    score_logprob_answer,
-    score_p_true,
 )
-from llmssycoph.io_utils import (
+from llmssycoph.data import (
     SYCOPHANCY_HF_DATASET,
     ensure_sycophancy_eval_cached,
     read_jsonl,
@@ -51,6 +48,8 @@ from llmssycoph.llm import (
     encode_chat,
     generate_many,
     generate_one,
+    score_logprob_answer,
+    score_p_true,
     to_hf_chat,
 )
 

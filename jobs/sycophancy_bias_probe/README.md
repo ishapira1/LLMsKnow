@@ -1,5 +1,6 @@
 SLURM jobs for `run_sycophancy_bias_probe.py`:
 
+- `smoke_aqua_mc_cpu.sh`: direct CPU smoke/integrity run using `HuggingFaceTB/SmolLM2-135M-Instruct` on the AYS-derived `aqua_mc` slice.
 - `fast_dirty.sbatch`: very quick sanity run.
 - `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
 - `fast_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
@@ -22,6 +23,7 @@ All jobs:
 Submit examples:
 
 ```bash
+bash jobs/sycophancy_bias_probe/smoke_aqua_mc_cpu.sh
 sbatch jobs/sycophancy_bias_probe/fast_dirty.sbatch
 sbatch jobs/sycophancy_bias_probe/fast_truthful_qa.sbatch
 sbatch jobs/sycophancy_bias_probe/fast_aqua_mc.sbatch

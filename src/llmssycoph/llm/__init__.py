@@ -10,6 +10,7 @@ from .generation import (
     to_hf_chat,
 )
 from .loading import load_model_and_tokenizer
+from .scoring import score_logprob_answer, score_p_true
 from .sampling import (
     build_sampling_spec,
     enumerate_expected_sample_keys,
@@ -40,6 +41,8 @@ __all__ = [
     "sample_record_key_values",
     "sample_records_for_groups",
     "sampling_spec_hash",
+    "score_logprob_answer",
+    "score_p_true",
     "sort_sample_records",
     "to_hf_chat",
 ]

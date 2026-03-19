@@ -2,14 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
-from .llm.generation import _resolve_model_inputs, _token_id_list_from_encoded, encode_chat
-from .probes.features import (
-    _assistant_text_last_token_index,
-    _assistant_text_span,
-    find_sublist as _find_sublist,
-    get_hidden_feature_for_answer,
-    get_hidden_feature_for_completion,
-)
+from ..probes.features import _assistant_text_span
+from .generation import _resolve_model_inputs, _token_id_list_from_encoded, encode_chat
 
 
 def _import_torch():
@@ -104,10 +98,4 @@ def score_p_true(
         return probs_ab[0].item()
 
 
-__all__ = [
-    "_find_sublist",
-    "get_hidden_feature_for_answer",
-    "get_hidden_feature_for_completion",
-    "score_logprob_answer",
-    "score_p_true",
-]
+__all__ = ["score_logprob_answer", "score_p_true"]

@@ -6,13 +6,14 @@ import sys
 import unittest
 from pathlib import Path
 
-from llmssycoph.answer_utils import (
+from llmssycoph.data import read_jsonl
+from llmssycoph.grading import (
     extract_gold_answers_from_base,
     extract_short_answer_from_generation,
+    grade_short_answer,
     is_correct_short_answer,
     normalize_answer,
 )
-from llmssycoph.grading import grade_short_answer
 from llmssycoph.llm import to_hf_chat
 
 
@@ -81,10 +82,10 @@ class ScriptCompatibilityTests(unittest.TestCase):
         commands = [
             "from script import generate_many, get_hidden_feature_for_answer; print('ok')",
             "from llmssycoph.llm import generate_many; print('ok')",
-            "from llmssycoph.feature_utils import get_hidden_feature_for_answer; print('ok')",
+            "from llmssycoph.probes import get_hidden_feature_for_answer; print('ok')",
             "from llmssycoph.grading import grade_short_answer; print(callable(grade_short_answer))",
             "from llmssycoph.data import build_question_groups; print(callable(build_question_groups))",
-            "from llmssycoph.io_utils import read_jsonl; print(callable(read_jsonl))",
+            "from llmssycoph.data import read_jsonl; print(callable(read_jsonl))",
         ]
 
         for command in commands:

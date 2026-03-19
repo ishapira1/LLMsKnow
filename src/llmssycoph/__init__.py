@@ -44,11 +44,6 @@ from .data import (
     unique_dataset_names,
 )
 from .outputs import SUMMARY_COLUMNS, build_summary_df, build_tuple_rows, to_samples_df, to_tuples_df
-from .feature_utils import (
-    _find_sublist,
-    score_logprob_answer,
-    score_p_true,
-)
 from .llm import (
     _clear_device_cache,
     _resolve_model_inputs,
@@ -67,6 +62,8 @@ from .llm import (
     sample_record_key_values,
     sample_records_for_groups,
     sampling_spec_hash,
+    score_logprob_answer,
+    score_p_true,
     sort_sample_records,
     to_hf_chat,
 )
@@ -110,7 +107,6 @@ __all__ = [
     "RESUME_COMPAT_KEYS",
     "SUMMARY_COLUMNS",
     "_clear_device_cache",
-    "_find_sublist",
     "_resolve_model_inputs",
     "_should_fallback_to_sequential",
     "_strict_mc_generated_answer_complete",

@@ -7,11 +7,9 @@ from unittest.mock import patch
 
 import numpy as np
 
-from llmssycoph.feature_utils import (
-    _assistant_text_last_token_index,
-    get_hidden_feature_for_completion,
-    score_logprob_answer,
-)
+from llmssycoph.llm import score_logprob_answer
+from llmssycoph.probes import get_hidden_feature_for_completion
+from llmssycoph.probes.features import _assistant_text_last_token_index
 from llmssycoph.probes import get_hidden_feature_all_layers_for_completion
 
 
@@ -177,7 +175,7 @@ class FeatureUtilsContractTests(unittest.TestCase):
         model = FakeLogitModel()
 
         with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
-            with patch('llmssycoph.feature_utils.encode_chat', return_value=encoded):
+            with patch('llmssycoph.llm.scoring.encode_chat', return_value=encoded):
                 total_logp, mean_logp = score_logprob_answer(
                     model=model,
                     tokenizer=tokenizer,
@@ -194,7 +192,7 @@ class FeatureUtilsContractTests(unittest.TestCase):
         model = FakeLogitModel()
 
         with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
-            with patch('llmssycoph.feature_utils.encode_chat', return_value=encoded):
+            with patch('llmssycoph.llm.scoring.encode_chat', return_value=encoded):
                 total_logp, mean_logp = score_logprob_answer(
                     model=model,
                     tokenizer=tokenizer,
