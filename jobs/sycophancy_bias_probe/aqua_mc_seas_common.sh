@@ -10,48 +10,30 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   printf '%s\n' "[warning] No active Slurm job detected. Submit one of the seas .sbatch files instead." >&2
 fi
 
-if type module >/dev/null 2>&1; then
-  module load python/3.10.9-fasrc01
-fi
-
 export PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
 
-if [[ -f .env ]]; then
-  set -a
-  source .env
-  set +a
-fi
+module load python/3.10.9-fasrc01
 
-DEFAULT_ENV_PYTHON="/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python"
-if [[ -n "${ENV_PYTHON:-}" ]]; then
-  PYTHON_BIN="$ENV_PYTHON"
-elif [[ -x "$DEFAULT_ENV_PYTHON" ]]; then
-  PYTHON_BIN="$DEFAULT_ENV_PYTHON"
-else
-  PYTHON_BIN="${PYTHON_BIN:-python}"
+ENV_PYTHON="${ENV_PYTHON:-/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python}"
+if [[ ! -x "$ENV_PYTHON" ]]; then
+  printf '%s\n' "Missing python interpreter: $ENV_PYTHON" >&2
+  exit 1
 fi
+printf '%s\n' "[env] python=$ENV_PYTHON"
+"$ENV_PYTHON" -c "import sys, numpy; print('[env] sys.executable=', sys.executable); print('[env] numpy=', numpy.__version__)"
 
-if [[ "$PYTHON_BIN" == */* ]]; then
-  if [[ ! -x "$PYTHON_BIN" ]]; then
-    printf '%s\n' "Missing python interpreter: $PYTHON_BIN" >&2
-    exit 1
-  fi
-else
-  if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-    printf '%s\n' "Missing python interpreter on PATH: $PYTHON_BIN" >&2
-    exit 1
-  fi
+if [[ ! -f .env ]]; then
+  printf '%s\n' "Missing .env in $REPO_DIR" >&2
+  exit 1
 fi
+set -a
+source .env
+set +a
 
-printf '%s\n' "[env] python=$PYTHON_BIN"
-
-HF_CACHE_DIR="${HF_HUB_CACHE:-${HUGGINGFACE_HUB_CACHE:-${TRANSFORMERS_CACHE:-}}}"
-if [[ -z "$HF_CACHE_DIR" && -n "${HF_HOME:-}" ]]; then
-  HF_CACHE_DIR="${HF_HOME%/}/hub"
-fi
+HF_CACHE_DIR="${HUGGINGFACE_HUB_CACHE:-}"
 if [[ -z "$HF_CACHE_DIR" ]]; then
-  printf '%s\n' "Missing HF cache dir. Set HUGGINGFACE_HUB_CACHE, HF_HUB_CACHE, TRANSFORMERS_CACHE, or HF_HOME in .env." >&2
+  printf '%s\n' "HUGGINGFACE_HUB_CACHE must be set in .env" >&2
   exit 1
 fi
 if [[ "$HF_CACHE_DIR" == /home/* ]]; then
@@ -76,7 +58,7 @@ OUT_DIR="${OUT_DIR:-results/sycophancy_bias_probe}"
 SAMPLE_BATCH_SIZE="${SAMPLE_BATCH_SIZE:-1}"
 
 cmd=(
-  "$PYTHON_BIN" run_sycophancy_bias_probe.py
+  "$ENV_PYTHON" run_sycophancy_bias_probe.py
   --model "$MODEL_ID"
   --device "$DEVICE"
   --hf_cache_dir "$HF_CACHE_DIR"
