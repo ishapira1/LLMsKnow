@@ -21,85 +21,84 @@ Typical contents:
 ```text
 logs/
   run.log
-reports/
   warnings.log  # optional; created only if warnings were emitted
   warnings_summary.json  # optional structured warning rollup
+  sampling_records.jsonl
+  sampling_manifest.json
+  sampling_integrity_summary.json
+sampling/
+  sampled_responses.csv
+analysis/
+  final_tuples.csv
+  summary_by_question.csv
+probes/
+  probe_scores_by_prompt.csv
+reports/
   summary.json
   summary.csv
   executive_summary.md
-sampling_records.jsonl
-sampling_manifest.json
-sampled_responses.csv
-sampling_integrity_summary.json
-final_tuples.csv
-summary_by_question.csv
-probe_candidate_scores.csv
-probe_metadata.json
-all_probes/
-chosen_probe/
 run_config.json
+run_summary.json
 status.json
 ```
 
 ## Which file is canonical for what
 
-- `sampling_records.jsonl`
+- `logs/sampling_records.jsonl`
   - Canonical raw sampled-response store.
   - One JSON object per sampled completion.
   - This is the file used for sampling checkpointing and cache reuse.
-- `sampled_responses.csv`
+- `sampling/sampled_responses.csv`
   - Flat table version of the sampled records.
   - Best starting point for pandas-based analysis.
-- `sampling_integrity_summary.json`
+- `logs/sampling_integrity_summary.json`
   - Post-sampling compliance and integrity summary.
   - Buckets strict-format compliance for generation-based paths and choice-scoring integrity for strict MC.
-- `final_tuples.csv`
+- `analysis/final_tuples.csv`
   - Pair table that matches neutral and biased prompts for the same `(split, question_id, draw_idx)`.
   - Only includes rows where both sides are usable for metrics.
-- `summary_by_question.csv`
+- `analysis/summary_by_question.csv`
   - Question-level aggregation over repeated draws.
-- `probe_candidate_scores.csv`
-  - One row per evaluated `(prompt, answer_choice)` probe example.
-  - This is the canonical table for strict-MC per-choice probe analysis.
-- `probe_metadata.json`
-  - Top-level probe summary plus pointers into the per-probe artifact directories.
-- `all_probes/`
+- `probes/all_probes/`
   - One subdirectory per probe family.
   - Stores every layer candidate that was actually trained during layer selection.
-- `chosen_probe/`
+- `probes/chosen_probe/`
   - One subdirectory per probe family.
   - Stores the final chosen probe after retraining on the chosen layer.
 - `run_config.json`
   - Full resolved CLI config for the run.
   - Includes normalized strict-MC values such as `n_draws = 1` and `temperature = 1.0`, plus `probe_construction` and `probe_example_weighting`.
-- `sampling_manifest.json`
+- `logs/sampling_manifest.json`
   - The exact sampling/cache spec plus checkpoint status.
 - `logs/run.log`
   - Human-readable runtime log for the run.
   - Mirrors the stage and progress messages printed during execution.
-- `reports/warnings.log`
+- `logs/warnings.log`
   - Optional warning-only log for the run.
   - Created only when the pipeline emits at least one warning.
-- `reports/warnings_summary.json`
+- `logs/warnings_summary.json`
   - Optional structured warning rollup for the run.
   - Aggregates counts by warning code and source, while also preserving the chronological warning list.
   - Useful when many warnings are emitted from different files and you want one unified view.
 - `reports/summary.csv`
-  - Flat run-level summary table with one row for `overall` and one row per bias type.
+  - Flat run-level summary table with one row for `overall`, one row for `neutral`, and one row per bias type.
   - Best starting point when you want a pandas-friendly high-level overview.
 - `reports/summary.json`
-  - JSON mirror of `reports/summary.csv`.
+  - JSON mirror of `reports/summary.csv` with the same flat row-level content.
   - Stored as a list of row objects rather than the older nested summary payload.
+- `run_summary.json`
+  - Rich nested run-summary payload.
+  - Includes the flat `summary_rows` plus template-level metrics, probe overview, MC option-selection summaries, and runtime timing metadata.
 - `reports/executive_summary.md`
   - Human-readable markdown summary for quick inspection.
 
-If you want the complete record of model generations, start from `sampling_records.jsonl`.
+If you want the complete record of model generations, start from `logs/sampling_records.jsonl`.
 
 ## Cache reuse rules
 
 The pipeline reuses previously generated model responses only when the `sampling_hash` matches exactly.
 
-That hash is built from the sampling spec recorded in `sampling_manifest.json`, including:
+That hash is built from the sampling spec recorded in `logs/sampling_manifest.json`, including:
 
 - `sampling_spec_version`
 - `model`
@@ -142,7 +141,7 @@ Probe hyperparameters do not affect the sampling hash, because they do not chang
 
 ## Per-sample schema
 
-`sampling_records.jsonl` and `sampled_responses.csv` contain one record per sampled completion, except strict-MC choice-scoring rows which contribute one deterministic selected-choice row per prompt.
+`logs/sampling_records.jsonl` and `sampling/sampled_responses.csv` contain one record per sampled completion, except strict-MC choice-scoring rows which contribute one deterministic selected-choice row per prompt.
 
 Important fields:
 
@@ -184,7 +183,7 @@ Important fields:
 - `stopped_on_eos`: whether the decoded continuation appears to end on EOS
 - `finish_reason`: generation stop reason such as `eos_token`, `length`, or `answer_commitment` when strict MC decoding stops immediately after a valid committed answer
 - `sampling_mode`: `generation` for standard sampled completions, or `choice_probabilities` when strict MC uses first-token choice scoring
-- `choice_probabilities`: normalized probability mass over the allowed answer choices when `sampling_mode = choice_probabilities`; this raw dict is preserved in `sampling_records.jsonl`, while `sampled_responses.csv` flattens it into `P(correct)`, `P(selected)`, and `P(A)`, `P(B)`, ... columns
+- `choice_probabilities`: normalized probability mass over the allowed answer choices when `sampling_mode = choice_probabilities`; this raw dict is preserved in `logs/sampling_records.jsonl`, while `sampling/sampled_responses.csv` flattens it into `P(correct)`, `P(selected)`, and `P(A)`, `P(B)`, ... columns
 - `P(correct)`: probability assigned to the gold answer choice when `sampling_mode = choice_probabilities`
 - `P(selected)`: probability assigned to the selected choice when `sampling_mode = choice_probabilities`
 - `P(A)`, `P(B)`, ...: one column per available answer choice, storing the normalized probability mass for that choice when `sampling_mode = choice_probabilities`
@@ -444,7 +443,7 @@ Each saved probe directory contains:
 Use one of these flows:
 
 1. Full-fidelity analysis
-   - Read `sampling_records.jsonl`
+   - Read `logs/sampling_records.jsonl`
    - Filter by `usable_for_metrics` as needed
    - Build any custom aggregates yourself
 
@@ -466,12 +465,10 @@ import pandas as pd
 
 run_dir = Path("results/sycophancy_bias_probe/<model_slug>/<run_name>")
 
-sampled = pd.read_csv(run_dir / "sampled_responses.csv")
-tuples = pd.read_csv(run_dir / "final_tuples.csv")
-summary = pd.read_csv(run_dir / "summary_by_question.csv")
-candidate_scores = pd.read_csv(run_dir / "probe_candidate_scores.csv")
-probe_meta = json.loads((run_dir / "probe_metadata.json").read_text())
-manifest = json.loads((run_dir / "sampling_manifest.json").read_text())
+sampled = pd.read_csv(run_dir / "sampling" / "sampled_responses.csv")
+tuples = pd.read_csv(run_dir / "analysis" / "final_tuples.csv")
+summary = pd.read_csv(run_dir / "analysis" / "summary_by_question.csv")
+manifest = json.loads((run_dir / "logs" / "sampling_manifest.json").read_text())
 run_config = json.loads((run_dir / "run_config.json").read_text())
 
 # Example: per-bias accuracy on paired rows
@@ -503,7 +500,7 @@ print(probe_meta.keys())
 
 ## Practical notes
 
-- For exact raw generations, prefer `sampling_records.jsonl` over the CSVs.
+- For exact raw generations, prefer `logs/sampling_records.jsonl` over the CSVs.
 - For custom transitions and sycophancy metrics, prefer `final_tuples.csv`.
 - For fast overviews, prefer `summary_by_question.csv`.
-- If you are comparing runs, always inspect both `run_config.json` and `sampling_manifest.json`.
+- If you are comparing runs, always inspect both `run_config.json` and `logs/sampling_manifest.json`.

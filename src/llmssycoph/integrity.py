@@ -102,15 +102,42 @@ def _extract_reports_summary_rows(reports_summary: Any, run_summary: Any) -> Lis
             }
         )
 
+    template_lookup = {
+        str(row.get("template_type", "") or "").strip(): row
+        for row in reports_summary.get("accuracy_by_template", [])
+        if isinstance(row, dict) and str(row.get("template_type", "") or "").strip()
+    }
+    if "neutral" in template_lookup:
+        neutral_row = template_lookup["neutral"]
+        rows.append(
+            {
+                "bias_type": "neutral",
+                "n_prompt_rows": neutral_row.get("n_rows"),
+                "n_questions": neutral_row.get("n_questions"),
+                "n_usable_prompt_rows": neutral_row.get("n_usable_rows"),
+                "usable_rate": neutral_row.get("usable_rate"),
+                "ambiguous_rate": neutral_row.get("ambiguous_rate"),
+                "accuracy": neutral_row.get("accuracy"),
+                "avg_p_correct": neutral_row.get("avg_p_correct"),
+                "avg_p_selected": neutral_row.get("avg_p_selected"),
+            }
+        )
+
     for bias_row in reports_summary.get("accuracy_by_bias_type", []):
         if not isinstance(bias_row, dict):
             continue
+        template_row = template_lookup.get(str(bias_row.get("bias_type", "") or "").strip(), {})
         rows.append(
             {
                 "bias_type": bias_row.get("bias_type"),
-                "accuracy": bias_row.get("accuracy_xprime"),
-                "avg_p_correct": bias_row.get("avg_p_xprime"),
-                "avg_p_selected": None,
+                "n_prompt_rows": template_row.get("n_rows"),
+                "n_questions": template_row.get("n_questions"),
+                "n_usable_prompt_rows": template_row.get("n_usable_rows"),
+                "usable_rate": template_row.get("usable_rate"),
+                "ambiguous_rate": template_row.get("ambiguous_rate"),
+                "accuracy": template_row.get("accuracy", bias_row.get("accuracy_xprime")),
+                "avg_p_correct": template_row.get("avg_p_correct", bias_row.get("avg_p_xprime")),
+                "avg_p_selected": template_row.get("avg_p_selected"),
                 "neutral_accuracy": bias_row.get("accuracy_x"),
                 "biased_accuracy": bias_row.get("accuracy_xprime"),
                 "avg_delta_p_biased_minus_neutral": bias_row.get("avg_delta_p_xprime_minus_x"),
@@ -454,6 +481,35 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     mc_modes = set(samples["mc_mode"].dropna().astype(str))
     if mc_modes != {"strict_mc"}:
         issues.append(f"mc_mode mismatch in sampled_responses.csv: present={sorted(mc_modes)}")
+    if task_formats == {"multiple_choice"}:
+        mc_confusion_matrix = summary_meta.get("mc_confusion_matrix") if isinstance(summary_meta, dict) else None
+        mc_confusion_matrix_path = resolve_run_artifact_path(run_dir, "mc_confusion_matrix")
+        if not isinstance(mc_confusion_matrix, dict):
+            issues.append("run summary is missing mc_confusion_matrix for multiple_choice runs")
+        if not mc_confusion_matrix_path.exists():
+            issues.append("reports confusion matrix is missing for multiple_choice runs")
+        elif isinstance(mc_confusion_matrix, dict):
+            mc_confusion_df = pd.read_csv(mc_confusion_matrix_path)
+            expected_labels = [
+                str(label)
+                for label in mc_confusion_matrix.get("choice_labels", [])
+                if str(label)
+            ]
+            expected_columns = ["predicted_letter", *expected_labels] if expected_labels else ["predicted_letter"]
+            if list(mc_confusion_df.columns) != expected_columns:
+                issues.append(
+                    "reports confusion matrix has unexpected columns: "
+                    f"present={list(mc_confusion_df.columns)} expected={expected_columns}"
+                )
+            expected_rows = mc_confusion_matrix.get("summary_rows", [])
+            if isinstance(expected_rows, list) and len(mc_confusion_df) != len(expected_rows):
+                issues.append("reports confusion matrix row count does not match run summary payload")
+            if expected_labels and all(label in mc_confusion_df.columns for label in expected_labels):
+                confusion_total = int(
+                    pd.to_numeric(mc_confusion_df[expected_labels].to_numpy().ravel(), errors="coerce").sum()
+                )
+                if confusion_total != int(mc_confusion_matrix.get("n_confusion_rows", -1)):
+                    issues.append("reports confusion matrix total does not match run summary payload")
 
     draws_per_prompt = int(run_config.get("n_draws", 0) or 0)
     strict_mc_choice_scoring = bool(run_config.get("strict_mc_choice_scoring", False))
@@ -546,7 +602,7 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
             if duplicate_summary_rows:
                 issues.append(f"reports/summary.json has {duplicate_summary_rows} duplicate bias_type rows")
             summary_biases = set(summary_rows_df["bias_type"].dropna().astype(str))
-            expected_summary_biases = {"overall", *bias_types}
+            expected_summary_biases = {"overall", "neutral", *bias_types}
             if summary_biases != expected_summary_biases:
                 issues.append("reports/summary.json has unexpected bias coverage")
         for column_name in (

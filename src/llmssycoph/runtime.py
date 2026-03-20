@@ -21,33 +21,37 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("run.log"),
     ),
     "warnings_log": (
-        Path("reports") / "warnings.log",
         Path("logs") / "warnings.log",
+        Path("reports") / "warnings.log",
         Path("internal") / "logs" / "warnings.log",
         Path("warnings.log"),
     ),
     "warnings_summary": (
+        Path("logs") / "warnings_summary.json",
         Path("reports") / "warnings_summary.json",
     ),
     "run_config": (
-        Path("internal") / "run_config.json",
         Path("run_config.json"),
+        Path("internal") / "run_config.json",
     ),
     "status": (
-        Path("internal") / "status.json",
         Path("status.json"),
+        Path("internal") / "status.json",
     ),
     "sampling_records": (
-        Path("internal") / "sampling_records.jsonl",
+        Path("logs") / "sampling_records.jsonl",
         Path("sampling_records.jsonl"),
+        Path("internal") / "sampling_records.jsonl",
     ),
     "sampling_manifest": (
-        Path("internal") / "sampling_manifest.json",
+        Path("logs") / "sampling_manifest.json",
         Path("sampling_manifest.json"),
+        Path("internal") / "sampling_manifest.json",
     ),
     "sampling_integrity_summary": (
-        Path("internal") / "sampling_integrity_summary.json",
+        Path("logs") / "sampling_integrity_summary.json",
         Path("sampling_integrity_summary.json"),
+        Path("internal") / "sampling_integrity_summary.json",
     ),
     "sampled_responses": (
         Path("sampling") / "sampled_responses.csv",
@@ -69,6 +73,9 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
     "reports_summary_csv": (
         Path("reports") / "summary.csv",
     ),
+    "mc_confusion_matrix": (
+        Path("reports") / "confusion_matrix_predicted_letter_x_true_letter.csv",
+    ),
     "model_summary_by_template": (
         Path("analysis") / "model_summary_by_template.csv",
     ),
@@ -76,8 +83,9 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("analysis") / "model_summary_by_bias.csv",
     ),
     "run_summary": (
-        Path("internal") / "run_summary.json",
+        Path("run_summary.json"),
         Path("analysis") / "run_summary.json",
+        Path("internal") / "run_summary.json",
     ),
     "probe_candidate_scores": (
         Path("probes") / "probe_candidate_scores.csv",
@@ -106,8 +114,8 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("chosen_probe"),
     ),
     "internal_cache_dir": (
-        Path("internal") / "cache",
         Path("analysis_cache"),
+        Path("internal") / "cache",
     ),
 }
 

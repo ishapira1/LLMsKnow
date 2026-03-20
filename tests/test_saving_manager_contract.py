@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -321,10 +322,14 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertEqual(payload["headline_counts"]["probe_score_prompt_rows"], 1)
             self.assertEqual(payload["headline_counts"]["probe_family_count"], 2)
             self.assertEqual(list(summary_df.columns), REPORTS_SUMMARY_COLUMNS)
-            self.assertEqual([row["bias_type"] for row in payload["summary_rows"]], ["overall", "incorrect_suggestion"])
+            self.assertEqual(
+                [row["bias_type"] for row in payload["summary_rows"]],
+                ["overall", "neutral", "incorrect_suggestion"],
+            )
             self.assertAlmostEqual(payload["summary_rows"][0]["accuracy"], 0.5)
-            self.assertAlmostEqual(payload["summary_rows"][1]["avg_p_correct"], 0.3)
-            self.assertAlmostEqual(payload["summary_rows"][1]["avg_delta_p_biased_minus_neutral"], -0.5)
+            self.assertAlmostEqual(payload["summary_rows"][1]["avg_p_correct"], 0.8)
+            self.assertAlmostEqual(payload["summary_rows"][2]["avg_p_correct"], 0.3)
+            self.assertAlmostEqual(payload["summary_rows"][2]["avg_delta_p_biased_minus_neutral"], -0.5)
             self.assertAlmostEqual(payload["overall"]["accuracy"], 0.5)
             self.assertAlmostEqual(payload["overall"]["avg_p_correct"], 0.55)
             self.assertAlmostEqual(payload["overall"]["avg_delta_p_xprime_minus_x"], -0.5)
@@ -337,6 +342,8 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertEqual(markdown.splitlines()[0], "# Executive Summary")
             self.assertIn(payload["generated_at_utc"], markdown)
             self.assertIn("## Summary by Bias", markdown)
+            self.assertIn("## MC Option Selection", markdown)
+            self.assertIn("## Runtime", markdown)
             self.assertIn("## Probe Overview", markdown)
 
             terminal_lines = build_terminal_final_stats_lines(payload)
@@ -350,9 +357,219 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertIn("harmful_flip_rate=100.0%", terminal_lines)
             self.assertIn("helpful_flip_rate=0.0%", terminal_lines)
             self.assertIn("summary_by_bias:", terminal_lines)
+            self.assertIn("  neutral: accuracy=100.0% avg_p_correct=0.800 avg_p_selected=0.800", terminal_lines)
             self.assertIn("  incorrect_suggestion: accuracy=0.0% avg_p_correct=0.300 avg_p_selected=0.500", terminal_lines)
             self.assertIn("best_probe_name=probe_bias_incorrect_suggestion", terminal_lines)
             self.assertIn("best_probe_test_auc=0.780", terminal_lines)
+
+    def test_reports_summary_payload_captures_mc_option_selection_distribution(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            samples_df = pd.DataFrame(
+                [
+                    {
+                        "question_id": "q_1",
+                        "split": "test",
+                        "template_type": "neutral",
+                        "task_format": "multiple_choice",
+                        "correctness": 1,
+                        "usable_for_metrics": True,
+                        "T_prompt": 0.7,
+                        "P(selected)": 0.7,
+                        "P(A)": 0.7,
+                        "P(B)": 0.2,
+                        "P(C)": 0.1,
+                    },
+                    {
+                        "question_id": "q_1",
+                        "split": "test",
+                        "template_type": "incorrect_suggestion",
+                        "task_format": "multiple_choice",
+                        "correctness": 0,
+                        "usable_for_metrics": True,
+                        "T_prompt": 0.2,
+                        "P(selected)": 0.6,
+                        "P(A)": 0.1,
+                        "P(B)": 0.6,
+                        "P(C)": 0.3,
+                    },
+                ]
+            )
+            tuples_df = pd.DataFrame(
+                [
+                    {
+                        "bias_type": "incorrect_suggestion",
+                        "split": "test",
+                        "question_id": "q_1",
+                        "draw_idx": 0,
+                        "C_x_y": 1,
+                        "C_xprime_yprime": 0,
+                        "T_x": 0.7,
+                        "T_xprime": 0.2,
+                        "y_x": "A",
+                        "y_xprime": "B",
+                    },
+                ]
+            )
+            args = SimpleNamespace(
+                model="test/model",
+                dataset_name="aqua_mc",
+                bias_types=["incorrect_suggestion"],
+            )
+
+            payload = build_reports_summary_payload(
+                args=args,
+                run_dir=run_dir,
+                samples_df=samples_df,
+                tuples_df=tuples_df,
+                probe_scores_by_prompt_df=pd.DataFrame(),
+                probes_meta={},
+                probe_candidate_scores_df=pd.DataFrame(),
+            )
+
+            choice_summary = payload["mc_option_selection"]
+            self.assertEqual(choice_summary["choice_labels"], ["A", "B", "C"])
+            self.assertEqual(
+                [row["template_type"] for row in choice_summary["summary_rows"]],
+                ["overall", "neutral", "incorrect_suggestion"],
+            )
+            overall_row = choice_summary["summary_rows"][0]
+            neutral_row = choice_summary["summary_rows"][1]
+            biased_row = choice_summary["summary_rows"][2]
+            self.assertAlmostEqual(overall_row["pick_A_rate"], 0.5)
+            self.assertAlmostEqual(overall_row["pick_B_rate"], 0.5)
+            self.assertAlmostEqual(neutral_row["pick_A_rate"], 1.0)
+            self.assertAlmostEqual(biased_row["pick_B_rate"], 1.0)
+            expected_neutral_neff = math.exp(-(0.7 * math.log(0.7) + 0.2 * math.log(0.2) + 0.1 * math.log(0.1)))
+            expected_biased_neff = math.exp(-(0.1 * math.log(0.1) + 0.6 * math.log(0.6) + 0.3 * math.log(0.3)))
+            self.assertAlmostEqual(neutral_row["avg_effective_options"], expected_neutral_neff)
+            self.assertAlmostEqual(biased_row["avg_effective_options"], expected_biased_neff)
+            self.assertIn("## MC Option Selection", build_executive_summary_markdown(payload))
+
+    def test_reports_summary_payload_captures_mc_confusion_matrix_for_mc_runs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            sample_records = [
+                {
+                    "record_id": 1,
+                    "split": "test",
+                    "question_id": "q_1",
+                    "prompt_id": "q_1__neutral",
+                    "dataset": "aqua_mc",
+                    "template_type": "neutral",
+                    "draw_idx": 0,
+                    "task_format": "multiple_choice",
+                    "mc_mode": "strict_mc",
+                    "answer_channel": "letter",
+                    "question": "Question 1",
+                    "correct_answer": "Option A",
+                    "incorrect_answer": "Option B",
+                    "correct_letter": "A",
+                    "incorrect_letter": "B",
+                    "prompt_template": "{question}",
+                    "prompt_text": "Prompt 1",
+                    "response_raw": "Answer: A",
+                    "response": "Answer: A",
+                    "committed_answer": "A",
+                    "correctness": 1,
+                    "grading_status": "correct",
+                    "grading_reason": "single_letter_match",
+                    "usable_for_metrics": True,
+                    "completion_token_count": 1,
+                    "hit_max_new_tokens": False,
+                    "stopped_on_eos": False,
+                    "finish_reason": "generation",
+                    "sampling_mode": "generation",
+                    "T_prompt": 1.0,
+                    "probe_x": None,
+                    "probe_xprime": None,
+                },
+                {
+                    "record_id": 2,
+                    "split": "test",
+                    "question_id": "q_2",
+                    "prompt_id": "q_2__incorrect_suggestion",
+                    "dataset": "aqua_mc",
+                    "template_type": "incorrect_suggestion",
+                    "draw_idx": 0,
+                    "task_format": "multiple_choice",
+                    "mc_mode": "strict_mc",
+                    "answer_channel": "letter",
+                    "question": "Question 2",
+                    "correct_answer": "Option A",
+                    "incorrect_answer": "Option B",
+                    "correct_letter": "A",
+                    "incorrect_letter": "B",
+                    "prompt_template": "{question}",
+                    "prompt_text": "Prompt 2",
+                    "response_raw": "Final answer: B",
+                    "response": "Final answer: B",
+                    "committed_answer": "B",
+                    "correctness": 0,
+                    "grading_status": "incorrect",
+                    "grading_reason": "single_letter_non_match",
+                    "usable_for_metrics": True,
+                    "completion_token_count": 2,
+                    "hit_max_new_tokens": False,
+                    "stopped_on_eos": True,
+                    "finish_reason": "generation",
+                    "sampling_mode": "generation",
+                    "T_prompt": 0.0,
+                    "probe_x": None,
+                    "probe_xprime": None,
+                },
+            ]
+            samples_df = to_samples_df(sample_records, model_name="test/model")
+            tuples_df = pd.DataFrame(
+                [
+                    {
+                        "bias_type": "incorrect_suggestion",
+                        "split": "test",
+                        "question_id": "q_2",
+                        "draw_idx": 0,
+                        "C_x_y": 1,
+                        "C_xprime_yprime": 0,
+                        "T_x": 1.0,
+                        "T_xprime": 0.0,
+                        "y_x": "A",
+                        "y_xprime": "B",
+                    },
+                ]
+            )
+            args = SimpleNamespace(
+                model="test/model",
+                dataset_name="aqua_mc",
+                bias_types=["incorrect_suggestion"],
+            )
+
+            payload = build_reports_summary_payload(
+                args=args,
+                run_dir=run_dir,
+                samples_df=samples_df,
+                sample_records=sample_records,
+                tuples_df=tuples_df,
+                probe_scores_by_prompt_df=pd.DataFrame(),
+                probes_meta={},
+                probe_candidate_scores_df=pd.DataFrame(),
+            )
+            markdown = build_executive_summary_markdown(payload)
+
+            confusion = payload["mc_confusion_matrix"]
+            self.assertEqual(confusion["choice_labels"], ["A", "B"])
+            self.assertEqual(confusion["n_confusion_rows"], 2)
+            self.assertEqual(
+                confusion["summary_rows"],
+                [
+                    {"predicted_letter": "A", "A": 1, "B": 0},
+                    {"predicted_letter": "B", "A": 1, "B": 0},
+                ],
+            )
+            self.assertIn("## MC Confusion Matrix", markdown)
+            self.assertIn("Predicted \\ True", markdown)
 
     def test_model_and_probe_summary_artifacts_capture_global_metrics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -657,6 +874,8 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertIsNone(payload["selected_probe_overview"])
             self.assertIn("probe_training_status=skipped_by_sampling_only", terminal_lines)
             self.assertFalse(any(line.startswith("best_probe_name=") for line in terminal_lines))
+            self.assertIn("## MC Option Selection", markdown)
+            self.assertIn("## Runtime", markdown)
             self.assertIn("## Probe Overview", markdown)
 
 

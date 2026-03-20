@@ -142,7 +142,7 @@ class OpenAIBackendContractTests(unittest.TestCase):
         first_call = fake_client.chat.completions.calls[0]
         self.assertTrue(first_call["logprobs"])
         self.assertEqual(first_call["top_logprobs"], 5)
-        self.assertEqual(first_call["extra_body"], {"max_completion_tokens": 1, "reasoning_effort": "none"})
+        self.assertEqual(first_call["extra_body"], {"max_completion_tokens": 32, "reasoning_effort": "none"})
 
     def test_score_choices_rejects_more_than_five_options(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY_FOR_PROJECT": "sk-project"}, clear=False):

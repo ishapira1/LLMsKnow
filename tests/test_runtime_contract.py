@@ -83,7 +83,7 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertTrue(run_dir.is_dir())
             self.assertEqual(
                 preferred_run_artifact_path(run_dir, "warnings_log"),
-                run_dir / "reports" / "warnings.log",
+                run_dir / "logs" / "warnings.log",
             )
             self.assertEqual(
                 preferred_run_artifact_path(run_dir, "reports_summary_csv"),
@@ -91,7 +91,7 @@ class RuntimeContractTests(unittest.TestCase):
             )
             self.assertEqual(
                 preferred_run_artifact_path(run_dir, "warnings_summary"),
-                run_dir / "reports" / "warnings_summary.json",
+                run_dir / "logs" / "warnings_summary.json",
             )
 
             # Explicit run names are resume-friendly.

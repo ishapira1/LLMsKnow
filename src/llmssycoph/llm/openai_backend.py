@@ -59,6 +59,7 @@ def _response_output_text(response: Any) -> str:
 
 
 _CHOICE_VARIANT_TEXT_TEMPLATES = ("{choice}", " {choice}", "\n{choice}")
+_OPENAI_CHOICE_SCORING_MAX_COMPLETION_TOKENS = 32
 
 
 def _normalize_choices(choices: List[str]) -> List[str]:
@@ -355,7 +356,11 @@ class OpenAILLM(BaseLLM):
             "logprobs": True,
             "top_logprobs": 5,
         }
-        extra_body: Dict[str, Any] = {"max_completion_tokens": 1}
+        # GPT-5-family models can consume hidden reasoning/output budget before the
+        # first visible token appears, so choice scoring needs more than a 1-token cap.
+        extra_body: Dict[str, Any] = {
+            "max_completion_tokens": _OPENAI_CHOICE_SCORING_MAX_COMPLETION_TOKENS
+        }
         if self.model_spec.reasoning_effort:
             extra_body["reasoning_effort"] = str(self.model_spec.reasoning_effort)
         chat_payload["extra_body"] = extra_body

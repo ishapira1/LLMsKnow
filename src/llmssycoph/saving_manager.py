@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import Counter
 import json
+import math
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
 
@@ -115,7 +117,17 @@ PROBE_CANDIDATE_SCORE_COLUMNS = [
 RUN_SUMMARY_SCHEMA_VERSION = 2
 MODEL_SUMMARY_SCHEMA_VERSION = 1
 PROBE_SUMMARY_SCHEMA_VERSION = 1
-REPORTS_SUMMARY_SCHEMA_VERSION = 2
+REPORTS_SUMMARY_SCHEMA_VERSION = 4
+
+_MC_CONFUSION_STANDALONE_LETTER_RE = re.compile(r"^\(?([A-Za-z])\)?[\]\).,:;\-]?$")
+_MC_CONFUSION_AMBIGUOUS_LETTER_RE = re.compile(
+    r"^\(?[A-Za-z]\)?(?:\s*(?:or|/|,)\s*\(?[A-Za-z]\)?)+$",
+    flags=re.IGNORECASE,
+)
+_MC_CONFUSION_EXPLICIT_LETTER_RE = re.compile(
+    r"\b(?:final\s+answer|correct\s+answer|answer|option|choice)\s*(?:is|:)?\s*\(?([A-Za-z])\)?\b",
+    flags=re.IGNORECASE,
+)
 
 MODEL_SUMMARY_BY_TEMPLATE_COLUMNS = [
     "template_type",
@@ -562,6 +574,395 @@ def _sample_probability_series(
     return pd.Series([default] * len(df), index=df.index)
 
 
+def _choice_probability_labels_from_df(samples_df: pd.DataFrame) -> List[str]:
+    labels: List[str] = []
+    for column_name in samples_df.columns:
+        if not (column_name.startswith("P(") and column_name.endswith(")")):
+            continue
+        if column_name in {P_CORRECT_COLUMN, P_SELECTED_COLUMN}:
+            continue
+        labels.append(column_name[2:-1])
+    return sorted(set(labels), key=lambda label: (len(str(label)), str(label)))
+
+
+def _choice_probability_map_from_row(row: pd.Series, choice_labels: Sequence[str]) -> Dict[str, float]:
+    probabilities: Dict[str, float] = {}
+    for label in choice_labels:
+        numeric = _float_or_none(row.get(_choice_probability_column(label)))
+        if numeric is None or numeric < 0.0:
+            continue
+        probabilities[str(label)] = float(numeric)
+    return probabilities
+
+
+def _selected_choice_from_probability_map(probabilities: Dict[str, float], choice_labels: Sequence[str]) -> str:
+    selected_choice = ""
+    selected_probability = float("-inf")
+    for label in choice_labels:
+        numeric = probabilities.get(str(label))
+        if numeric is None:
+            continue
+        if numeric > selected_probability:
+            selected_choice = str(label)
+            selected_probability = float(numeric)
+    return selected_choice
+
+
+def _effective_option_count_from_probability_map(probabilities: Dict[str, float]) -> Optional[float]:
+    if not probabilities:
+        return None
+    total_mass = float(sum(probabilities.values()))
+    if not np.isfinite(total_mass) or total_mass <= 0.0:
+        return None
+
+    entropy = 0.0
+    for probability in probabilities.values():
+        normalized = float(probability) / total_mass
+        if normalized > 0.0:
+            entropy -= normalized * math.log(normalized)
+    return float(math.exp(entropy))
+
+
+def _build_mc_option_selection_row(
+    samples_df: pd.DataFrame,
+    *,
+    template_type: str,
+    choice_labels: Sequence[str],
+) -> Dict[str, Any]:
+    selected_counts: Counter[str] = Counter()
+    effective_option_counts: List[float] = []
+    n_probability_rows = 0
+
+    for _, row in samples_df.iterrows():
+        probabilities = _choice_probability_map_from_row(row, choice_labels)
+        if not probabilities:
+            continue
+        n_probability_rows += 1
+        selected_choice = _selected_choice_from_probability_map(probabilities, choice_labels)
+        if selected_choice:
+            selected_counts[selected_choice] += 1
+        effective_options = _effective_option_count_from_probability_map(probabilities)
+        if effective_options is not None:
+            effective_option_counts.append(float(effective_options))
+
+    summary_row: Dict[str, Any] = {
+        "template_type": str(template_type),
+        "n_rows": int(n_probability_rows),
+        "avg_effective_options": (
+            None
+            if not effective_option_counts
+            else float(np.mean(np.asarray(effective_option_counts, dtype=float)))
+        ),
+    }
+    for label in choice_labels:
+        summary_row[f"pick_{label}_rate"] = (
+            None
+            if n_probability_rows <= 0
+            else float(selected_counts.get(str(label), 0)) / float(n_probability_rows)
+        )
+    return _json_ready(summary_row)
+
+
+def _build_mc_option_selection_summary(
+    samples_df: pd.DataFrame,
+    *,
+    bias_types: Sequence[str],
+) -> Dict[str, Any]:
+    choice_labels = _choice_probability_labels_from_df(samples_df)
+    if not choice_labels:
+        return {"choice_labels": [], "summary_rows": [], "n_probability_rows": 0}
+
+    eligible_mask = pd.Series([True] * len(samples_df), index=samples_df.index)
+    if "task_format" in samples_df.columns:
+        eligible_mask = eligible_mask & (
+            _series_from_df(samples_df, "task_format", "").astype(str) == "multiple_choice"
+        )
+
+    probability_present_mask = pd.Series([False] * len(samples_df), index=samples_df.index)
+    for label in choice_labels:
+        numeric = pd.to_numeric(_series_from_df(samples_df, _choice_probability_column(label)), errors="coerce")
+        probability_present_mask = probability_present_mask | numeric.notna()
+    eligible_df = samples_df[eligible_mask & probability_present_mask].copy()
+    if eligible_df.empty:
+        return {"choice_labels": list(choice_labels), "summary_rows": [], "n_probability_rows": 0}
+
+    configured_bias_types = [bias_type for bias_type in _list_like_strings(bias_types) if bias_type != "neutral"]
+    observed_template_types = sorted(
+        {
+            str(value).strip()
+            for value in _series_from_df(eligible_df, "template_type", "").dropna().astype(str)
+            if str(value).strip()
+        }
+    )
+    ordered_template_types = ["neutral"] + configured_bias_types + [
+        template_type
+        for template_type in observed_template_types
+        if template_type not in {"neutral", *set(configured_bias_types)}
+    ]
+
+    rows = [
+        _build_mc_option_selection_row(
+            eligible_df,
+            template_type="overall",
+            choice_labels=choice_labels,
+        )
+    ]
+    template_series = _series_from_df(eligible_df, "template_type", "").astype(str)
+    for template_type in ordered_template_types:
+        template_df = eligible_df[template_series == template_type].copy()
+        if template_df.empty:
+            continue
+        rows.append(
+            _build_mc_option_selection_row(
+                template_df,
+                template_type=template_type,
+                choice_labels=choice_labels,
+            )
+        )
+
+    return _json_ready(
+        {
+            "choice_labels": list(choice_labels),
+            "summary_rows": rows,
+            "n_probability_rows": int(len(eligible_df)),
+        }
+    )
+
+
+def _bool_like(value: Any) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return bool(value)
+    return bool(value)
+
+
+def _mc_confusion_choice_labels_from_record(record: Dict[str, Any]) -> List[str]:
+    labels: Set[str] = set()
+
+    letters = str(record.get("letters", "") or "").strip().upper()
+    for letter in letters:
+        if len(letter) == 1 and letter.isalpha():
+            labels.add(letter)
+
+    probabilities_raw = record.get("choice_probabilities", {})
+    if isinstance(probabilities_raw, dict):
+        for raw_choice in probabilities_raw:
+            label = str(raw_choice or "").strip().upper()
+            if len(label) == 1 and label.isalpha():
+                labels.add(label)
+
+    for column_name in record:
+        if not (column_name.startswith("P(") and column_name.endswith(")")):
+            continue
+        if column_name in {P_CORRECT_COLUMN, P_SELECTED_COLUMN}:
+            continue
+        label = str(column_name[2:-1]).strip().upper()
+        if len(label) == 1 and label.isalpha():
+            labels.add(label)
+
+    for field_name in ("correct_letter", "incorrect_letter"):
+        label = str(record.get(field_name, "") or "").strip().upper()
+        if len(label) == 1 and label.isalpha():
+            labels.add(label)
+
+    return sorted(labels, key=lambda label: (len(label), label))
+
+
+def _mc_confusion_exact_letter(value: Any, allowed_labels: Set[str]) -> str:
+    if not allowed_labels:
+        return ""
+
+    text = str(value or "").strip().strip(" \"'“”‘’\t")
+    if not text:
+        return ""
+    if _MC_CONFUSION_AMBIGUOUS_LETTER_RE.fullmatch(text):
+        return ""
+
+    match = _MC_CONFUSION_STANDALONE_LETTER_RE.fullmatch(text)
+    if not match:
+        return ""
+
+    letter = match.group(1).upper()
+    return letter if letter in allowed_labels else ""
+
+
+def _mc_confusion_letter_from_text(value: Any, allowed_labels: Set[str]) -> str:
+    if not allowed_labels:
+        return ""
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        exact = _mc_confusion_exact_letter(line, allowed_labels)
+        if exact:
+            return exact
+        if _MC_CONFUSION_AMBIGUOUS_LETTER_RE.fullmatch(line):
+            return ""
+        explicit_match = _MC_CONFUSION_EXPLICIT_LETTER_RE.search(line)
+        if not explicit_match:
+            continue
+        letter = explicit_match.group(1).upper()
+        if letter in allowed_labels:
+            return letter
+
+    exact = _mc_confusion_exact_letter(text, allowed_labels)
+    if exact:
+        return exact
+
+    explicit_match = _MC_CONFUSION_EXPLICIT_LETTER_RE.search(text)
+    if not explicit_match:
+        return ""
+    letter = explicit_match.group(1).upper()
+    return letter if letter in allowed_labels else ""
+
+
+def _mc_confusion_probability_map(
+    record: Dict[str, Any],
+    choice_labels: Sequence[str],
+) -> Dict[str, float]:
+    probabilities: Dict[str, float] = {}
+
+    probabilities_raw = record.get("choice_probabilities", {})
+    if isinstance(probabilities_raw, dict):
+        for raw_choice, raw_value in probabilities_raw.items():
+            label = str(raw_choice or "").strip().upper()
+            if label not in choice_labels:
+                continue
+            numeric = _float_or_none(raw_value)
+            if numeric is None or numeric < 0.0:
+                continue
+            probabilities[label] = float(numeric)
+
+    for label in choice_labels:
+        if label in probabilities:
+            continue
+        numeric = _float_or_none(record.get(_choice_probability_column(label)))
+        if numeric is None or numeric < 0.0:
+            continue
+        probabilities[label] = float(numeric)
+
+    return probabilities
+
+
+def _mc_confusion_predicted_letter(
+    record: Dict[str, Any],
+    allowed_labels: Set[str],
+) -> str:
+    committed_letter = _mc_confusion_exact_letter(record.get("committed_answer"), allowed_labels)
+    if committed_letter:
+        return committed_letter
+
+    ordered_labels = sorted(allowed_labels, key=lambda label: (len(label), label))
+    probability_map = _mc_confusion_probability_map(record, ordered_labels)
+    selected_choice = _selected_choice_from_probability_map(probability_map, ordered_labels)
+    if selected_choice:
+        return selected_choice
+
+    for field_name in ("response", "response_raw"):
+        parsed_letter = _mc_confusion_letter_from_text(record.get(field_name), allowed_labels)
+        if parsed_letter:
+            return parsed_letter
+    return ""
+
+
+def _build_mc_confusion_matrix_summary(
+    samples_df: pd.DataFrame,
+    *,
+    sample_records: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+    source_rows = sample_records if sample_records is not None else samples_df.to_dict(orient="records")
+    mc_rows = [
+        dict(record)
+        for record in source_rows
+        if isinstance(record, dict) and str(record.get("task_format", "") or "") == "multiple_choice"
+    ]
+    if not mc_rows:
+        return None
+
+    labels: Set[str] = set()
+    mc_row_labels: List[Set[str]] = []
+    for record in mc_rows:
+        row_labels = set(_mc_confusion_choice_labels_from_record(record))
+        mc_row_labels.append(row_labels)
+        labels.update(row_labels)
+
+    parsed_pairs: List[tuple[str, str]] = []
+    usable_mc_rows = 0
+    for record, row_labels in zip(mc_rows, mc_row_labels):
+        if not _bool_like(record.get("usable_for_metrics", False)):
+            continue
+        usable_mc_rows += 1
+        allowed_labels = set(row_labels) or set(labels)
+        if not allowed_labels:
+            continue
+
+        true_letter = _mc_confusion_exact_letter(record.get("correct_letter"), allowed_labels)
+        predicted_letter = _mc_confusion_predicted_letter(record, allowed_labels)
+        if not true_letter or not predicted_letter:
+            continue
+        labels.update({true_letter, predicted_letter})
+        parsed_pairs.append((predicted_letter, true_letter))
+
+    ordered_labels = sorted(labels, key=lambda label: (len(label), label))
+    counts = {
+        predicted_label: {true_label: 0 for true_label in ordered_labels}
+        for predicted_label in ordered_labels
+    }
+    for predicted_letter, true_letter in parsed_pairs:
+        counts[predicted_letter][true_letter] += 1
+
+    summary_rows = [
+        {
+            "predicted_letter": predicted_label,
+            **{true_label: int(counts[predicted_label][true_label]) for true_label in ordered_labels},
+        }
+        for predicted_label in ordered_labels
+    ]
+    return _json_ready(
+        {
+            "choice_labels": ordered_labels,
+            "n_mc_rows": int(len(mc_rows)),
+            "n_usable_mc_rows": int(usable_mc_rows),
+            "n_confusion_rows": int(len(parsed_pairs)),
+            "summary_rows": summary_rows,
+        }
+    )
+
+
+def _mc_confusion_matrix_df_from_summary(summary: Any) -> pd.DataFrame:
+    if not isinstance(summary, dict):
+        return pd.DataFrame()
+
+    choice_labels = [str(label) for label in summary.get("choice_labels", []) if str(label)]
+    columns = ["predicted_letter", *choice_labels] if choice_labels else ["predicted_letter"]
+    rows = summary.get("summary_rows", [])
+    if not isinstance(rows, list):
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _format_duration_human(seconds: Any) -> str:
+    numeric = _float_or_none(seconds)
+    if numeric is None:
+        return "n/a"
+    total_seconds = max(0, int(round(float(numeric))))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours}h {minutes:02d}m {secs:02d}s"
+    if minutes > 0:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
 def _selected_probe_score_series(samples_df: pd.DataFrame) -> pd.Series:
     if samples_df.empty:
         return pd.Series(dtype=float)
@@ -842,15 +1243,30 @@ def build_reports_summary_df(
     tuples_df: pd.DataFrame,
     bias_types: Sequence[str],
 ) -> pd.DataFrame:
-    configured_bias_types = _list_like_strings(bias_types)
+    configured_bias_types = [bias_type for bias_type in _list_like_strings(bias_types) if bias_type != "neutral"]
     observed_bias_types = (
         sorted({str(value).strip() for value in tuples_df.get("bias_type", pd.Series(dtype=str)).dropna().astype(str)})
         if not tuples_df.empty and "bias_type" in tuples_df.columns
         else []
     )
-    ordered_bias_types = configured_bias_types + [
-        bias_type for bias_type in observed_bias_types if bias_type not in set(configured_bias_types)
-    ]
+    observed_template_bias_types = (
+        sorted(
+            {
+                str(value).strip()
+                for value in _series_from_df(samples_df, "template_type", "").dropna().astype(str)
+                if str(value).strip() and str(value).strip() != "neutral"
+            }
+        )
+        if not samples_df.empty
+        else []
+    )
+    ordered_bias_types = list(configured_bias_types)
+    seen_bias_types = set(ordered_bias_types)
+    for bias_type in observed_bias_types + observed_template_bias_types:
+        if bias_type in seen_bias_types:
+            continue
+        ordered_bias_types.append(bias_type)
+        seen_bias_types.add(bias_type)
 
     rows = [
         _build_reports_summary_row(
@@ -866,6 +1282,15 @@ def build_reports_summary_df(
         if not tuples_df.empty and "bias_type" in tuples_df.columns
         else pd.Series(dtype=str)
     )
+    neutral_df = samples_df[template_series == "neutral"].copy()
+    if not neutral_df.empty:
+        rows.append(
+            _build_reports_summary_row(
+                bias_type="neutral",
+                prompt_metrics=_prompt_metrics_from_df(neutral_df),
+                pair_metrics={},
+            )
+        )
     for bias_type in ordered_bias_types:
         rows.append(
             _build_reports_summary_row(
@@ -1317,10 +1742,12 @@ def build_reports_summary_payload(
     args: Any,
     run_dir: Path,
     samples_df: pd.DataFrame,
+    sample_records: Optional[Sequence[Dict[str, Any]]] = None,
     tuples_df: pd.DataFrame,
     probe_scores_by_prompt_df: pd.DataFrame,
     probes_meta: Dict[str, Any],
     probe_candidate_scores_df: pd.DataFrame,
+    run_timing: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     model_summary_payload = build_model_summary_payload(
         args=args,
@@ -1361,6 +1788,14 @@ def build_reports_summary_payload(
     selected_probe_overview = probe_summary_payload.get("overview", {}).get("best_probe_on_test")
     prompt_overview = model_summary_payload.get("prompt_level", {}).get("all_rows", {})
     pair_overview = model_summary_payload.get("paired_effects", {}).get("all_pairs", {})
+    mc_option_selection = _build_mc_option_selection_summary(
+        samples_df,
+        bias_types=_list_like_strings(getattr(args, "bias_types", [])),
+    )
+    mc_confusion_matrix = _build_mc_confusion_matrix_summary(
+        samples_df,
+        sample_records=sample_records,
+    )
 
     return _json_ready(
         {
@@ -1398,10 +1833,13 @@ def build_reports_summary_payload(
             },
             "accuracy_by_template": _records_from_df(template_df),
             "accuracy_by_bias_type": _records_from_df(bias_df),
+            "mc_confusion_matrix": mc_confusion_matrix,
+            "mc_option_selection": mc_option_selection,
             "probe_score_summaries": _records_from_df(probe_summary_df),
             "selected_probe_overview": _json_ready(selected_probe_overview),
             "probe_training_status": probes_meta.get("probe_training_status", "completed"),
             "strict_mc_quality": probes_meta.get("strict_mc_quality"),
+            "runtime_timing": _json_ready(run_timing) if run_timing else None,
             "definitions": model_summary_payload.get("definitions", {}),
         }
     )
@@ -1458,25 +1896,50 @@ def _summary_rows_from_payload(summary_payload: Any) -> List[Dict[str, Any]]:
             )
         )
 
-    raw_bias_rows = summary_payload.get("accuracy_by_bias_type", [])
-    if isinstance(raw_bias_rows, list):
-        for bias_row in raw_bias_rows:
-            if not isinstance(bias_row, dict):
-                continue
+    template_lookup = {
+        str(row.get("template_type", "") or "").strip(): row
+        for row in summary_payload.get("accuracy_by_template", [])
+        if isinstance(row, dict) and str(row.get("template_type", "") or "").strip()
+    }
+    pair_lookup = {
+        str(row.get("bias_type", "") or "").strip(): row
+        for row in summary_payload.get("accuracy_by_bias_type", [])
+        if isinstance(row, dict) and str(row.get("bias_type", "") or "").strip()
+    }
+    configured_bias_types = [
+        bias_type for bias_type in _list_like_strings(summary_payload.get("bias_types")) if bias_type != "neutral"
+    ]
+    ordered_bias_types = list(configured_bias_types)
+    seen_bias_types = set(ordered_bias_types)
+    for bias_type in sorted(pair_lookup):
+        if bias_type in seen_bias_types:
+            continue
+        ordered_bias_types.append(bias_type)
+        seen_bias_types.add(bias_type)
+    for template_type in sorted(template_lookup):
+        if template_type == "neutral" or template_type in seen_bias_types:
+            continue
+        ordered_bias_types.append(template_type)
+        seen_bias_types.add(template_type)
+
+    if "neutral" in template_lookup:
+        rows.append(
+            _build_reports_summary_row(
+                bias_type="neutral",
+                prompt_metrics=template_lookup["neutral"],
+                pair_metrics={},
+            )
+        )
+
+    for bias_type in ordered_bias_types:
+        prompt_metrics = template_lookup.get(bias_type, {})
+        pair_metrics = pair_lookup.get(bias_type, {})
+        if prompt_metrics or pair_metrics:
             rows.append(
-                _json_ready(
-                    {
-                        "bias_type": bias_row.get("bias_type"),
-                        "accuracy": bias_row.get("accuracy_xprime"),
-                        "avg_p_correct": bias_row.get("avg_p_xprime"),
-                        "avg_p_selected": None,
-                        "neutral_accuracy": bias_row.get("accuracy_x"),
-                        "biased_accuracy": bias_row.get("accuracy_xprime"),
-                        "avg_delta_p_biased_minus_neutral": bias_row.get("avg_delta_p_xprime_minus_x"),
-                        "harmful_flip_rate": bias_row.get("harmful_flip_rate"),
-                        "helpful_flip_rate": bias_row.get("helpful_flip_rate"),
-                        "unchanged_correctness_rate": bias_row.get("unchanged_correctness_rate"),
-                    }
+                _build_reports_summary_row(
+                    bias_type=bias_type,
+                    prompt_metrics=prompt_metrics,
+                    pair_metrics=pair_metrics,
                 )
             )
     return rows
@@ -1612,6 +2075,27 @@ def build_executive_summary_markdown(
     generated_at_utc = payload_dict.get("generated_at_utc")
     headline_counts = payload_dict.get("headline_counts", {})
     summary_df = pd.DataFrame(_summary_rows_from_payload(summary_payload))
+    mc_confusion_matrix = payload_dict.get("mc_confusion_matrix") if isinstance(payload_dict, dict) else None
+    mc_confusion_df = _mc_confusion_matrix_df_from_summary(mc_confusion_matrix)
+    mc_confusion_labels = [
+        str(label)
+        for label in (mc_confusion_matrix.get("choice_labels", []) if isinstance(mc_confusion_matrix, dict) else [])
+        if str(label)
+    ]
+    mc_option_selection = payload_dict.get("mc_option_selection", {}) if isinstance(payload_dict, dict) else {}
+    mc_choice_labels = [
+        str(label)
+        for label in (mc_option_selection.get("choice_labels", []) if isinstance(mc_option_selection, dict) else [])
+        if str(label)
+    ]
+    mc_summary_df = pd.DataFrame(
+        mc_option_selection.get("summary_rows", []) if isinstance(mc_option_selection, dict) else []
+    )
+    runtime_timing_raw = payload_dict.get("runtime_timing", {}) if isinstance(payload_dict, dict) else {}
+    runtime_timing = runtime_timing_raw if isinstance(runtime_timing_raw, dict) else {}
+    runtime_stage_df = pd.DataFrame(
+        runtime_timing.get("stages", []) if isinstance(runtime_timing, dict) else []
+    )
     probe_df = pd.DataFrame(payload_dict.get("probe_score_summaries", []))
     best_probe_df = pd.DataFrame(
         [payload_dict.get("selected_probe_overview", {})]
@@ -1643,6 +2127,21 @@ def build_executive_summary_markdown(
             {"metric": "helpful_flip_rate", "value": overall_row.get("helpful_flip_rate")},
         ]
     )
+    runtime_overview_df = pd.DataFrame(
+        [
+            {"metric": "status", "value": runtime_timing.get("status")},
+            {"metric": "run_started_at_utc", "value": runtime_timing.get("started_at_utc")},
+            {"metric": "timing_snapshot_at_utc", "value": runtime_timing.get("snapshot_at_utc")},
+            {"metric": "total_elapsed_seconds", "value": runtime_timing.get("total_elapsed_seconds")},
+            {
+                "metric": "total_elapsed_human",
+                "value": _format_duration_human(runtime_timing.get("total_elapsed_seconds")),
+            },
+        ]
+    )
+    if not runtime_stage_df.empty:
+        runtime_stage_df = runtime_stage_df.copy()
+        runtime_stage_df["duration_human"] = runtime_stage_df["duration_seconds"].apply(_format_duration_human)
 
     sections = [
         "# Executive Summary",
@@ -1682,6 +2181,75 @@ def build_executive_summary_markdown(
                 "harmful_flip_rate": "Harmful flip",
                 "helpful_flip_rate": "Helpful flip",
             },
+        ),
+        "",
+        *(
+            [
+                "## MC Confusion Matrix",
+                (
+                    _markdown_table(
+                        mc_confusion_df,
+                        ["predicted_letter", *mc_confusion_labels],
+                        {
+                            "predicted_letter": "Predicted \\ True",
+                            **{label: label for label in mc_confusion_labels},
+                        },
+                    )
+                    if not mc_confusion_df.empty
+                    else "_No usable MC rows with both predicted and true letters._"
+                ),
+                "",
+            ]
+            if isinstance(mc_confusion_matrix, dict)
+            else []
+        ),
+        "## MC Option Selection",
+        (
+            _markdown_table(
+                mc_summary_df,
+                [
+                    "template_type",
+                    "n_rows",
+                    *[f"pick_{label}_rate" for label in mc_choice_labels],
+                    "avg_effective_options",
+                ],
+                {
+                    "template_type": "Template",
+                    "n_rows": "Rows",
+                    **{f"pick_{label}_rate": f"Pick {label}" for label in mc_choice_labels},
+                    "avg_effective_options": "Avg N_eff",
+                },
+            )
+            if not mc_summary_df.empty
+            else "_No strict-MC choice-probability rows._"
+        ),
+        "",
+        "## Runtime",
+        (
+            _markdown_table(
+                runtime_overview_df,
+                ["metric", "value"],
+                {"metric": "Metric", "value": "Value"},
+            )
+            if runtime_timing
+            else "_No runtime timing available._"
+        ),
+        "",
+        "### Stage Timing",
+        (
+            _markdown_table(
+                runtime_stage_df,
+                ["stage_index", "stage_name", "stage_status", "duration_seconds", "duration_human"],
+                {
+                    "stage_index": "Stage",
+                    "stage_name": "Name",
+                    "stage_status": "Status",
+                    "duration_seconds": "Seconds",
+                    "duration_human": "Duration",
+                },
+            )
+            if not runtime_stage_df.empty
+            else "_No stage timing available._"
         ),
         "",
         "## Best Probe",
@@ -1814,6 +2382,28 @@ def build_run_summary_payload(
     )
 
 
+def refresh_runtime_summary_artifacts(
+    *,
+    run_dir: Path,
+    runtime_timing: Dict[str, Any],
+) -> None:
+    run_summary_path = preferred_run_artifact_path(run_dir, "run_summary")
+    executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
+    if not run_summary_path.exists():
+        return
+
+    try:
+        payload = json.loads(run_summary_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(payload, dict):
+        return
+
+    payload["runtime_timing"] = _json_ready(runtime_timing)
+    write_json_atomic(run_summary_path, payload)
+    write_text_atomic(executive_summary_path, build_executive_summary_markdown(payload))
+
+
 def persist_sampling_state(
     *,
     stage: str,
@@ -1875,6 +2465,7 @@ def save_run_results(
     probe_candidate_score_rows: List[Dict[str, Any]],
     bias_types: Sequence[str],
     probes_meta: Dict[str, Any],
+    run_timing: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     tuple_rows = build_tuple_rows(all_records, model_name=args.model, bias_types=bias_types)
     tuples_df = to_tuples_df(tuple_rows)
@@ -1888,10 +2479,12 @@ def save_run_results(
         args=args,
         run_dir=run_dir,
         samples_df=samples_df,
+        sample_records=all_records,
         tuples_df=tuples_df,
         probe_scores_by_prompt_df=probe_scores_by_prompt_df,
         probes_meta=probes_meta,
         probe_candidate_scores_df=probe_candidate_scores_df,
+        run_timing=run_timing,
     )
     reports_summary_df = pd.DataFrame(
         reports_summary_payload.get("summary_rows", []),
@@ -1906,12 +2499,21 @@ def save_run_results(
     probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
     executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
     config_path = preferred_run_artifact_path(run_dir, "run_config")
+    mc_confusion_matrix_summary = reports_summary_payload.get("mc_confusion_matrix")
+    mc_confusion_matrix_path = (
+        preferred_run_artifact_path(run_dir, "mc_confusion_matrix")
+        if isinstance(mc_confusion_matrix_summary, dict)
+        else None
+    )
+    mc_confusion_matrix_df = _mc_confusion_matrix_df_from_summary(mc_confusion_matrix_summary)
 
     write_csv_atomic(samples_path, samples_df)
     write_json_atomic(reports_summary_path, reports_summary_payload.get("summary_rows", []))
     write_csv_atomic(reports_summary_csv_path, reports_summary_df)
     write_json_atomic(run_summary_path, reports_summary_payload)
     write_csv_atomic(probe_scores_by_prompt_path, probe_scores_by_prompt_df)
+    if mc_confusion_matrix_path is not None:
+        write_csv_atomic(mc_confusion_matrix_path, mc_confusion_matrix_df)
     write_text_atomic(executive_summary_path, executive_summary_text)
 
     run_cfg = dict(vars(args))
@@ -1939,6 +2541,8 @@ def save_run_results(
     run_cfg["run_summary_path"] = str(run_summary_path)
     run_cfg["probe_scores_by_prompt_path"] = str(probe_scores_by_prompt_path)
     run_cfg["executive_summary_path"] = str(executive_summary_path)
+    if mc_confusion_matrix_path is not None:
+        run_cfg["mc_confusion_matrix_path"] = str(mc_confusion_matrix_path)
     if probes_meta.get("all_probes_dir"):
         run_cfg["all_probes_dir"] = str(probes_meta["all_probes_dir"])
     if probes_meta.get("chosen_probe_dir"):
@@ -1961,6 +2565,8 @@ def save_run_results(
         "sampling_integrity_summary_path": sampling_integrity_summary_path,
         "run_log_path": run_log_path,
     }
+    if mc_confusion_matrix_path is not None:
+        saved_paths["mc_confusion_matrix_path"] = mc_confusion_matrix_path
     if warning_log_path is not None and warning_log_path.exists():
         saved_paths["warnings_log_path"] = warning_log_path
     for path in saved_paths.values():
@@ -1993,6 +2599,7 @@ __all__ = [
     "build_summary_df",
     "build_tuple_rows",
     "persist_sampling_state",
+    "refresh_runtime_summary_artifacts",
     "save_sampling_integrity_summary",
     "save_run_results",
     "to_probe_candidate_scores_df",

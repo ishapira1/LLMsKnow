@@ -37,6 +37,7 @@ class IntegrityContractTests(unittest.TestCase):
         reports_summary_csv_path = preferred_run_artifact_path(run_dir, "reports_summary_csv")
         run_summary_path = preferred_run_artifact_path(run_dir, "run_summary")
         executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
+        mc_confusion_matrix_path = preferred_run_artifact_path(run_dir, "mc_confusion_matrix")
 
         all_records = []
         probe_candidate_rows = []
@@ -217,6 +218,13 @@ class IntegrityContractTests(unittest.TestCase):
 
         write_csv_atomic(samples_path, samples_df)
         write_csv_atomic(reports_summary_csv_path, pd.DataFrame(reports_summary["summary_rows"]))
+        write_csv_atomic(
+            mc_confusion_matrix_path,
+            pd.DataFrame(
+                reports_summary.get("mc_confusion_matrix", {}).get("summary_rows", []),
+                columns=["predicted_letter", *reports_summary.get("mc_confusion_matrix", {}).get("choice_labels", [])],
+            ),
+        )
         sampling_records_path.parent.mkdir(parents=True, exist_ok=True)
         sampling_records_path.write_text(
             "\n".join(json.dumps(row, ensure_ascii=False) for row in all_records) + "\n",

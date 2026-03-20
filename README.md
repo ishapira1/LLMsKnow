@@ -164,19 +164,20 @@ Main artifacts:
 
 - `sampled_responses.csv`: one row per sampled completion, or one deterministic strict-MC selected-choice row per prompt, including both `question_id` and `prompt_id`, the raw `question`, the rendered `prompt_text`/`prompt_template`, split membership, grading result, and for MC-derived runs the preserved choice metadata (`correct_letter`, `letters`, `answer_options`, `answers_list`) plus exported strict-MC probability columns such as `P(correct)`, `P(selected)`, and `P(A)` / `P(B)` / ...
 - strict MC rows also expose compliance/audit fields such as `committed_answer`, `starts_with_answer_prefix`, `strict_format_exact`, `commitment_line`, `answer_marker_count`, `multiple_answer_markers`, and generation-stop metadata (`finish_reason`, `hit_max_new_tokens`)
-- `sampling_integrity_summary.json`: post-sampling compliance summary, including exact-compliance / minor-deviation / failure buckets by sampling mode and template
+- `logs/sampling_integrity_summary.json`: post-sampling compliance summary, including exact-compliance / minor-deviation / failure buckets by sampling mode and template
 - `final_tuples.csv`: paired neutral and biased records for the same question and draw index, including `question`, `prompt_id_x`, `prompt_id_xprime`, `prompt_x`, `prompt_with_bias`, and prompt-template provenance after dropping ambiguous samples
 - `summary_by_question.csv`: question-level aggregates across repeated draws, grouped by split, with `question`, prompt ids, prompt text, `dataset`, and prompt-template provenance retained
 - `probe_candidate_scores.csv`: one row per `(prompt, answer_choice)` probe evaluation example, including candidate probability, training weight, and chosen-probe score
 - `probe_metadata.json`: selected layers, validation metrics, probe-construction metadata, and saved probe paths
-- `reports/summary.csv` and `reports/summary.json`: flat run-level summary table with one `overall` row and one row per bias type
-- `reports/warnings.log`: warning-only report file, created only when the run emitted warnings
-- `reports/warnings_summary.json`: structured warning rollup with counts by warning code and source, plus the chronological warning list
+- `reports/summary.csv` and `reports/summary.json`: flat run-level summary table with one `overall` row, one `neutral` row, and one row per bias type
+- `logs/warnings.log`: warning-only report file, created only when the run emitted warnings
+- `logs/warnings_summary.json`: structured warning rollup with counts by warning code and source, plus the chronological warning list
 - `reports/executive_summary.md`: quick markdown overview of the run
-- `sampling_records.jsonl`: resumable per-sample checkpoint state
-- `sampling_manifest.json`: sampling spec and checkpoint metadata
+- `logs/sampling_records.jsonl`: resumable per-sample checkpoint state used for checkpointing and cache reuse
+- `logs/sampling_manifest.json`: sampling spec and checkpoint metadata
 - `run_config.json`: resolved run configuration, including normalized strict-MC settings such as `n_draws = 1`, `temperature = 1.0`, and the chosen probe-construction/weighting mode
 - `status.json`: run lifecycle state
+- `run_summary.json`: richer nested run summary payload for programmatic inspection
 - `probe_models/`: serialized sklearn probe models
 
 `final_tuples.csv` is the main table intended for downstream analysis.

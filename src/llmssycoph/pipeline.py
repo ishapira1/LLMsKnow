@@ -6,6 +6,7 @@ import random
 import textwrap
 from collections import Counter
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 import numpy as np
@@ -76,6 +77,7 @@ from .runtime import (
     preferred_run_artifact_path,
     release_run_lock,
     run_lock_path,
+    utc_now_iso,
     write_json_atomic,
     write_run_status,
 )
@@ -83,6 +85,7 @@ from .sampling_integrity import build_sampling_integrity_summary, log_sampling_i
 from .saving_manager import (
     build_terminal_final_stats_lines,
     persist_sampling_state,
+    refresh_runtime_summary_artifacts,
     save_run_results,
     save_sampling_integrity_summary,
 )
@@ -1166,13 +1169,69 @@ def run_pipeline(args) -> None:
     lock_path = run_lock_path(run_dir)
     stage_bar: Optional[tqdm] = None
     stage_count = 8
+    run_started_at_utc = utc_now_iso()
+    run_started_perf = perf_counter()
+    stage_timing_rows: List[Dict[str, Any]] = []
+    current_stage_timing: Optional[Dict[str, Any]] = None
+
+    def runtime_timing_snapshot(status: str) -> Dict[str, Any]:
+        now_utc = utc_now_iso()
+        now_perf = perf_counter()
+        stages = list(stage_timing_rows)
+        if current_stage_timing is not None:
+            stages.append(
+                {
+                    "stage_index": int(current_stage_timing["stage_index"]),
+                    "stage_name": str(current_stage_timing["stage_name"]),
+                    "stage_status": "in_progress",
+                    "started_at_utc": current_stage_timing["started_at_utc"],
+                    "ended_at_utc": None,
+                    "duration_seconds": max(
+                        0.0,
+                        float(now_perf - float(current_stage_timing["started_perf"])),
+                    ),
+                }
+            )
+        return {
+            "status": str(status),
+            "started_at_utc": run_started_at_utc,
+            "snapshot_at_utc": now_utc,
+            "total_elapsed_seconds": max(0.0, float(now_perf - run_started_perf)),
+            "stage_count": int(stage_count),
+            "stages": stages,
+        }
 
     def begin_stage(index: int, message: str) -> None:
+        nonlocal current_stage_timing
+        current_stage_timing = {
+            "stage_index": int(index),
+            "stage_name": str(message),
+            "started_at_utc": utc_now_iso(),
+            "started_perf": perf_counter(),
+        }
         if stage_bar is not None:
             stage_bar.set_description(tqdm_desc("pipeline.py", f"stage {index}/{stage_count} {message}"))
         log_status("pipeline.py", f"stage {index}/{stage_count}: {message}")
 
     def finish_stage() -> None:
+        nonlocal current_stage_timing
+        if current_stage_timing is not None:
+            ended_at_utc = utc_now_iso()
+            ended_perf = perf_counter()
+            stage_timing_rows.append(
+                {
+                    "stage_index": int(current_stage_timing["stage_index"]),
+                    "stage_name": str(current_stage_timing["stage_name"]),
+                    "stage_status": "completed",
+                    "started_at_utc": current_stage_timing["started_at_utc"],
+                    "ended_at_utc": ended_at_utc,
+                    "duration_seconds": max(
+                        0.0,
+                        float(ended_perf - float(current_stage_timing["started_perf"])),
+                    ),
+                }
+            )
+            current_stage_timing = None
         if stage_bar is not None:
             stage_bar.update(1)
 
@@ -1184,6 +1243,7 @@ def run_pipeline(args) -> None:
     sampling_integrity_summary: Dict[str, Any] = {}
     sampling_integrity_summary_path = preferred_run_artifact_path(run_dir, "sampling_integrity_summary")
     probe_candidate_score_rows: List[Dict[str, Any]] = []
+    saved_paths: Dict[str, Path] = {}
     try:
         assert_resume_compatible(run_dir, args)
         acquire_run_lock(lock_path, run_dir)
@@ -1856,6 +1916,7 @@ def run_pipeline(args) -> None:
             probe_candidate_score_rows=probe_candidate_score_rows,
             bias_types=planned_bias_types,
             probes_meta=probes_meta,
+            run_timing=runtime_timing_snapshot("running"),
         )
         neutral_accuracy_warning = _strict_mc_neutral_below_chance_warning(all_records)
         if args.smoke_test and strict_mc_quality_failures:
@@ -1900,6 +1961,17 @@ def run_pipeline(args) -> None:
                         "pipeline.py",
                         f"warning summary finalization failed: {type(warning_summary_exc).__name__}: {warning_summary_exc}",
                     )
+            try:
+                if saved_paths.get("run_summary_path") is not None:
+                    refresh_runtime_summary_artifacts(
+                        run_dir=run_dir,
+                        runtime_timing=runtime_timing_snapshot(run_status),
+                    )
+            except Exception as runtime_summary_exc:
+                log_status(
+                    "pipeline.py",
+                    f"runtime summary refresh failed: {type(runtime_summary_exc).__name__}: {runtime_summary_exc}",
+                )
         finally:
             if stage_bar is not None:
                 stage_bar.close()
