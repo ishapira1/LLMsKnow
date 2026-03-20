@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from ..logging_utils import log_status
 from .agreement_biases import get_agreement_bias, resolve_agreement_biases
 from .instruction_policies import (
-    DEFAULT_INSTRUCTION_POLICY_NAME,
     get_instruction_policy,
 )
 from .prompt import Prompt
@@ -524,7 +523,7 @@ class BenchmarkDatasetAdapter:
         rows: Sequence[Dict[str, Any]],
         selected_bias_types: Sequence[str],
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
-        instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
+        instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
     ) -> List[Dict[str, Any]]:
         raise NotImplementedError
@@ -543,7 +542,7 @@ class AnswerJsonDataset(BenchmarkDatasetAdapter):
         rows: Sequence[Dict[str, Any]],
         selected_bias_types: Sequence[str],
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
-        instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
+        instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
     ) -> List[Dict[str, Any]]:
         del selected_bias_types, selected_ays_mc_datasets, instruction_policy, mc_mode
@@ -580,7 +579,7 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
         rows: Sequence[Dict[str, Any]],
         selected_bias_types: Sequence[str],
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
-        instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
+        instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
     ) -> List[Dict[str, Any]]:
         biases = resolve_agreement_biases(selected_bias_types, include_neutral=True)
@@ -678,7 +677,7 @@ def materialize_ays_mc_single_turn_rows(
     rows: Sequence[Dict[str, Any]],
     selected_bias_types: Sequence[str],
     selected_ays_mc_datasets: Sequence[str],
-    instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
+    instruction_policy: str | None = None,
     mc_mode: str = MC_MODE_STRICT,
 ) -> List[Dict[str, Any]]:
     adapter = AysMcSingleTurnDataset()
@@ -706,7 +705,7 @@ def prepare_benchmark_rows(
     input_jsonl: str,
     selected_bias_types: Optional[Sequence[str]] = None,
     selected_ays_mc_datasets: Optional[Sequence[str]] = None,
-    instruction_policy: str = DEFAULT_INSTRUCTION_POLICY_NAME,
+    instruction_policy: str | None = None,
     mc_mode: str = MC_MODE_STRICT,
 ) -> List[Dict[str, Any]]:
     adapter = dataset_adapter_for_benchmark(benchmark_source)
