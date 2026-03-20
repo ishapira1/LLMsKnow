@@ -6,6 +6,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
+class LLMCapabilities:
+    backend_name: str
+    supports_hidden_state_probes: bool = False
+    supports_choice_scoring: bool = False
+    exposes_model_and_tokenizer: bool = False
+
+
+@dataclass(frozen=True)
 class GenerationResult:
     response_raw: str
     completion_token_count: Optional[int] = None
@@ -41,6 +49,9 @@ class BaseLLM(ABC):
     def __init__(self, model_name: str):
         self.model_name = model_name
 
+    def capabilities(self) -> LLMCapabilities:
+        return LLMCapabilities(backend_name="custom")
+
     @abstractmethod
     def generate(
         self,
@@ -70,4 +81,4 @@ class BaseLLM(ABC):
         )
 
 
-__all__ = ["BaseLLM", "GenerationResult"]
+__all__ = ["BaseLLM", "GenerationResult", "LLMCapabilities"]

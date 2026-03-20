@@ -62,9 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="mistralai/Mistral-7B-Instruct-v0.2",
         help=(
-            "Model identifier passed to Hugging Face Transformers "
-            "from_pretrained(...), usually a Hugging Face repo name like "
-            "'mistralai/Mistral-7B-Instruct-v0.2'. A local model path also works."
+            "Model identifier. Unregistered names are passed to Hugging Face Transformers "
+            "from_pretrained(...), usually a repo name like "
+            "'mistralai/Mistral-7B-Instruct-v0.2'. Explicitly registered OpenAI model ids "
+            "such as 'gpt-5.4-nano' route to the OpenAI API instead."
         ),
     )
     model_group.add_argument(
@@ -212,7 +213,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--sample_batch_size",
         type=int,
         default=4,
-        help="Batch size for sampling draws per prompt. Falls back to sequential on OOM/runtime generation errors.",
+        help=(
+            "Batch size for sampling draws per prompt. "
+            "For OpenAI-backed runs, this also acts as the maximum number of in-flight prompt requests."
+        ),
     )
     sampling_group.add_argument(
         "--sampling_checkpoint_every",

@@ -1,6 +1,7 @@
 SLURM jobs for `run_sycophancy_bias_probe.py`:
 
 - `smoke_aqua_mc_auto.sh`: direct smoke/integrity run using `mistralai/Mistral-7B-Instruct-v0.2` on the AYS-derived `aqua_mc` slice, preferring GPU via `--device auto` and falling back to CPU when no accelerator is available, with an artifact-level integrity check after the pipeline finishes. The wrapper normalizes `HF_HUB_CACHE` / `HUGGINGFACE_HUB_CACHE` / `TRANSFORMERS_CACHE` / `HF_HOME` into a single Hugging Face cache path and passes it to the pipeline. The integrity CLI warns by default and only exits non-zero when passed `--strict`.
+- `full_aqua_mc_gpt54nano_samples.sh`: direct run wrapper for the `aqua_mc` all-questions slice aligned to the `full_aqua_mc_mistral7b_auto_allq_l32_seas` setup, but using `gpt-5.4-nano` and `--sampling_only` so the saved sampling artifacts can be compared against the Mistral reference later. It sources `.env`, requires `OPENAI_API_KEY_FOR_PROJECT` (or `OPENAI_API_KEY`), defaults to bounded parallel OpenAI requests via `SAMPLE_BATCH_SIZE=8`, and runs integrity checks after sampling completes.
 - `smoke_aqua_mc_cpu.sh`: compatibility alias for the historical job name; it forwards to `smoke_aqua_mc_auto.sh`.
 - `aqua_mc_seas_common.sh`: shared helper used by the `seas_gpu` batch jobs. It keeps the smoke job's `aqua_mc` + `Mistral-7B-Instruct-v0.2` setup, normalizes the Hugging Face cache env vars, and omits strict-MC sampling flags that are normalized away anyway.
 - `fast_aqua_mc_seas.sbatch`: `aqua_mc` fast preset for `seas_gpu` with 24 smoke questions and probe layers `1..8`.
@@ -29,6 +30,7 @@ Submit examples:
 
 ```bash
 bash jobs/sycophancy_bias_probe/smoke_aqua_mc_auto.sh
+bash jobs/sycophancy_bias_probe/full_aqua_mc_gpt54nano_samples.sh
 sbatch jobs/sycophancy_bias_probe/fast_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/medium_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_seas.sbatch

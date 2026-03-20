@@ -1,4 +1,4 @@
-from .base import BaseLLM, GenerationResult
+from .base import BaseLLM, GenerationResult, LLMCapabilities
 from .generation import (
     _clear_device_cache,
     _resolve_model_inputs,
@@ -12,11 +12,15 @@ from .generation import (
 )
 from .huggingface import HuggingFaceLLM
 from .loading import load_model_and_tokenizer
+from .openai_backend import OpenAILLM
 from .registry import (
     get_registered_llm_factory,
+    get_registered_llm_capabilities,
     load_llm,
     register_llm,
     registered_llm_names,
+    resolve_llm_backend,
+    resolve_llm_capabilities,
     unregister_llm,
 )
 from .scoring import audit_choice_tokenization, score_choices, score_logprob_answer, score_p_true
@@ -35,6 +39,7 @@ from .sampling import (
 __all__ = [
     "BaseLLM",
     "GenerationResult",
+    "LLMCapabilities",
     "_clear_device_cache",
     "_resolve_model_inputs",
     "_should_fallback_to_sequential",
@@ -47,13 +52,17 @@ __all__ = [
     "generate_one",
     "audit_choice_tokenization",
     "get_registered_llm_factory",
+    "get_registered_llm_capabilities",
     "HuggingFaceLLM",
     "load_llm",
     "load_model_and_tokenizer",
     "load_sampling_cache_candidate",
     "normalize_sample_records",
+    "OpenAILLM",
     "register_llm",
     "registered_llm_names",
+    "resolve_llm_backend",
+    "resolve_llm_capabilities",
     "sample_record_key",
     "sample_record_key_values",
     "sample_records_for_groups",

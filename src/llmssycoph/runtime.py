@@ -163,7 +163,19 @@ def make_run_dir(base_out_dir: str, model_name: str, run_name: Optional[str]) ->
     return run_dir
 
 
-def _canonical_resume_value(key: str, value: Any) -> Any:
+def _canonical_resume_value(key: str, value: Any, payload: Optional[Mapping[str, Any]] = None) -> Any:
+    if key == "model_backend":
+        if value is None:
+            model_name = ""
+            if isinstance(payload, Mapping):
+                model_name = str(payload.get("model", "") or "")
+            if not model_name:
+                return "huggingface"
+            from .llm.registry import resolve_llm_backend
+
+            return resolve_llm_backend(model_name)
+        return str(value or "huggingface")
+
     if key == "sampling_only":
         if value is None:
             return False
@@ -194,9 +206,10 @@ def assert_resume_compatible(run_dir: Path, args: Any) -> None:
         raise RuntimeError(f"Failed reading existing run config at {cfg_path}: {exc}") from exc
 
     mismatches: Dict[str, Tuple[Any, Any]] = {}
+    new_payload = vars(args) if hasattr(args, "__dict__") else {}
     for key in RESUME_COMPAT_KEYS:
-        old_val = _canonical_resume_value(key, old_cfg.get(key))
-        new_val = _canonical_resume_value(key, getattr(args, key, None))
+        old_val = _canonical_resume_value(key, old_cfg.get(key), old_cfg)
+        new_val = _canonical_resume_value(key, getattr(args, key, None), new_payload)
         if old_val != new_val:
             mismatches[key] = (old_val, new_val)
 

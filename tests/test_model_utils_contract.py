@@ -10,9 +10,11 @@ from llmssycoph.llm import (
     BaseLLM,
     GenerationResult,
     get_registered_llm_factory,
+    get_registered_llm_capabilities,
     load_llm,
     register_llm,
     registered_llm_names,
+    resolve_llm_backend,
     unregister_llm,
 )
 from llmssycoph.llm.huggingface import _device_uses_gpu, _warn_if_not_using_gpu
@@ -150,6 +152,25 @@ class ModelUtilsContractTests(unittest.TestCase):
             unregister_llm("dummy-backend")
 
         self.assertNotIn("dummy-backend", registered_llm_names())
+
+    def test_explicit_openai_model_ids_are_registered_and_resolve_to_openai_backend(self):
+        self.assertEqual(resolve_llm_backend("gpt-5.4-nano"), "openai")
+        capabilities = get_registered_llm_capabilities("gpt-5.4-nano")
+        self.assertIsNotNone(capabilities)
+        self.assertFalse(capabilities.supports_hidden_state_probes)
+        self.assertTrue(capabilities.supports_choice_scoring)
+
+        with patch("llmssycoph.llm.registry.OpenAILLM", autospec=True) as mock_openai_llm:
+            instance = mock_openai_llm.return_value
+            llm = load_llm(
+                "gpt-5.4-nano",
+                device="auto",
+                device_map_auto=False,
+                hf_cache_dir=None,
+            )
+
+        self.assertIs(llm, instance)
+        mock_openai_llm.assert_called_once()
 
 
 if __name__ == "__main__":

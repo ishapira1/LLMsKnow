@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import os
 import random
+import textwrap
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
@@ -51,6 +52,7 @@ from .llm import (
     load_llm,
     load_sampling_cache_candidate,
     normalize_sample_records,
+    resolve_llm_capabilities,
     sample_records_for_groups,
     sampling_spec_hash,
     sort_sample_records,
@@ -104,6 +106,98 @@ def _preview_text(value: Any, limit: int = 160) -> str:
     return text[: max(0, limit - 3)].rstrip() + "..."
 
 
+def _preview_lines(value: Any, *, limit: int = 320, width: int = 88) -> List[str]:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ["<empty>"]
+    if len(text) > limit:
+        text = text[: max(0, limit - 3)].rstrip() + "..."
+
+    lines: List[str] = []
+    for raw_line in text.split("\n"):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        wrapped = textwrap.wrap(
+            stripped,
+            width=width,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        lines.extend(wrapped or [stripped])
+    return lines or ["<empty>"]
+
+
+def _append_preview_block(
+    lines: List[str],
+    label: str,
+    value: Any,
+    *,
+    indent: int = 2,
+    value_indent: int = 4,
+    limit: int = 320,
+    width: int = 88,
+) -> None:
+    lines.append(f"{' ' * indent}{label}:")
+    lines.extend(
+        f"{' ' * value_indent}{line}"
+        for line in _preview_lines(value, limit=limit, width=width)
+    )
+
+
+def _format_group_example_lines(example: Dict[str, Any], bias_types: Sequence[str]) -> List[str]:
+    lines = ["dataset example"]
+    lines.append(f"  question_id: {example.get('question_id', '<unknown>')}")
+
+    dataset_name = str(example.get("dataset", "") or "").strip()
+    if dataset_name:
+        lines.append(f"  dataset: {dataset_name}")
+
+    _append_preview_block(lines, "question", example.get("question", ""), limit=360, width=88)
+    _append_preview_block(lines, "correct_answer", example.get("correct_answer", ""), limit=220, width=88)
+    _append_preview_block(lines, "incorrect_answer", example.get("incorrect_answer", ""), limit=220, width=88)
+
+    rows_by_type = example.get("rows_by_type", {}) or {}
+    for template_type in ["neutral", *bias_types]:
+        row = rows_by_type.get(template_type)
+        if not isinstance(row, dict):
+            continue
+
+        lines.append(f"  template={template_type}")
+        _append_preview_block(
+            lines,
+            "prompt_template",
+            (row.get("metadata", {}) or {}).get("prompt_template", ""),
+            indent=4,
+            value_indent=6,
+            limit=360,
+            width=84,
+        )
+
+        prompt_messages = row.get("prompt", [])
+        lines.append("    prompt_messages:")
+        if not isinstance(prompt_messages, list) or not prompt_messages:
+            lines.append("      <empty>")
+            continue
+
+        for message_index, message in enumerate(prompt_messages, start=1):
+            if not isinstance(message, dict):
+                lines.append(f"      {message_index}. [message]")
+                lines.extend(
+                    f"        {line}"
+                    for line in _preview_lines(message, limit=700, width=80)
+                )
+                continue
+
+            role = str(message.get("type") or message.get("role") or "message")
+            lines.append(f"      {message_index}. [{role}]")
+            lines.extend(
+                f"        {line}"
+                for line in _preview_lines(message.get("content", ""), limit=700, width=80)
+            )
+    return lines
+
+
 def _format_arg_value(value: Any) -> str:
     if value is None:
         return "<unset>"
@@ -147,6 +241,8 @@ def _format_parsed_argument_lines(args: Any) -> List[str]:
 def _warn_strict_mc_temperature_bookkeeping(args: Any) -> None:
     if str(getattr(args, "mc_mode", "") or "") != MC_MODE_STRICT:
         return
+    if str(getattr(args, "model_backend", "") or "") == "openai":
+        return
 
     effective_temperature = float(getattr(args, "temperature", 1.0) or 1.0)
     if effective_temperature != 1.0:
@@ -169,6 +265,44 @@ def _warn_strict_mc_temperature_bookkeeping(args: Any) -> None:
         "strict MC mode records temperature=1.0 for bookkeeping. First-token choice scoring ignores "
         "temperature, but if any prompt later falls back to text generation this value will apply there.",
     )
+
+
+def _warn_sampling_only_split_expectations(args: Any) -> None:
+    if not bool(getattr(args, "sampling_only", False)):
+        return
+
+    test_frac = float(getattr(args, "test_frac", 0.0) or 0.0)
+    probe_val_frac = float(getattr(args, "probe_val_frac", 0.0) or 0.0)
+    if test_frac <= 0.0 and probe_val_frac <= 0.0:
+        return
+
+    warn_status(
+        "pipeline.py",
+        "sampling_only_split_active",
+        "sampling-only mode skips probe training, but the pipeline still applies question splitting before "
+        f"sampling (test_frac={test_frac}, probe_val_frac={probe_val_frac}). "
+        "Some questions will still be assigned to val/test and sampled there. "
+        "Use --test_frac 0 --probe_val_frac 0 if you want one unsplit sampling pool.",
+    )
+
+
+def _apply_model_backend_overrides(args: Any, model_capabilities: Any) -> None:
+    args.model_backend = str(getattr(model_capabilities, "backend_name", "huggingface") or "huggingface")
+
+    if (
+        str(getattr(args, "mc_mode", "") or "") == MC_MODE_STRICT
+        and not bool(getattr(model_capabilities, "supports_choice_scoring", False))
+        and getattr(args, "requested_temperature", None) is not None
+    ):
+        args.temperature = float(args.requested_temperature)
+
+    if not bool(getattr(args, "sampling_only", False)) and not bool(
+        getattr(model_capabilities, "supports_hidden_state_probes", False)
+    ):
+        raise ValueError(
+            f"model backend '{args.model_backend}' currently supports sampling-only runs only. "
+            "Re-run with --sampling_only."
+        )
 
 
 def _count_expected_by_template(
@@ -195,36 +329,8 @@ def _log_group_example(groups: Sequence[Dict[str, Any]], bias_types: Sequence[st
         log_status("pipeline.py", "dataset example: no valid grouped questions found")
         return
 
-    example = groups[0]
-    log_status(
-        "pipeline.py",
-        f"dataset example question_id={example['question_id']} question='{_preview_text(example['question'])}' "
-        f"correct='{_preview_text(example['correct_answer'])}' "
-        f"incorrect='{_preview_text(example['incorrect_answer'])}'",
-    )
-    for template_type in ["neutral", *bias_types]:
-        row = example["rows_by_type"].get(template_type)
-        if row is None:
-            continue
-        prompt_text = _preview_text((row.get("metadata", {}) or {}).get("prompt_template", ""), limit=180)
-        if prompt_text:
-            log_status(
-                "pipeline.py",
-                f"dataset example template={template_type} prompt_template='{prompt_text}'",
-            )
-        prompt_preview = _preview_text(
-            "\n".join(
-                message.get("content", "")
-                for message in row.get("prompt", [])
-                if isinstance(message, dict) and isinstance(message.get("content"), str)
-            ),
-            limit=220,
-        )
-        if prompt_preview:
-            log_status(
-                "pipeline.py",
-                f"dataset example template={template_type} prompt_preview='{prompt_preview}'",
-                )
+    for line in _format_group_example_lines(groups[0], bias_types):
+        log_status("pipeline.py", line)
 
 
 def _row_uses_choice_scoring(row: Dict[str, Any]) -> bool:
@@ -1092,6 +1198,7 @@ def run_pipeline(args) -> None:
         )
 
         begin_stage(1, "parsed arguments and execution plan")
+        _apply_model_backend_overrides(args, resolve_llm_capabilities(args.model))
         for line in _format_parsed_argument_lines(args):
             log_status("pipeline.py", line)
         _warn_strict_mc_temperature_bookkeeping(args)
@@ -1205,14 +1312,22 @@ def run_pipeline(args) -> None:
             requested_n_draws=args.requested_n_draws,
         )
         any_choice_scoring, all_choice_scoring = _choice_scoring_coverage(groups, planned_bias_types)
-        args.strict_mc_choice_scoring = bool(any_choice_scoring)
-        if all_choice_scoring and args.n_draws != 1:
+        model_capabilities = resolve_llm_capabilities(args.model)
+        args.strict_mc_choice_scoring = bool(any_choice_scoring and model_capabilities.supports_choice_scoring)
+        if any_choice_scoring and not model_capabilities.supports_choice_scoring:
+            log_status(
+                "pipeline.py",
+                f"backend={args.model_backend} does not support exact strict-MC choice scoring; "
+                "sampling will fall back to text generation for strict-MC prompts.",
+            )
+        if args.strict_mc_choice_scoring and all_choice_scoring and args.n_draws != 1:
             log_status(
                 "pipeline.py",
                 f"strict MC choice scoring active for all prompts; overriding n_draws from {args.n_draws} to 1",
             )
             args.n_draws = 1
 
+        _warn_sampling_only_split_expectations(args)
         train_groups, val_groups, test_groups = split_groups_train_val_test(
             groups,
             test_frac=args.test_frac,

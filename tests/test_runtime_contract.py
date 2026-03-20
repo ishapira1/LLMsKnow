@@ -37,6 +37,7 @@ def make_args(**overrides):
     payload.update(
         {
             "model": "mistralai/Mistral-7B-Instruct-v0.2",
+            "model_backend": "huggingface",
             "benchmark_source": "answer_json",
             "input_jsonl": "answer.jsonl",
             "dataset_name": "all",
@@ -150,6 +151,16 @@ class RuntimeContractTests(unittest.TestCase):
             args = make_args(sampling_only=False)
             cfg_path = preferred_run_artifact_path(run_dir, "run_config")
             payload = {key: getattr(args, key, None) for key in RESUME_COMPAT_KEYS if key != "sampling_only"}
+            write_json_atomic(cfg_path, payload)
+
+            assert_resume_compatible(run_dir, args)
+
+    def test_assert_resume_compatible_infers_missing_model_backend_from_model(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = make_run_dir(tmpdir, "gpt-5.4-nano", "resume_model_backend_default_case")
+            args = make_args(model="gpt-5.4-nano", model_backend="openai")
+            cfg_path = preferred_run_artifact_path(run_dir, "run_config")
+            payload = {key: getattr(args, key, None) for key in RESUME_COMPAT_KEYS if key != "model_backend"}
             write_json_atomic(cfg_path, payload)
 
             assert_resume_compatible(run_dir, args)

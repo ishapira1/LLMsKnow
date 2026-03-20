@@ -33,6 +33,7 @@ from llmssycoph.llm.sampling import (
 def make_args(**overrides):
     payload = {
         "model": "mistralai/Mistral-7B-Instruct-v0.2",
+        "model_backend": "huggingface",
         "benchmark_source": "answer_json",
         "input_jsonl": "answer.jsonl",
         "dataset_name": "all",
@@ -179,6 +180,7 @@ class SamplingContractTests(unittest.TestCase):
             expected_test=4,
         )
         self.assertEqual(spec["sampling_spec_version"], SAMPLING_SPEC_VERSION)
+        self.assertEqual(spec["model_backend"], "huggingface")
         self.assertEqual(spec["benchmark_source"], "answer_json")
         self.assertEqual(spec["dataset_name"], "all")
         self.assertEqual(spec["ays_mc_datasets"], ["truthful_qa_mc", "aqua_mc"])
@@ -643,6 +645,47 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual(biased["response_raw"], "A")
         self.assertEqual(biased["correctness"], 0)
         self.assertAlmostEqual(biased["choice_probability_correct"], 0.1)
+
+    def test_sample_records_for_groups_falls_back_to_generation_when_backend_lacks_choice_scoring(self):
+        groups = [make_strict_mc_group("q_mc")]
+
+        class FakeLLM:
+            def __init__(self):
+                self.generate_calls = []
+
+            def capabilities(self):
+                return SimpleNamespace(supports_choice_scoring=False)
+
+            def score_choices(self, messages, choices):
+                raise AssertionError("generation fallback should skip score_choices()")
+
+            def generate(self, messages, **kwargs):
+                self.generate_calls.append((messages, kwargs))
+                return [{"response_raw": "C", "completion_token_count": 1, "finish_reason": "completed"}]
+
+        fake_llm = FakeLLM()
+
+        with patch("llmssycoph.llm.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])):
+            records, stats = sample_records_for_groups(
+                llm=fake_llm,
+                groups=groups,
+                split_name="train",
+                bias_types=["incorrect_suggestion"],
+                n_draws=1,
+                temperature=0.1,
+                top_p=1.0,
+                max_new_tokens=32,
+                sample_batch_size=1,
+                existing_records=None,
+                checkpoint_every=0,
+                progress_callback=None,
+                start_id=0,
+            )
+
+        self.assertEqual(len(fake_llm.generate_calls), 2)
+        self.assertEqual(stats["generated_records"], 2)
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(record["sampling_mode"] == "generation" for record in records))
 
 
 if __name__ == "__main__":

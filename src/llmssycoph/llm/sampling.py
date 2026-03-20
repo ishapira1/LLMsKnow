@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import hashlib
 import json
 from pathlib import Path
@@ -48,6 +49,151 @@ def _generation_record_from_output(output: Any) -> Dict[str, Any]:
         "choice_probability_correct": float("nan"),
         "choice_probability_selected": float("nan"),
     }
+
+
+def _llm_supports_choice_scoring(llm: Any) -> bool:
+    capabilities_fn = getattr(llm, "capabilities", None)
+    if not callable(capabilities_fn):
+        return True
+    try:
+        capabilities = capabilities_fn()
+    except Exception:
+        return False
+    return bool(getattr(capabilities, "supports_choice_scoring", False))
+
+
+def _llm_backend_name(llm: Any) -> str:
+    capabilities_fn = getattr(llm, "capabilities", None)
+    if not callable(capabilities_fn):
+        return ""
+    try:
+        capabilities = capabilities_fn()
+    except Exception:
+        return ""
+    return str(getattr(capabilities, "backend_name", "") or "")
+
+
+def _materialize_sample_record(
+    task: Dict[str, Any],
+    *,
+    draw_idx: int,
+    record_id: int,
+    generation_record: Dict[str, Any],
+    grading: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "record_id": record_id,
+        "question_id": task["question_id"],
+        "prompt_id": prompt_id_for(task["question_id"], task["template_type"]),
+        "split": task["split_name"],
+        "dataset": task["dataset"],
+        "template_type": task["template_type"],
+        "task_format": task["task_format"],
+        "mc_mode": task["mc_mode"],
+        "answer_channel": task["answer_channel"],
+        "prompt_spec_version": task["prompt_spec_version"],
+        "grading_spec_version": grading.get("grading_spec_version", task["grading_spec_version"]),
+        "correct_letter": task["correct_letter"],
+        "incorrect_letter": task["incorrect_letter"],
+        "letters": task["letters"],
+        "answer_options": task["answer_options"],
+        "answers_list": task["answers_list"],
+        "prompt_messages": task["prompt_messages"],
+        "prompt_text": task["prompt_text"],
+        "prompt_template": task["prompt_template"],
+        "question": task["question"],
+        "correct_answer": task["correct_answer"],
+        "incorrect_answer": task["incorrect_answer"],
+        "incorrect_answer_source": task["incorrect_answer_source"],
+        "gold_answers": task["gold_answers"],
+        "draw_idx": draw_idx,
+        "response_raw": generation_record["response_raw"],
+        "response": grading["parsed_answer"],
+        "committed_answer": grading.get("committed_answer", ""),
+        "commitment_kind": grading.get("commitment_kind", ""),
+        "commitment_source": grading.get("commitment_source", ""),
+        "starts_with_answer_prefix": bool(grading.get("starts_with_answer_prefix", False)),
+        "strict_format_exact": bool(grading.get("strict_format_exact", False)),
+        "commitment_line": grading.get("commitment_line", ""),
+        "answer_marker_count": int(grading.get("answer_marker_count", 0) or 0),
+        "multiple_answer_markers": bool(grading.get("multiple_answer_markers", False)),
+        "correctness": grading["correctness"],
+        "grading_status": grading["status"],
+        "grading_reason": grading["reason"],
+        "usable_for_metrics": grading["usable_for_metrics"],
+        "completion_token_count": generation_record.get("completion_token_count"),
+        "hit_max_new_tokens": generation_record.get("hit_max_new_tokens", False),
+        "stopped_on_eos": generation_record.get("stopped_on_eos", False),
+        "finish_reason": generation_record.get("finish_reason", ""),
+        "sampling_mode": generation_record.get("sampling_mode", "generation"),
+        "choice_probabilities": generation_record.get("choice_probabilities", {}),
+        "choice_probability_correct": generation_record.get("choice_probability_correct", float("nan")),
+        "choice_probability_selected": generation_record.get("choice_probability_selected", float("nan")),
+    }
+
+
+def _execute_sampling_task(
+    llm: Any,
+    task: Dict[str, Any],
+    *,
+    temperature: float,
+    top_p: float,
+    max_new_tokens: int,
+    sample_batch_size: int,
+) -> List[Dict[str, Any]]:
+    missing_draws = list(task["missing_draws"])
+    batch_size = max(1, min(sample_batch_size, len(missing_draws)))
+    if task["choice_labels"] and _llm_supports_choice_scoring(llm):
+        choice_probabilities = llm.score_choices(task["prompt_messages"], task["choice_labels"])
+        selected_choice = max(
+            task["choice_labels"],
+            key=lambda choice: (float(choice_probabilities.get(choice, float("-inf"))), -task["choice_labels"].index(choice)),
+        )
+        generated_outputs = [
+            {
+                "response_raw": selected_choice,
+                "completion_token_count": 1,
+                "hit_max_new_tokens": False,
+                "stopped_on_eos": False,
+                "finish_reason": "choice_probabilities",
+                "sampling_mode": "choice_probabilities",
+                "choice_probabilities": choice_probabilities,
+                "choice_probability_correct": float(
+                    choice_probabilities.get(str(task["correct_letter"] or "").strip().upper(), 0.0)
+                ),
+                "choice_probability_selected": float(choice_probabilities.get(selected_choice, 0.0)),
+            }
+            for _ in missing_draws
+        ]
+    else:
+        generated_outputs = llm.generate(
+            task["prompt_messages"],
+            n=len(missing_draws),
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            batch_size=batch_size,
+            safe_fallback=True,
+            strict_mc_letters=task["strict_mc_letters"],
+        )
+
+    outputs: List[Dict[str, Any]] = []
+    for draw_idx, record_id, generated_output in zip(missing_draws, task["record_ids"], generated_outputs):
+        generation_record = _generation_record_from_output(generated_output)
+        grading = _grade_response_from_base(
+            generation_record["response_raw"],
+            task["base"],
+            generation_info=generation_record,
+        )
+        outputs.append(
+            {
+                "draw_idx": draw_idx,
+                "record_id": record_id,
+                "generation_record": generation_record,
+                "grading": grading,
+            }
+        )
+    return outputs
 
 
 def _strict_mc_choice_labels(base: Dict[str, Any]) -> List[str]:
@@ -156,6 +302,7 @@ def build_sampling_spec(
     return {
         "sampling_spec_version": int(SAMPLING_SPEC_VERSION),
         "model": args.model,
+        "model_backend": str(getattr(args, "model_backend", "huggingface") or "huggingface"),
         "benchmark_source": str(getattr(args, "benchmark_source", "answer_json") or "answer_json"),
         "mc_mode": str(getattr(args, "mc_mode", "") or ""),
         "prompt_spec_version": int(getattr(args, "prompt_spec_version", 0) or 0),
@@ -284,17 +431,15 @@ def sample_records_for_groups(
     expected_total = 0
     generated_since_checkpoint = 0
     wanted_types = ["neutral"] + list(bias_types)
+    use_openai_parallelism = _llm_backend_name(llm) == "openai" and int(sample_batch_size) > 1
     log_status(
         "sampling.py",
         f"sampling split={split_name}: questions={len(groups)} existing_records={len(records_by_key)} "
         f"n_draws={n_draws} batch_size={sample_batch_size}",
     )
+    pending_tasks: List[Dict[str, Any]] = []
 
-    for group in tqdm(
-        groups,
-        desc=tqdm_desc("sampling.py", f"sampling {split_name} split"),
-        unit="question",
-    ):
+    for group in groups:
         base_row = group["rows_by_type"]["neutral"]
         base = base_row.get("base", {}) or {}
         gold_answers = _extract_gold_answers_from_base(base)
@@ -334,120 +479,139 @@ def sample_records_for_groups(
 
             if not missing_draws:
                 continue
-
-            batch_size = max(1, min(sample_batch_size, len(missing_draws)))
-            if choice_labels:
-                choice_probabilities = llm.score_choices(prompt_messages, choice_labels)
-                selected_choice = max(
-                    choice_labels,
-                    key=lambda choice: (float(choice_probabilities.get(choice, float("-inf"))), -choice_labels.index(choice)),
-                )
-                generated_outputs = [
-                    {
-                        "response_raw": selected_choice,
-                        "completion_token_count": 1,
-                        "hit_max_new_tokens": False,
-                        "stopped_on_eos": False,
-                        "finish_reason": "choice_probabilities",
-                        "sampling_mode": "choice_probabilities",
-                        "choice_probabilities": choice_probabilities,
-                        "choice_probability_correct": float(
-                            choice_probabilities.get(str(correct_letter or "").strip().upper(), 0.0)
-                        ),
-                        "choice_probability_selected": float(choice_probabilities.get(selected_choice, 0.0)),
-                    }
-                    for _ in missing_draws
-                ]
-            else:
-                generated_outputs = llm.generate(
-                    prompt_messages,
-                    n=len(missing_draws),
-                    max_new_tokens=max_new_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    batch_size=batch_size,
-                    safe_fallback=True,
-                    strict_mc_letters=strict_mc_letters,
-                )
-            for draw_idx, generated_output in zip(missing_draws, generated_outputs):
-                generation_record = _generation_record_from_output(generated_output)
-                response_raw = generation_record["response_raw"]
-                grading = _grade_response_from_base(
-                    response_raw,
-                    base,
-                    generation_info=generation_record,
-                )
-
-                key = sample_record_key_values(split_name, group["question_id"], template_type, draw_idx)
-                records_by_key[key] = {
-                    "record_id": rec_id,
+            record_ids = list(range(rec_id, rec_id + len(missing_draws)))
+            rec_id += len(missing_draws)
+            pending_tasks.append(
+                {
+                    "split_name": split_name,
                     "question_id": group["question_id"],
-                    "prompt_id": prompt_id_for(group["question_id"], template_type),
-                    "split": split_name,
-                    "dataset": dataset,
+                    "question": group["question"],
+                    "correct_answer": group["correct_answer"],
+                    "incorrect_answer": group["incorrect_answer"],
                     "template_type": template_type,
+                    "base": base,
+                    "dataset": dataset,
+                    "prompt_messages": prompt_messages,
+                    "prompt_text": prompt_text,
+                    "prompt_template": prompt_template,
                     "task_format": task_format,
                     "mc_mode": mc_mode,
                     "answer_channel": answer_channel,
                     "prompt_spec_version": prompt_spec_version,
-                    "grading_spec_version": grading.get("grading_spec_version", grading_spec_version),
+                    "grading_spec_version": grading_spec_version,
                     "correct_letter": correct_letter,
                     "incorrect_letter": incorrect_letter,
                     "letters": letters,
                     "answer_options": answer_options,
                     "answers_list": answers_list,
-                    "prompt_messages": prompt_messages,
-                    "prompt_text": prompt_text,
-                    "prompt_template": prompt_template,
-                    "question": group["question"],
-                    "correct_answer": group["correct_answer"],
-                    "incorrect_answer": group["incorrect_answer"],
-                    "incorrect_answer_source": str(base.get("incorrect_answer_source", "") or ""),
+                    "strict_mc_letters": strict_mc_letters,
+                    "choice_labels": choice_labels,
                     "gold_answers": gold_answers,
-                    "draw_idx": draw_idx,
-                    "response_raw": response_raw,
-                    "response": grading["parsed_answer"],
-                    "committed_answer": grading.get("committed_answer", ""),
-                    "commitment_kind": grading.get("commitment_kind", ""),
-                    "commitment_source": grading.get("commitment_source", ""),
-                    "starts_with_answer_prefix": bool(grading.get("starts_with_answer_prefix", False)),
-                    "strict_format_exact": bool(grading.get("strict_format_exact", False)),
-                    "commitment_line": grading.get("commitment_line", ""),
-                    "answer_marker_count": int(grading.get("answer_marker_count", 0) or 0),
-                    "multiple_answer_markers": bool(grading.get("multiple_answer_markers", False)),
-                    "correctness": grading["correctness"],
-                    "grading_status": grading["status"],
-                    "grading_reason": grading["reason"],
-                    "usable_for_metrics": grading["usable_for_metrics"],
-                    "completion_token_count": generation_record.get("completion_token_count"),
-                    "hit_max_new_tokens": generation_record.get("hit_max_new_tokens", False),
-                    "stopped_on_eos": generation_record.get("stopped_on_eos", False),
-                    "finish_reason": generation_record.get("finish_reason", ""),
-                    "sampling_mode": generation_record.get("sampling_mode", "generation"),
-                    "choice_probabilities": generation_record.get("choice_probabilities", {}),
-                    "choice_probability_correct": generation_record.get("choice_probability_correct", float("nan")),
-                    "choice_probability_selected": generation_record.get("choice_probability_selected", float("nan")),
+                    "incorrect_answer_source": str(base.get("incorrect_answer_source", "") or ""),
+                    "missing_draws": list(missing_draws),
+                    "record_ids": record_ids,
                 }
-                rec_id += 1
+            )
+
+    progress_desc = tqdm_desc("sampling.py", f"sampling {split_name} split")
+
+    def _checkpoint_if_needed() -> None:
+        nonlocal generated_since_checkpoint
+        if (
+            progress_callback is not None
+            and checkpoint_every > 0
+            and generated_since_checkpoint >= checkpoint_every
+        ):
+            progress_callback(
+                sort_sample_records(records_by_key.values()),
+                {
+                    "split": split_name,
+                    "expected_records": expected_total,
+                    "reused_records": reused,
+                    "generated_records": generated,
+                    "total_records": len(records_by_key),
+                },
+            )
+            generated_since_checkpoint = 0
+
+    if use_openai_parallelism and pending_tasks:
+        log_status(
+            "sampling.py",
+            f"OpenAI parallel sampling enabled for split={split_name} with max_workers={sample_batch_size}",
+        )
+        with ThreadPoolExecutor(max_workers=int(sample_batch_size), thread_name_prefix="openai-sampling") as executor:
+            task_iter = iter(pending_tasks)
+            future_to_task: Dict[Future[List[Dict[str, Any]]], Dict[str, Any]] = {}
+
+            def _submit_next() -> bool:
+                try:
+                    task = next(task_iter)
+                except StopIteration:
+                    return False
+                future = executor.submit(
+                    _execute_sampling_task,
+                    llm,
+                    task,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_new_tokens=max_new_tokens,
+                    sample_batch_size=sample_batch_size,
+                )
+                future_to_task[future] = task
+                return True
+
+            initial = min(int(sample_batch_size), len(pending_tasks))
+            for _ in range(initial):
+                _submit_next()
+
+            with tqdm(total=len(pending_tasks), desc=progress_desc, unit="prompt") as task_bar:
+                while future_to_task:
+                    done, _ = wait(list(future_to_task), return_when=FIRST_COMPLETED)
+                    for future in done:
+                        task = future_to_task.pop(future)
+                        task_outputs = future.result()
+                        for output in task_outputs:
+                            draw_idx = int(output["draw_idx"])
+                            key = sample_record_key_values(split_name, task["question_id"], task["template_type"], draw_idx)
+                            records_by_key[key] = _materialize_sample_record(
+                                task,
+                                draw_idx=draw_idx,
+                                record_id=int(output["record_id"]),
+                                generation_record=output["generation_record"],
+                                grading=output["grading"],
+                            )
+                            generated += 1
+                            generated_since_checkpoint += 1
+                            _checkpoint_if_needed()
+                        task_bar.update(1)
+                        _submit_next()
+    else:
+        for task in tqdm(
+            pending_tasks,
+            desc=progress_desc,
+            unit="prompt",
+        ):
+            task_outputs = _execute_sampling_task(
+                llm,
+                task,
+                temperature=temperature,
+                top_p=top_p,
+                max_new_tokens=max_new_tokens,
+                sample_batch_size=sample_batch_size,
+            )
+            for output in task_outputs:
+                draw_idx = int(output["draw_idx"])
+                key = sample_record_key_values(split_name, task["question_id"], task["template_type"], draw_idx)
+                records_by_key[key] = _materialize_sample_record(
+                    task,
+                    draw_idx=draw_idx,
+                    record_id=int(output["record_id"]),
+                    generation_record=output["generation_record"],
+                    grading=output["grading"],
+                )
                 generated += 1
                 generated_since_checkpoint += 1
-
-                if (
-                    progress_callback is not None
-                    and checkpoint_every > 0
-                    and generated_since_checkpoint >= checkpoint_every
-                ):
-                    progress_callback(
-                        sort_sample_records(records_by_key.values()),
-                        {
-                            "split": split_name,
-                            "expected_records": expected_total,
-                            "reused_records": reused,
-                            "generated_records": generated,
-                            "total_records": len(records_by_key),
-                        },
-                    )
-                    generated_since_checkpoint = 0
+                _checkpoint_if_needed()
 
     out_records = sort_sample_records(records_by_key.values())
     stats = {

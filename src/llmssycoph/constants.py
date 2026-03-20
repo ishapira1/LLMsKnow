@@ -29,7 +29,7 @@ from .data import (
 )
 
 GENERATION_SPEC_VERSION = 3
-SAMPLING_SPEC_VERSION = 9
+SAMPLING_SPEC_VERSION = 10
 
 STRICT_MC_MIN_COMMITMENT_RATE = 0.75
 STRICT_MC_MIN_STARTS_WITH_ANSWER_RATE = 0.70
@@ -46,6 +46,7 @@ STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_SELECTED_PROB = 0.95
 
 RESUME_COMPAT_KEYS = [
     "model",
+    "model_backend",
     "benchmark_source",
     "mc_mode",
     "prompt_spec_version",

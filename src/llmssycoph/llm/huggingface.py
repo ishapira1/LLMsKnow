@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..logging_utils import log_status, warn_status
-from .base import BaseLLM, GenerationResult
+from .base import BaseLLM, GenerationResult, LLMCapabilities
 from .generation import generate_many as _generate_many
 from .scoring import score_choices as _score_choices
 
@@ -41,6 +41,14 @@ class HuggingFaceLLM(BaseLLM):
             device=device,
             device_map_auto=device_map_auto,
             hf_cache_dir=hf_cache_dir,
+        )
+
+    def capabilities(self) -> LLMCapabilities:
+        return LLMCapabilities(
+            backend_name="huggingface",
+            supports_hidden_state_probes=True,
+            supports_choice_scoring=True,
+            exposes_model_and_tokenizer=True,
         )
 
     @staticmethod
