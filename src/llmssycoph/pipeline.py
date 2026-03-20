@@ -1152,8 +1152,6 @@ def _finalize_warning_summary(run_dir: Path) -> Optional[Path]:
 
 
 def run_pipeline(args) -> None:
-    import torch
-
     if args.sample_batch_size < 1:
         raise ValueError(f"--sample_batch_size must be >= 1, got {args.sample_batch_size}")
     if args.sampling_checkpoint_every < 0:
@@ -1280,9 +1278,12 @@ def run_pipeline(args) -> None:
         begin_stage(2, "dataset loading, grouping, and split planning")
         random.seed(args.seed)
         np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(args.seed)
+        if str(getattr(args, "model_backend", "") or "") != "openai":
+            import torch
+
+            torch.manual_seed(args.seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(args.seed)
 
         load_env_file(args.env_file)
         hf_cache_dir = resolve_hf_cache_dir(args.hf_cache_dir)
@@ -1295,7 +1296,10 @@ def run_pipeline(args) -> None:
         else:
             log_status("pipeline.py", "HF cache dir not set; libraries may fallback to ~/.cache")
         args.requested_device = str(args.device)
-        device = resolve_device(args.device)
+        if str(getattr(args, "model_backend", "") or "") == "openai" and str(args.device) == "auto":
+            device = "cpu"
+        else:
+            device = resolve_device(args.device)
         args.resolved_device = device
         log_status("pipeline.py", f"resolved device: requested={args.device} actual={device}")
 

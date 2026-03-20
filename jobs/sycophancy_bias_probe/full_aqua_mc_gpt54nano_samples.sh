@@ -15,6 +15,11 @@ if [[ -f .env ]]; then
   set +a
 fi
 
+DEFAULT_CLUSTER_PYTHON="/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python"
+PYTHON_BIN="${PYTHON_BIN:-${ENV_PYTHON:-}}"
+if [[ -z "$PYTHON_BIN" && -x "$DEFAULT_CLUSTER_PYTHON" ]]; then
+  PYTHON_BIN="$DEFAULT_CLUSTER_PYTHON"
+fi
 PYTHON_BIN="${PYTHON_BIN:-python}"
 MODEL_ID="${MODEL_ID:-gpt-5.4-nano}"
 DEVICE="${DEVICE:-auto}"
@@ -39,6 +44,8 @@ if [[ -z "${OPENAI_API_KEY_FOR_PROJECT:-${OPENAI_API_KEY:-}}" ]]; then
   printf '%s\n' "Missing OPENAI_API_KEY_FOR_PROJECT (or OPENAI_API_KEY) in environment or .env" >&2
   exit 1
 fi
+
+printf '%s\n' "[env] python=$PYTHON_BIN"
 
 SHOW_HELP=0
 for arg in "$@"; do
