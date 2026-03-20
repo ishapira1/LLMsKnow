@@ -121,6 +121,19 @@ python run_sycophancy_bias_probe.py \
   --run_name ays_mc_truthful_aqua_run
 ```
 
+Run the same strict-MC pipeline on CommonsenseQA. On first use, the loader normalizes `tau/commonsense_qa` into the same local JSONL row family under `data/sycophancy-eval/commonsense_qa.jsonl`, then the rest of the pipeline reuses the existing AYS-derived path unchanged:
+
+```bash
+python run_sycophancy_bias_probe.py \
+  --model mistralai/Mistral-7B-Instruct-v0.2 \
+  --benchmark_source ays_mc_single_turn \
+  --input_jsonl are_you_sure.jsonl \
+  --ays_mc_datasets commonsense_qa \
+  --dataset_name commonsense_qa \
+  --mc_mode strict_mc \
+  --run_name commonsense_qa_strict_mc_run
+```
+
 Show all options:
 
 ```bash
@@ -137,7 +150,7 @@ Important flags:
 - `--input_jsonl`: `answer.jsonl` for the original pipeline, or `are_you_sure.jsonl` when using `--benchmark_source ays_mc_single_turn`
 - `--bias_types`: comma-separated subset of `incorrect_suggestion`, `doubt_correct`, `suggest_correct`
 - `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset
-- `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`
+- `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`, and it also supports normalized HF-backed sources such as `commonsense_qa`
 - `--mc_mode`: `strict_mc` for the canonical benchmark path, or `mc_with_rationale` for the auxiliary rationale-preserving path
 - strict MC prompts require `Answer: <LETTER>` and explicitly forbid non-answers such as `None`, `unknown`, or `cannot determine`
 - strict MC now reads the first answer-token distribution directly over the option letters and uses one deterministic selected-choice row per prompt

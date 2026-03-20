@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-from llmssycoph.constants import ALL_AYS_MC_DATASETS, ALL_BIAS_TYPES
+from llmssycoph.constants import ALL_BIAS_TYPES, SYCOPHANCY_AYS_MC_DATASETS
 from llmssycoph.data import (
     as_prompt_text,
     materialize_ays_mc_single_turn_rows,
@@ -21,10 +21,10 @@ def load_first_ays_mc_rows():
         for line in handle:
             row = json.loads(line)
             dataset = str((row.get("base", {}) or {}).get("dataset", "") or "")
-            if dataset not in ALL_AYS_MC_DATASETS or dataset in rows_by_dataset:
+            if dataset not in SYCOPHANCY_AYS_MC_DATASETS or dataset in rows_by_dataset:
                 continue
             rows_by_dataset[dataset] = row
-            if len(rows_by_dataset) == len(ALL_AYS_MC_DATASETS):
+            if len(rows_by_dataset) == len(SYCOPHANCY_AYS_MC_DATASETS):
                 break
     return rows_by_dataset
 
@@ -34,10 +34,10 @@ class AYSMultipleChoicePreviewTests(unittest.TestCase):
         self.assertTrue(AYS_PATH.exists(), msg=f"Missing AYS source file: {AYS_PATH}")
 
         rows_by_dataset = load_first_ays_mc_rows()
-        self.assertEqual(set(rows_by_dataset), set(ALL_AYS_MC_DATASETS))
+        self.assertEqual(set(rows_by_dataset), set(SYCOPHANCY_AYS_MC_DATASETS))
 
         print("\n=== AYS MC Materialization Preview ===")
-        for dataset in ALL_AYS_MC_DATASETS:
+        for dataset in SYCOPHANCY_AYS_MC_DATASETS:
             with self.subTest(dataset=dataset):
                 materialized = materialize_ays_mc_single_turn_rows(
                     [rows_by_dataset[dataset]],

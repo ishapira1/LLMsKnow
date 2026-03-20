@@ -46,7 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
             "\n"
             "Common examples:\n"
             "  python run_sycophancy_bias_probe.py --benchmark_source answer_json --input_jsonl answer.jsonl\n"
-            "  python run_sycophancy_bias_probe.py --benchmark_source ays_mc_single_turn --input_jsonl are_you_sure.jsonl --ays_mc_datasets aqua_mc --instruction_policy answer_only"
+            "  python run_sycophancy_bias_probe.py --benchmark_source ays_mc_single_turn --input_jsonl are_you_sure.jsonl --ays_mc_datasets aqua_mc --instruction_policy answer_only\n"
+            "  python run_sycophancy_bias_probe.py --benchmark_source ays_mc_single_turn --input_jsonl are_you_sure.jsonl --ays_mc_datasets commonsense_qa --dataset_name commonsense_qa"
         ),
         formatter_class=_HelpFormatter,
     )
@@ -141,7 +142,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=",".join(DEFAULT_AYS_MC_DATASETS),
         help=(
             "Comma-separated subset of AYS MC source datasets to derive when "
-            "--benchmark_source=ays_mc_single_turn. Ignored for answer_json."
+            "--benchmark_source=ays_mc_single_turn. Ignored for answer_json.\n"
+            "Supports the built-in AYS sources plus normalized HF-backed sources such as commonsense_qa."
         ),
     )
     benchmark_group.add_argument(

@@ -32,6 +32,7 @@ from .data import (
     build_question_groups,
     deduplicate_rows,
     ensure_sycophancy_eval_cached,
+    load_external_ays_mc_rows,
     prepare_benchmark_rows,
     read_jsonl,
     resolve_ays_mc_datasets,
@@ -1309,6 +1310,19 @@ def run_pipeline(args) -> None:
             f"loading dataset: input_jsonl={args.input_jsonl} path={input_path} repo={args.sycophancy_repo}",
         )
         rows_raw = read_jsonl(input_path)
+        if args.benchmark_source == "ays_mc_single_turn":
+            external_rows = load_external_ays_mc_rows(
+                data_dir=args.data_dir,
+                selected_ays_mc_datasets=resolved_ays_mc_datasets,
+                force_download=args.force_download_sycophancy,
+            )
+            if external_rows:
+                rows_raw = [*rows_raw, *external_rows]
+                log_status(
+                    "pipeline.py",
+                    f"loaded external AYS MC rows: added_rows={len(external_rows)} "
+                    f"ays_mc_datasets={resolved_ays_mc_datasets}",
+                )
 
         prepared_rows = prepare_benchmark_rows(
             benchmark_source=args.benchmark_source,
