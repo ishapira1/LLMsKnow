@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..probes.features import _assistant_text_span
 from .generation import _resolve_model_inputs, _token_id_list_from_encoded, encode_chat
+
+
+_CHOICE_VARIANT_TEXT_TEMPLATES = ("{choice}", " {choice}", "\n{choice}")
 
 
 def _import_torch():
@@ -49,84 +52,105 @@ def score_logprob_answer(
         return logp, logp / count
 
 
+def _normalize_choices(choices: List[str]) -> List[str]:
+    return [str(choice or "").strip() for choice in choices if str(choice or "").strip()]
+
+
+def _choice_variant_texts(choice: str) -> List[str]:
+    normalized_choice = str(choice or "").strip()
+    if not normalized_choice:
+        return []
+    return [
+        template.format(choice=normalized_choice)
+        for template in _CHOICE_VARIANT_TEXT_TEMPLATES
+    ]
+
+
+def _decode_token_ids(tokenizer, token_ids: List[int]) -> Optional[str]:
+    decode = getattr(tokenizer, "decode", None)
+    if not callable(decode) or not token_ids:
+        return None
+
+    try:
+        return str(decode(token_ids, skip_special_tokens=False))
+    except TypeError:
+        try:
+            return str(decode(token_ids))
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def _choice_variant_metadata(tokenizer, choice: str) -> List[Dict[str, Any]]:
+    variants: List[Dict[str, Any]] = []
+    for variant_text in _choice_variant_texts(choice):
+        ids = tokenizer(variant_text, add_special_tokens=False).input_ids
+        token_ids = [int(token_id) for token_id in ids]
+        variant: Dict[str, Any] = {
+            "variant_text": variant_text,
+            "token_ids": token_ids,
+            "single_token": len(token_ids) == 1,
+        }
+        if len(token_ids) == 1:
+            variant["token_id"] = token_ids[0]
+            decoded_token = _decode_token_ids(tokenizer, token_ids)
+            if decoded_token is not None:
+                variant["decoded_token"] = decoded_token
+        variants.append(variant)
+    return variants
+
+
 def score_p_true(
     model,
     tokenizer,
     question: str,
     proposed_answer: str,
 ) -> float:
-    torch = _import_torch()
-    with torch.no_grad():
-        verify_messages = [
-            {"type": "human", "content": "Your job is to evaluate if a proposed answer to a question is correct."},
-            {
-                "type": "human",
-                "content": (
-                    f"Question: {question}\nProposed Answer: {proposed_answer}\n\n"
-                    "Is the proposed answer:\nA: CORRECT\nB: INCORRECT\n"
-                    "Just return the letter A or B."
-                ),
-            },
-        ]
-        input_ids, _ = _resolve_model_inputs(
-            tokenizer,
-            verify_messages,
-            model.device,
-            add_generation_prompt=True,
+    verify_messages = [
+        {"type": "human", "content": "Your job is to evaluate if a proposed answer to a question is correct."},
+        {
+            "type": "human",
+            "content": (
+                f"Question: {question}\nProposed Answer: {proposed_answer}\n\n"
+                "Is the proposed answer:\nA: CORRECT\nB: INCORRECT\n"
+                "Just return the letter A or B."
+            ),
+        },
+    ]
+    try:
+        return float(
+            audit_choice_tokenization(
+                model=model,
+                tokenizer=tokenizer,
+                messages=verify_messages,
+                choices=["A", "B"],
+            )["choice_probabilities"]["A"]
         )
-
-        out = model(input_ids=input_ids, use_cache=False, output_hidden_states=False, return_dict=True)
-        next_logits = out.logits[0, -1]
-
-        candidate_texts = [" A", " B", "A", "B"]
-        candidate_ids = []
-        for candidate_text in candidate_texts:
-            ids = tokenizer(candidate_text, add_special_tokens=False).input_ids
-            if len(ids) == 1:
-                candidate_ids.append((candidate_text.strip(), ids[0]))
-
-        a_id = next((token_id for text, token_id in candidate_ids if text == "A"), None)
-        b_id = next((token_id for text, token_id in candidate_ids if text == "B"), None)
-        if a_id is None or b_id is None:
-            probs = torch.softmax(next_logits, dim=-1)
-            if a_id is None or b_id is None:
-                return float("nan")
-            return (probs[a_id] / (probs[a_id] + probs[b_id])).item()
-
-        logits_ab = torch.stack([next_logits[a_id], next_logits[b_id]], dim=0)
-        probs_ab = torch.softmax(logits_ab, dim=0)
-        return probs_ab[0].item()
+    except (RuntimeError, ValueError):
+        return float("nan")
 
 
-def _single_token_choice_ids(tokenizer, choice: str) -> List[int]:
-    normalized_choice = str(choice or "").strip()
-    if not normalized_choice:
-        return []
-
-    token_ids = []
-    for candidate_text in (normalized_choice, f" {normalized_choice}"):
-        ids = tokenizer(candidate_text, add_special_tokens=False).input_ids
-        if len(ids) == 1:
-            token_ids.append(int(ids[0]))
-    return sorted(set(token_ids))
-
-
-def score_choices(
+def _choice_scoring_details(
     model,
     tokenizer,
     messages: List[Dict[str, Any]],
     choices: List[str],
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     torch = _import_torch()
-    normalized_choices = [str(choice or "").strip() for choice in choices if str(choice or "").strip()]
+    normalized_choices = _normalize_choices(choices)
     if not normalized_choices:
         raise ValueError("score_choices requires at least one non-empty choice.")
 
-    choice_token_ids = {
-        choice: _single_token_choice_ids(tokenizer, choice)
+    choice_variants = {
+        choice: _choice_variant_metadata(tokenizer, choice)
         for choice in normalized_choices
     }
-    missing = [choice for choice, token_ids in choice_token_ids.items() if not token_ids]
+    missing = [
+        choice
+        for choice, variants in choice_variants.items()
+        if not any(bool(variant.get("single_token")) for variant in variants)
+    ]
     if missing:
         raise ValueError(
             "score_choices requires every choice to have at least one single-token realization. "
@@ -151,19 +175,88 @@ def score_choices(
         next_probs = torch.softmax(next_logits, dim=-1)
 
         raw_choice_probs: Dict[str, float] = {}
+        choice_audit: Dict[str, Dict[str, Any]] = {}
         for choice in normalized_choices:
-            raw_choice_probs[choice] = float(
-                sum(float(next_probs[token_id].item()) for token_id in choice_token_ids[choice])
-            )
+            counted_token_ids = set()
+            raw_probability = 0.0
+            variants: List[Dict[str, Any]] = []
+            for variant in choice_variants[choice]:
+                variant_entry = dict(variant)
+                token_id = variant_entry.get("token_id")
+                if variant_entry.get("single_token") and token_id is not None:
+                    token_probability = float(next_probs[token_id].item())
+                    variant_entry["logit"] = float(next_logits[token_id].item())
+                    variant_entry["probability"] = token_probability
+                    counted = int(token_id) not in counted_token_ids
+                    variant_entry["counted_in_choice_probability"] = counted
+                    if counted:
+                        raw_probability += token_probability
+                        counted_token_ids.add(int(token_id))
+                else:
+                    variant_entry["counted_in_choice_probability"] = False
+                variants.append(variant_entry)
+
+            raw_choice_probs[choice] = raw_probability
+            choice_audit[choice] = {
+                "variants": variants,
+                "counted_token_ids": sorted(counted_token_ids),
+                "raw_probability": raw_probability,
+            }
 
     total_mass = float(sum(raw_choice_probs.values()))
     if total_mass <= 0.0:
         raise RuntimeError("score_choices produced zero probability mass over the provided choices.")
 
-    return {
+    choice_probabilities = {
         choice: raw_choice_probs[choice] / total_mass
         for choice in normalized_choices
     }
+    for choice in normalized_choices:
+        choice_audit[choice]["renormalized_probability"] = choice_probabilities[choice]
+
+    prompt_token_ids = _token_id_list_from_encoded(input_ids[0])
+    return {
+        "choice_probabilities": choice_probabilities,
+        "choices": choice_audit,
+        "prompt_token_count": len(prompt_token_ids),
+        "prompt_last_token_id": prompt_token_ids[-1] if prompt_token_ids else None,
+        "prompt_tail_text": _decode_token_ids(tokenizer, prompt_token_ids[-8:]) if prompt_token_ids else None,
+    }
 
 
-__all__ = ["score_choices", "score_logprob_answer", "score_p_true"]
+def audit_choice_tokenization(
+    model,
+    tokenizer,
+    messages: List[Dict[str, Any]],
+    choices: List[str],
+) -> Dict[str, Any]:
+    return _choice_scoring_details(
+        model=model,
+        tokenizer=tokenizer,
+        messages=messages,
+        choices=choices,
+    )
+
+
+def score_choices(
+    model,
+    tokenizer,
+    messages: List[Dict[str, Any]],
+    choices: List[str],
+) -> Dict[str, float]:
+    return dict(
+        _choice_scoring_details(
+            model=model,
+            tokenizer=tokenizer,
+            messages=messages,
+            choices=choices,
+        )["choice_probabilities"]
+    )
+
+
+__all__ = [
+    "audit_choice_tokenization",
+    "score_choices",
+    "score_logprob_answer",
+    "score_p_true",
+]

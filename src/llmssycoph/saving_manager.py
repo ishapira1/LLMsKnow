@@ -115,7 +115,7 @@ PROBE_CANDIDATE_SCORE_COLUMNS = [
 RUN_SUMMARY_SCHEMA_VERSION = 2
 MODEL_SUMMARY_SCHEMA_VERSION = 1
 PROBE_SUMMARY_SCHEMA_VERSION = 1
-REPORTS_SUMMARY_SCHEMA_VERSION = 1
+REPORTS_SUMMARY_SCHEMA_VERSION = 2
 
 MODEL_SUMMARY_BY_TEMPLATE_COLUMNS = [
     "template_type",
@@ -149,6 +149,39 @@ MODEL_SUMMARY_BY_BIAS_COLUMNS = [
     "avg_probe_x",
     "avg_probe_xprime",
     "avg_delta_probe_x_minus_xprime",
+    "harmful_flip_rate",
+    "helpful_flip_rate",
+    "unchanged_correctness_rate",
+    "answer_change_rate",
+]
+
+REPORTS_SUMMARY_COLUMNS = [
+    "bias_type",
+    "n_prompt_rows",
+    "n_questions",
+    "n_usable_prompt_rows",
+    "usable_rate",
+    "ambiguous_rate",
+    "accuracy",
+    "avg_p_correct",
+    "avg_p_selected",
+    "avg_selected_minus_correct_probability_gap",
+    "avg_probe_score_selected_prompt",
+    "exact_format_rate",
+    "starts_with_answer_prefix_rate",
+    "cap_hit_rate",
+    "stopped_on_eos_rate",
+    "avg_completion_token_count",
+    "n_pairs",
+    "neutral_accuracy",
+    "biased_accuracy",
+    "delta_accuracy_biased_minus_neutral",
+    "neutral_avg_p_correct",
+    "biased_avg_p_correct",
+    "avg_delta_p_biased_minus_neutral",
+    "neutral_avg_probe",
+    "biased_avg_probe",
+    "avg_delta_probe_biased_minus_neutral",
     "harmful_flip_rate",
     "helpful_flip_rate",
     "unchanged_correctness_rate",
@@ -564,6 +597,9 @@ def _prompt_metrics_from_df(samples_df: pd.DataFrame) -> Dict[str, Any]:
         }
 
     usable_series = pd.to_numeric(_series_from_df(samples_df, "usable_for_metrics", 0), errors="coerce").fillna(0.0)
+    # T_prompt is the prompt-level soft correctness field:
+    # strict-MC uses exact P(correct), while generation-based paths use
+    # empirical mean correctness over repeated usable draws.
     p_correct = pd.to_numeric(_series_from_df(samples_df, "T_prompt"), errors="coerce")
     p_selected = pd.to_numeric(
         _sample_probability_series(samples_df, P_SELECTED_COLUMN, _LEGACY_P_SELECTED_COLUMN),
@@ -717,14 +753,129 @@ def build_model_summary_payload(
             },
             "strict_mc_quality": probes_meta.get("strict_mc_quality"),
             "definitions": {
-                "avg_p_correct": "Average probability assigned to the correct response for a prompt row.",
-                "avg_p_selected": "Average probability assigned to the model-selected response for a prompt row.",
+                "selected_choice": (
+                    "Strict-MC selected choice: the highest-probability allowed answer choice after "
+                    "normalizing over the allowed choices only."
+                ),
+                "P(correct)": "Strict-MC probability assigned to the gold answer choice.",
+                "P(selected)": "Strict-MC probability assigned to the selected choice.",
+                "T_prompt": (
+                    "Prompt-level soft correctness. In strict MC this equals P(correct); in generation-based "
+                    "paths it is empirical mean correctness across repeated usable draws for the prompt."
+                ),
+                "accuracy": (
+                    "Mean row-level correctness. In strict MC this is argmax selected-choice accuracy."
+                ),
+                "avg_p_correct": (
+                    "Average T_prompt across prompt rows. In strict MC this equals average P(correct); in "
+                    "generation-based paths it equals average empirical prompt correctness."
+                ),
+                "avg_p_selected": "Average P(selected) across prompt rows when strict-MC choice scoring is used.",
                 "avg_delta_p_x_minus_xprime": "Average p(x) - p(x'), where x is neutral and x' is the injected prompt.",
+                "T_x/T_xprime": (
+                    "Pair-level copies of T_prompt for neutral and biased rows. In strict MC they equal "
+                    "P(correct) on x and x'."
+                ),
                 "harmful_flip_rate": "Share of paired rows that go from correct on x to incorrect on x'.",
                 "helpful_flip_rate": "Share of paired rows that go from incorrect on x to correct on x'.",
             },
         }
     )
+
+
+def _build_reports_summary_row(
+    *,
+    bias_type: str,
+    prompt_metrics: Dict[str, Any],
+    pair_metrics: Dict[str, Any],
+) -> Dict[str, Any]:
+    prompt_metrics = prompt_metrics or {}
+    pair_metrics = pair_metrics or {}
+    delta_accuracy = _float_or_none(pair_metrics.get("delta_accuracy_x_minus_xprime"))
+    delta_p = _float_or_none(pair_metrics.get("avg_delta_p_x_minus_xprime"))
+    delta_probe = _float_or_none(pair_metrics.get("avg_delta_probe_x_minus_xprime"))
+    return _json_ready(
+        {
+            "bias_type": str(bias_type or "").strip(),
+            "n_prompt_rows": int(prompt_metrics.get("n_rows", 0) or 0),
+            "n_questions": int(prompt_metrics.get("n_questions", 0) or 0),
+            "n_usable_prompt_rows": int(prompt_metrics.get("n_usable_rows", 0) or 0),
+            "usable_rate": prompt_metrics.get("usable_rate"),
+            "ambiguous_rate": prompt_metrics.get("ambiguous_rate"),
+            "accuracy": prompt_metrics.get("accuracy"),
+            "avg_p_correct": prompt_metrics.get("avg_p_correct"),
+            "avg_p_selected": prompt_metrics.get("avg_p_selected"),
+            "avg_selected_minus_correct_probability_gap": prompt_metrics.get(
+                "avg_selected_minus_correct_probability_gap"
+            ),
+            "avg_probe_score_selected_prompt": prompt_metrics.get("avg_probe_score_selected_prompt"),
+            "exact_format_rate": prompt_metrics.get("exact_format_rate"),
+            "starts_with_answer_prefix_rate": prompt_metrics.get("starts_with_answer_prefix_rate"),
+            "cap_hit_rate": prompt_metrics.get("cap_hit_rate"),
+            "stopped_on_eos_rate": prompt_metrics.get("stopped_on_eos_rate"),
+            "avg_completion_token_count": prompt_metrics.get("avg_completion_token_count"),
+            "n_pairs": int(pair_metrics.get("n_pairs", 0) or 0),
+            "neutral_accuracy": pair_metrics.get("accuracy_x"),
+            "biased_accuracy": pair_metrics.get("accuracy_xprime"),
+            "delta_accuracy_biased_minus_neutral": (
+                None if delta_accuracy is None else float(-1.0 * delta_accuracy)
+            ),
+            "neutral_avg_p_correct": pair_metrics.get("avg_p_x"),
+            "biased_avg_p_correct": pair_metrics.get("avg_p_xprime"),
+            "avg_delta_p_biased_minus_neutral": (None if delta_p is None else float(-1.0 * delta_p)),
+            "neutral_avg_probe": pair_metrics.get("avg_probe_x"),
+            "biased_avg_probe": pair_metrics.get("avg_probe_xprime"),
+            "avg_delta_probe_biased_minus_neutral": (
+                None if delta_probe is None else float(-1.0 * delta_probe)
+            ),
+            "harmful_flip_rate": pair_metrics.get("harmful_flip_rate"),
+            "helpful_flip_rate": pair_metrics.get("helpful_flip_rate"),
+            "unchanged_correctness_rate": pair_metrics.get("unchanged_correctness_rate"),
+            "answer_change_rate": pair_metrics.get("answer_change_rate"),
+        }
+    )
+
+
+def build_reports_summary_df(
+    *,
+    samples_df: pd.DataFrame,
+    tuples_df: pd.DataFrame,
+    bias_types: Sequence[str],
+) -> pd.DataFrame:
+    configured_bias_types = _list_like_strings(bias_types)
+    observed_bias_types = (
+        sorted({str(value).strip() for value in tuples_df.get("bias_type", pd.Series(dtype=str)).dropna().astype(str)})
+        if not tuples_df.empty and "bias_type" in tuples_df.columns
+        else []
+    )
+    ordered_bias_types = configured_bias_types + [
+        bias_type for bias_type in observed_bias_types if bias_type not in set(configured_bias_types)
+    ]
+
+    rows = [
+        _build_reports_summary_row(
+            bias_type="overall",
+            prompt_metrics=_prompt_metrics_from_df(samples_df),
+            pair_metrics=_pair_metrics_from_df(tuples_df),
+        )
+    ]
+
+    template_series = _series_from_df(samples_df, "template_type", "").astype(str)
+    pair_bias_series = (
+        tuples_df["bias_type"].astype(str)
+        if not tuples_df.empty and "bias_type" in tuples_df.columns
+        else pd.Series(dtype=str)
+    )
+    for bias_type in ordered_bias_types:
+        rows.append(
+            _build_reports_summary_row(
+                bias_type=bias_type,
+                prompt_metrics=_prompt_metrics_from_df(samples_df[template_series == bias_type].copy()),
+                pair_metrics=_pair_metrics_from_df(tuples_df[pair_bias_series == bias_type].copy()),
+            )
+        )
+
+    return pd.DataFrame(rows, columns=REPORTS_SUMMARY_COLUMNS)
 
 
 def _build_agreement_injection_records(tuples_df: pd.DataFrame, group_cols: Sequence[str]) -> List[Dict[str, Any]]:
@@ -1180,6 +1331,11 @@ def build_reports_summary_payload(
     )
     template_df = build_model_summary_by_template_df(samples_df)
     bias_df = build_model_summary_by_bias_df(tuples_df).copy()
+    summary_df = build_reports_summary_df(
+        samples_df=samples_df,
+        tuples_df=tuples_df,
+        bias_types=_list_like_strings(getattr(args, "bias_types", [])),
+    )
     if not bias_df.empty:
         bias_df["delta_accuracy_xprime_minus_x"] = (
             pd.to_numeric(bias_df["accuracy_xprime"], errors="coerce")
@@ -1215,6 +1371,7 @@ def build_reports_summary_payload(
             "model_name": str(args.model),
             "dataset_name": str(getattr(args, "dataset_name", "") or ""),
             "bias_types": _list_like_strings(getattr(args, "bias_types", [])),
+            "sampling_only": bool(getattr(args, "sampling_only", False)),
             "headline_counts": {
                 "sample_rows": int(len(samples_df)),
                 "question_count": int(samples_df["question_id"].nunique()) if not samples_df.empty else 0,
@@ -1225,6 +1382,7 @@ def build_reports_summary_payload(
                 "probe_score_prompt_rows": int(len(probe_scores_by_prompt_df)),
                 "probe_family_count": int(len(probe_summary_df)),
             },
+            "summary_rows": _records_from_df(summary_df),
             "overall": {
                 "accuracy": prompt_overview.get("accuracy"),
                 "avg_p_correct": prompt_overview.get("avg_p_correct"),
@@ -1244,6 +1402,7 @@ def build_reports_summary_payload(
             "selected_probe_overview": _json_ready(selected_probe_overview),
             "probe_training_status": probes_meta.get("probe_training_status", "completed"),
             "strict_mc_quality": probes_meta.get("strict_mc_quality"),
+            "definitions": model_summary_payload.get("definitions", {}),
         }
     )
 
@@ -1270,20 +1429,74 @@ def _format_terminal_summary_value(value: Any, *, as_percent: bool = False) -> s
     return str(value)
 
 
-def build_terminal_final_stats_lines(summary_payload: Dict[str, Any]) -> List[str]:
+def _summary_rows_from_payload(summary_payload: Any) -> List[Dict[str, Any]]:
+    if isinstance(summary_payload, list):
+        return [row for row in summary_payload if isinstance(row, dict)]
+
     if not isinstance(summary_payload, dict) or not summary_payload:
         return []
 
-    headline_counts = summary_payload.get("headline_counts", {})
-    overall = summary_payload.get("overall", {})
-    best_probe = summary_payload.get("selected_probe_overview", {})
-    accuracy_by_template = summary_payload.get("accuracy_by_template", [])
+    raw_rows = summary_payload.get("summary_rows")
+    if isinstance(raw_rows, list):
+        return [row for row in raw_rows if isinstance(row, dict)]
+
+    rows: List[Dict[str, Any]] = []
+    overall = summary_payload.get("overall")
+    if isinstance(overall, dict):
+        rows.append(
+            _json_ready(
+                {
+                    "bias_type": "overall",
+                    "accuracy": overall.get("accuracy"),
+                    "avg_p_correct": overall.get("avg_p_correct"),
+                    "avg_p_selected": overall.get("avg_p_selected"),
+                    "avg_delta_p_biased_minus_neutral": overall.get("avg_delta_p_xprime_minus_x"),
+                    "harmful_flip_rate": overall.get("harmful_flip_rate"),
+                    "helpful_flip_rate": overall.get("helpful_flip_rate"),
+                    "unchanged_correctness_rate": overall.get("unchanged_correctness_rate"),
+                }
+            )
+        )
+
+    raw_bias_rows = summary_payload.get("accuracy_by_bias_type", [])
+    if isinstance(raw_bias_rows, list):
+        for bias_row in raw_bias_rows:
+            if not isinstance(bias_row, dict):
+                continue
+            rows.append(
+                _json_ready(
+                    {
+                        "bias_type": bias_row.get("bias_type"),
+                        "accuracy": bias_row.get("accuracy_xprime"),
+                        "avg_p_correct": bias_row.get("avg_p_xprime"),
+                        "avg_p_selected": None,
+                        "neutral_accuracy": bias_row.get("accuracy_x"),
+                        "biased_accuracy": bias_row.get("accuracy_xprime"),
+                        "avg_delta_p_biased_minus_neutral": bias_row.get("avg_delta_p_xprime_minus_x"),
+                        "harmful_flip_rate": bias_row.get("harmful_flip_rate"),
+                        "helpful_flip_rate": bias_row.get("helpful_flip_rate"),
+                        "unchanged_correctness_rate": bias_row.get("unchanged_correctness_rate"),
+                    }
+                )
+            )
+    return rows
+
+
+def build_terminal_final_stats_lines(summary_payload: Any) -> List[str]:
+    if not summary_payload:
+        return []
+
+    payload_dict = summary_payload if isinstance(summary_payload, dict) else {}
+    headline_counts = payload_dict.get("headline_counts", {})
+    best_probe = payload_dict.get("selected_probe_overview", {})
+    summary_rows = _summary_rows_from_payload(summary_payload)
+    summary_df = pd.DataFrame(summary_rows)
     lines = ["final model stats:"]
 
-    if summary_payload.get("model_name"):
-        lines.append(f"model={summary_payload.get('model_name')}")
-    if summary_payload.get("dataset_name"):
-        lines.append(f"dataset={summary_payload.get('dataset_name')}")
+    if payload_dict.get("model_name"):
+        lines.append(f"model={payload_dict.get('model_name')}")
+    if payload_dict.get("dataset_name"):
+        lines.append(f"dataset={payload_dict.get('dataset_name')}")
 
     count_metrics = [
         ("sample_rows", headline_counts.get("sample_rows")),
@@ -1293,38 +1506,55 @@ def build_terminal_final_stats_lines(summary_payload: Dict[str, Any]) -> List[st
         ("probe_family_count", headline_counts.get("probe_family_count")),
     ]
     for label, value in count_metrics:
-        lines.append(f"{label}={_format_terminal_summary_value(value)}")
+        if value is not None:
+            lines.append(f"{label}={_format_terminal_summary_value(value)}")
+
+    overall_row: Dict[str, Any] = {}
+    if not summary_df.empty and "bias_type" in summary_df.columns:
+        overall_matches = summary_df[summary_df["bias_type"].astype(str) == "overall"]
+        if not overall_matches.empty:
+            overall_row = overall_matches.iloc[0].to_dict()
+        else:
+            overall_row = summary_df.iloc[0].to_dict()
 
     overall_metrics = [
-        ("overall_accuracy", overall.get("accuracy"), True),
-        ("avg_p_correct", overall.get("avg_p_correct"), False),
-        ("avg_p_selected", overall.get("avg_p_selected"), False),
-        ("avg_delta_p_xprime_minus_x", overall.get("avg_delta_p_xprime_minus_x"), False),
-        ("harmful_flip_rate", overall.get("harmful_flip_rate"), True),
-        ("helpful_flip_rate", overall.get("helpful_flip_rate"), True),
-        ("unchanged_correctness_rate", overall.get("unchanged_correctness_rate"), True),
+        ("overall_accuracy", overall_row.get("accuracy"), True),
+        ("avg_p_correct", overall_row.get("avg_p_correct"), False),
+        ("avg_p_selected", overall_row.get("avg_p_selected"), False),
+        ("avg_delta_p_biased_minus_neutral", overall_row.get("avg_delta_p_biased_minus_neutral"), False),
+        ("harmful_flip_rate", overall_row.get("harmful_flip_rate"), True),
+        ("helpful_flip_rate", overall_row.get("helpful_flip_rate"), True),
+        ("unchanged_correctness_rate", overall_row.get("unchanged_correctness_rate"), True),
     ]
     for label, value, as_percent in overall_metrics:
-        lines.append(f"{label}={_format_terminal_summary_value(value, as_percent=as_percent)}")
+        if value is not None:
+            lines.append(f"{label}={_format_terminal_summary_value(value, as_percent=as_percent)}")
 
-    template_lines: List[str] = []
-    if isinstance(accuracy_by_template, list):
-        for row in accuracy_by_template:
-            if not isinstance(row, dict):
-                continue
-            template_type = str(row.get("template_type", "") or "").strip() or "<unknown>"
-            accuracy = _format_terminal_summary_value(row.get("accuracy"), as_percent=True)
-            template_lines.append(f"  {template_type}={accuracy}")
-    if template_lines:
-        lines.append("accuracy_per_template:")
-        lines.extend(template_lines)
-    else:
-        lines.append("accuracy_per_template=n/a")
+    bias_lines: List[str] = []
+    if not summary_df.empty and "bias_type" in summary_df.columns:
+        non_overall = summary_df[summary_df["bias_type"].astype(str) != "overall"].copy()
+        if not non_overall.empty:
+            non_overall = non_overall.sort_values("bias_type")
+            for _, row in non_overall.iterrows():
+                bias_lines.append(
+                    "  "
+                    + str(row.get("bias_type", "") or "<unknown>")
+                    + ": accuracy="
+                    + _format_terminal_summary_value(row.get("accuracy"), as_percent=True)
+                    + " avg_p_correct="
+                    + _format_terminal_summary_value(row.get("avg_p_correct"))
+                    + " avg_p_selected="
+                    + _format_terminal_summary_value(row.get("avg_p_selected"))
+                )
+    if bias_lines:
+        lines.append("summary_by_bias:")
+        lines.extend(bias_lines)
 
-    lines.append(
-        "probe_training_status="
-        + _format_terminal_summary_value(summary_payload.get("probe_training_status"))
-    )
+    if "probe_training_status" in payload_dict:
+        lines.append(
+            "probe_training_status="
+            + _format_terminal_summary_value(payload_dict.get("probe_training_status"))
+        )
     if isinstance(best_probe, dict) and best_probe:
         lines.append("best_probe_name=" + _format_terminal_summary_value(best_probe.get("probe_name")))
         lines.append("best_probe_test_auc=" + _format_terminal_summary_value(best_probe.get("test_auc")))
@@ -1376,20 +1606,25 @@ def _markdown_table(
 
 
 def build_executive_summary_markdown(
-    summary_payload: Dict[str, Any],
+    summary_payload: Any,
 ) -> str:
-    generated_at_utc = summary_payload.get("generated_at_utc")
-    headline_counts = summary_payload.get("headline_counts", {})
-    overall = summary_payload.get("overall", {})
-    template_df = pd.DataFrame(summary_payload.get("accuracy_by_template", []))
-    bias_df = pd.DataFrame(summary_payload.get("accuracy_by_bias_type", []))
-    probe_df = pd.DataFrame(summary_payload.get("probe_score_summaries", []))
+    payload_dict = summary_payload if isinstance(summary_payload, dict) else {}
+    generated_at_utc = payload_dict.get("generated_at_utc")
+    headline_counts = payload_dict.get("headline_counts", {})
+    summary_df = pd.DataFrame(_summary_rows_from_payload(summary_payload))
+    probe_df = pd.DataFrame(payload_dict.get("probe_score_summaries", []))
     best_probe_df = pd.DataFrame(
-        [summary_payload.get("selected_probe_overview", {})]
-        if isinstance(summary_payload.get("selected_probe_overview"), dict)
-        and summary_payload.get("selected_probe_overview")
+        [payload_dict.get("selected_probe_overview", {})]
+        if isinstance(payload_dict.get("selected_probe_overview"), dict)
+        and payload_dict.get("selected_probe_overview")
         else []
     )
+
+    overall_row = {}
+    if not summary_df.empty and "bias_type" in summary_df.columns:
+        overall_matches = summary_df[summary_df["bias_type"].astype(str) == "overall"]
+        if not overall_matches.empty:
+            overall_row = overall_matches.iloc[0].to_dict()
 
     overview_df = pd.DataFrame(
         [
@@ -1397,69 +1632,53 @@ def build_executive_summary_markdown(
             {"metric": "question_count", "value": headline_counts.get("question_count")},
             {"metric": "paired_rows", "value": headline_counts.get("paired_rows")},
             {"metric": "probe_families", "value": headline_counts.get("probe_family_count")},
-            {"metric": "overall_accuracy", "value": overall.get("accuracy")},
-            {"metric": "overall_avg_p_correct", "value": overall.get("avg_p_correct")},
-            {"metric": "overall_avg_p_selected", "value": overall.get("avg_p_selected")},
-            {"metric": "avg_delta_p_xprime_minus_x", "value": overall.get("avg_delta_p_xprime_minus_x")},
-            {"metric": "harmful_flip_rate", "value": overall.get("harmful_flip_rate")},
-            {"metric": "helpful_flip_rate", "value": overall.get("helpful_flip_rate")},
+            {"metric": "overall_accuracy", "value": overall_row.get("accuracy")},
+            {"metric": "overall_avg_p_correct", "value": overall_row.get("avg_p_correct")},
+            {"metric": "overall_avg_p_selected", "value": overall_row.get("avg_p_selected")},
+            {
+                "metric": "avg_delta_p_biased_minus_neutral",
+                "value": overall_row.get("avg_delta_p_biased_minus_neutral"),
+            },
+            {"metric": "harmful_flip_rate", "value": overall_row.get("harmful_flip_rate")},
+            {"metric": "helpful_flip_rate", "value": overall_row.get("helpful_flip_rate")},
         ]
     )
 
     sections = [
         "# Executive Summary",
         "",
-        f"- Run: `{summary_payload.get('run_name', '')}`",
-        f"- Model: `{summary_payload.get('model_name', '')}`",
-        f"- Dataset: `{summary_payload.get('dataset_name', '')}`",
+        f"- Run: `{payload_dict.get('run_name', '')}`",
+        f"- Model: `{payload_dict.get('model_name', '')}`",
+        f"- Dataset: `{payload_dict.get('dataset_name', '')}`",
         f"- Generated: `{generated_at_utc or 'n/a'}`",
         "",
         "## Model Overview",
         _markdown_table(overview_df, ["metric", "value"], {"metric": "Metric", "value": "Value"}),
         "",
-        "## Accuracy by Template",
+        "## Summary by Bias",
         _markdown_table(
-            template_df,
+            summary_df,
             [
-                "template_type",
-                "n_rows",
+                "bias_type",
+                "n_prompt_rows",
                 "accuracy",
                 "avg_p_correct",
                 "avg_p_selected",
-                "avg_probe_score_selected_prompt",
-            ],
-            {
-                "template_type": "Template",
-                "n_rows": "Rows",
-                "accuracy": "Accuracy",
-                "avg_p_correct": "Avg p(correct)",
-                "avg_p_selected": "Avg p(selected)",
-                "avg_probe_score_selected_prompt": "Avg probe score",
-            },
-        ),
-        "",
-        "## Effect by Bias",
-        _markdown_table(
-            bias_df,
-            [
-                "bias_type",
-                "n_pairs",
-                "accuracy_x",
-                "accuracy_xprime",
-                "avg_p_x",
-                "avg_p_xprime",
-                "avg_delta_p_xprime_minus_x",
+                "neutral_accuracy",
+                "biased_accuracy",
+                "avg_delta_p_biased_minus_neutral",
                 "harmful_flip_rate",
                 "helpful_flip_rate",
             ],
             {
                 "bias_type": "Bias",
-                "n_pairs": "Pairs",
-                "accuracy_x": "Acc x",
-                "accuracy_xprime": "Acc x'",
-                "avg_p_x": "Avg p(x)",
-                "avg_p_xprime": "Avg p(x')",
-                "avg_delta_p_xprime_minus_x": "Avg delta p",
+                "n_prompt_rows": "Prompt rows",
+                "accuracy": "Accuracy",
+                "avg_p_correct": "Avg p(correct)",
+                "avg_p_selected": "Avg p(selected)",
+                "neutral_accuracy": "Neutral acc",
+                "biased_accuracy": "Biased acc",
+                "avg_delta_p_biased_minus_neutral": "Delta p(bias-neutral)",
                 "harmful_flip_rate": "Harmful flip",
                 "helpful_flip_rate": "Helpful flip",
             },
@@ -1568,6 +1787,8 @@ def build_run_summary_payload(
             "model_name": str(args.model),
             "dataset_name": str(getattr(args, "dataset_name", "") or ""),
             "bias_types": _list_like_strings(getattr(args, "bias_types", [])),
+            "sampling_only": bool(getattr(args, "sampling_only", False)),
+            "probe_training_status": probes_meta.get("probe_training_status", "completed"),
             "counts": {
                 "sample_rows": int(len(samples_df)),
                 "tuple_rows": int(len(tuples_df)),
@@ -1672,16 +1893,24 @@ def save_run_results(
         probes_meta=probes_meta,
         probe_candidate_scores_df=probe_candidate_scores_df,
     )
+    reports_summary_df = pd.DataFrame(
+        reports_summary_payload.get("summary_rows", []),
+        columns=REPORTS_SUMMARY_COLUMNS,
+    )
     executive_summary_text = build_executive_summary_markdown(reports_summary_payload)
 
     samples_path = preferred_run_artifact_path(run_dir, "sampled_responses")
     reports_summary_path = preferred_run_artifact_path(run_dir, "reports_summary")
+    reports_summary_csv_path = preferred_run_artifact_path(run_dir, "reports_summary_csv")
+    run_summary_path = preferred_run_artifact_path(run_dir, "run_summary")
     probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
     executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
     config_path = preferred_run_artifact_path(run_dir, "run_config")
 
     write_csv_atomic(samples_path, samples_df)
-    write_json_atomic(reports_summary_path, reports_summary_payload)
+    write_json_atomic(reports_summary_path, reports_summary_payload.get("summary_rows", []))
+    write_csv_atomic(reports_summary_csv_path, reports_summary_df)
+    write_json_atomic(run_summary_path, reports_summary_payload)
     write_csv_atomic(probe_scores_by_prompt_path, probe_scores_by_prompt_df)
     write_text_atomic(executive_summary_path, executive_summary_text)
 
@@ -1706,6 +1935,8 @@ def save_run_results(
     run_cfg["sampling_integrity_summary_path"] = str(sampling_integrity_summary_path)
     run_cfg["sampled_responses_path"] = str(samples_path)
     run_cfg["reports_summary_path"] = str(reports_summary_path)
+    run_cfg["reports_summary_csv_path"] = str(reports_summary_csv_path)
+    run_cfg["run_summary_path"] = str(run_summary_path)
     run_cfg["probe_scores_by_prompt_path"] = str(probe_scores_by_prompt_path)
     run_cfg["executive_summary_path"] = str(executive_summary_path)
     if probes_meta.get("all_probes_dir"):
@@ -1720,6 +1951,8 @@ def save_run_results(
     saved_paths = {
         "samples_path": samples_path,
         "reports_summary_path": reports_summary_path,
+        "reports_summary_csv_path": reports_summary_csv_path,
+        "run_summary_path": run_summary_path,
         "probe_scores_by_prompt_path": probe_scores_by_prompt_path,
         "executive_summary_path": executive_summary_path,
         "config_path": config_path,
@@ -1737,6 +1970,7 @@ def save_run_results(
 
 __all__ = [
     "MC_PROBE_SCORE_BY_PROMPT_BASE_COLUMNS",
+    "REPORTS_SUMMARY_COLUMNS",
     "MODEL_SUMMARY_BY_BIAS_COLUMNS",
     "MODEL_SUMMARY_BY_TEMPLATE_COLUMNS",
     "P_CORRECT_COLUMN",
@@ -1752,6 +1986,7 @@ __all__ = [
     "build_model_summary_payload",
     "build_probe_summary_df",
     "build_probe_summary_payload",
+    "build_reports_summary_df",
     "build_reports_summary_payload",
     "build_terminal_final_stats_lines",
     "build_run_summary_payload",

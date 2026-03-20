@@ -57,6 +57,7 @@ def make_args(**overrides):
             "temperature": 0.7,
             "top_p": 1.0,
             "max_new_tokens": 32,
+            "sampling_only": False,
             "probe_construction": "auto",
             "probe_example_weighting": "model_probability",
             "probe_layer_min": 1,
@@ -79,6 +80,18 @@ class RuntimeContractTests(unittest.TestCase):
             expected = Path(tmpdir) / model_slug("mistralai/Mistral-7B-Instruct-v0.2") / "smoke_run"
             self.assertEqual(run_dir, expected)
             self.assertTrue(run_dir.is_dir())
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "warnings_log"),
+                run_dir / "reports" / "warnings.log",
+            )
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "reports_summary_csv"),
+                run_dir / "reports" / "summary.csv",
+            )
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "warnings_summary"),
+                run_dir / "reports" / "warnings_summary.json",
+            )
 
             # Explicit run names are resume-friendly.
             same_dir = make_run_dir(tmpdir, "mistralai/Mistral-7B-Instruct-v0.2", "smoke_run")
@@ -108,6 +121,10 @@ class RuntimeContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 assert_resume_compatible(run_dir, mismatched_mc_mode_args)
 
+            mismatched_sampling_only_args = make_args(sampling_only=True)
+            with self.assertRaises(ValueError):
+                assert_resume_compatible(run_dir, mismatched_sampling_only_args)
+
     def test_assert_resume_compatible_canonicalizes_list_like_fields(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = make_run_dir(tmpdir, "model", "resume_canonical_case")
@@ -124,6 +141,16 @@ class RuntimeContractTests(unittest.TestCase):
                     "bias_types": ["incorrect_suggestion", "doubt_correct", "suggest_correct"],
                 },
             )
+
+            assert_resume_compatible(run_dir, args)
+
+    def test_assert_resume_compatible_treats_missing_sampling_only_as_false(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = make_run_dir(tmpdir, "model", "resume_sampling_only_default_case")
+            args = make_args(sampling_only=False)
+            cfg_path = preferred_run_artifact_path(run_dir, "run_config")
+            payload = {key: getattr(args, key, None) for key in RESUME_COMPAT_KEYS if key != "sampling_only"}
+            write_json_atomic(cfg_path, payload)
 
             assert_resume_compatible(run_dir, args)
 

@@ -19,7 +19,7 @@ from .registry import (
     registered_llm_names,
     unregister_llm,
 )
-from .scoring import score_choices, score_logprob_answer, score_p_true
+from .scoring import audit_choice_tokenization, score_choices, score_logprob_answer, score_p_true
 from .sampling import (
     build_sampling_spec,
     enumerate_expected_sample_keys,
@@ -45,6 +45,7 @@ __all__ = [
     "enumerate_expected_sample_keys",
     "generate_many",
     "generate_one",
+    "audit_choice_tokenization",
     "get_registered_llm_factory",
     "HuggingFaceLLM",
     "load_llm",

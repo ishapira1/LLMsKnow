@@ -12,6 +12,7 @@ from llmssycoph.saving_manager import (
     MODEL_SUMMARY_BY_BIAS_COLUMNS,
     MODEL_SUMMARY_BY_TEMPLATE_COLUMNS,
     PROBE_SUMMARY_COLUMNS,
+    REPORTS_SUMMARY_COLUMNS,
     build_executive_summary_markdown,
     build_mc_probe_scores_by_prompt_df,
     build_model_summary_by_bias_df,
@@ -19,6 +20,7 @@ from llmssycoph.saving_manager import (
     build_model_summary_payload,
     build_probe_summary_df,
     build_probe_summary_payload,
+    build_reports_summary_df,
     build_reports_summary_payload,
     build_terminal_final_stats_lines,
     PROBE_CANDIDATE_SCORE_COLUMNS,
@@ -308,20 +310,33 @@ class SavingManagerContractTests(unittest.TestCase):
                 probe_candidate_scores_df=candidate_scores_df,
             )
             markdown = build_executive_summary_markdown(payload)
+            summary_df = build_reports_summary_df(
+                samples_df=samples_df,
+                tuples_df=tuples_df,
+                bias_types=args.bias_types,
+            )
 
             self.assertEqual(payload["headline_counts"]["sample_rows"], 2)
             self.assertEqual(payload["headline_counts"]["paired_rows"], 1)
             self.assertEqual(payload["headline_counts"]["probe_score_prompt_rows"], 1)
             self.assertEqual(payload["headline_counts"]["probe_family_count"], 2)
+            self.assertEqual(list(summary_df.columns), REPORTS_SUMMARY_COLUMNS)
+            self.assertEqual([row["bias_type"] for row in payload["summary_rows"]], ["overall", "incorrect_suggestion"])
+            self.assertAlmostEqual(payload["summary_rows"][0]["accuracy"], 0.5)
+            self.assertAlmostEqual(payload["summary_rows"][1]["avg_p_correct"], 0.3)
+            self.assertAlmostEqual(payload["summary_rows"][1]["avg_delta_p_biased_minus_neutral"], -0.5)
             self.assertAlmostEqual(payload["overall"]["accuracy"], 0.5)
             self.assertAlmostEqual(payload["overall"]["avg_p_correct"], 0.55)
             self.assertAlmostEqual(payload["overall"]["avg_delta_p_xprime_minus_x"], -0.5)
+            self.assertIn("selected_choice", payload["definitions"])
+            self.assertIn("T_prompt", payload["definitions"])
+            self.assertIn("accuracy", payload["definitions"])
             self.assertEqual(payload["selected_probe_overview"]["probe_name"], "probe_bias_incorrect_suggestion")
             self.assertAlmostEqual(payload["selected_probe_overview"]["test_auc"], 0.78)
             self.assertEqual(payload["strict_mc_quality"]["status"], "passed")
             self.assertEqual(markdown.splitlines()[0], "# Executive Summary")
             self.assertIn(payload["generated_at_utc"], markdown)
-            self.assertIn("## Accuracy by Template", markdown)
+            self.assertIn("## Summary by Bias", markdown)
             self.assertIn("## Probe Overview", markdown)
 
             terminal_lines = build_terminal_final_stats_lines(payload)
@@ -331,12 +346,11 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertIn("sample_rows=2", terminal_lines)
             self.assertIn("overall_accuracy=50.0%", terminal_lines)
             self.assertIn("avg_p_correct=0.550", terminal_lines)
-            self.assertIn("avg_delta_p_xprime_minus_x=-0.500", terminal_lines)
+            self.assertIn("avg_delta_p_biased_minus_neutral=-0.500", terminal_lines)
             self.assertIn("harmful_flip_rate=100.0%", terminal_lines)
             self.assertIn("helpful_flip_rate=0.0%", terminal_lines)
-            self.assertIn("accuracy_per_template:", terminal_lines)
-            self.assertIn("  incorrect_suggestion=0.0%", terminal_lines)
-            self.assertIn("  neutral=100.0%", terminal_lines)
+            self.assertIn("summary_by_bias:", terminal_lines)
+            self.assertIn("  incorrect_suggestion: accuracy=0.0% avg_p_correct=0.300 avg_p_selected=0.500", terminal_lines)
             self.assertIn("best_probe_name=probe_bias_incorrect_suggestion", terminal_lines)
             self.assertIn("best_probe_test_auc=0.780", terminal_lines)
 
@@ -527,6 +541,9 @@ class SavingManagerContractTests(unittest.TestCase):
 
             self.assertIn("prompt_level", model_summary_payload)
             self.assertIn("paired_effects", model_summary_payload)
+            self.assertIn("selected_choice", model_summary_payload["definitions"])
+            self.assertIn("T_prompt", model_summary_payload["definitions"])
+            self.assertIn("accuracy", model_summary_payload["definitions"])
             self.assertEqual(list(model_summary_by_template_df.columns), MODEL_SUMMARY_BY_TEMPLATE_COLUMNS)
             self.assertEqual(list(model_summary_by_bias_df.columns), MODEL_SUMMARY_BY_BIAS_COLUMNS)
             self.assertAlmostEqual(
@@ -542,6 +559,105 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertAlmostEqual(bias_probe_row["probe_prefers_selected_rate"], 1.0)
             self.assertAlmostEqual(bias_probe_row["mean_probe_score_correct_choice"], 0.4)
             self.assertAlmostEqual(bias_probe_row["mean_probe_score_selected_choice"], 0.9)
+
+    def test_reports_summary_payload_handles_sampling_only_runs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            samples_df = pd.DataFrame(
+                [
+                    {
+                        "question_id": "q_1",
+                        "split": "test",
+                        "template_type": "neutral",
+                        "correctness": 1,
+                        "usable_for_metrics": True,
+                        "T_prompt": 0.8,
+                        "P(selected)": 0.8,
+                        "probe_x": None,
+                        "probe_xprime": None,
+                        "strict_format_exact": True,
+                        "starts_with_answer_prefix": True,
+                        "hit_max_new_tokens": False,
+                        "stopped_on_eos": False,
+                        "completion_token_count": 1,
+                        "grading_status": "correct",
+                        "finish_reason": "choice_probabilities",
+                        "sampling_mode": "choice_probabilities",
+                    },
+                    {
+                        "question_id": "q_1",
+                        "split": "test",
+                        "template_type": "incorrect_suggestion",
+                        "correctness": 0,
+                        "usable_for_metrics": True,
+                        "T_prompt": 0.3,
+                        "P(selected)": 0.5,
+                        "probe_x": None,
+                        "probe_xprime": None,
+                        "strict_format_exact": True,
+                        "starts_with_answer_prefix": True,
+                        "hit_max_new_tokens": False,
+                        "stopped_on_eos": False,
+                        "completion_token_count": 1,
+                        "grading_status": "incorrect",
+                        "finish_reason": "choice_probabilities",
+                        "sampling_mode": "choice_probabilities",
+                    },
+                ]
+            )
+            tuples_df = pd.DataFrame(
+                [
+                    {
+                        "bias_type": "incorrect_suggestion",
+                        "split": "test",
+                        "question_id": "q_1",
+                        "draw_idx": 0,
+                        "C_x_y": 1,
+                        "C_xprime_yprime": 0,
+                        "T_x": 0.8,
+                        "T_xprime": 0.3,
+                        "probe_x": None,
+                        "probe_xprime": None,
+                        "y_x": "A",
+                        "y_xprime": "B",
+                    },
+                ]
+            )
+            args = SimpleNamespace(
+                model="test/model",
+                dataset_name="aqua_mc",
+                bias_types=["incorrect_suggestion"],
+                sampling_only=True,
+            )
+            probes_meta = {
+                "probe_training_status": "skipped_by_sampling_only",
+            }
+            candidate_scores_df = pd.DataFrame(columns=PROBE_CANDIDATE_SCORE_COLUMNS)
+            probe_scores_by_prompt_df = build_mc_probe_scores_by_prompt_df(candidate_scores_df)
+
+            payload = build_reports_summary_payload(
+                args=args,
+                run_dir=run_dir,
+                samples_df=samples_df,
+                tuples_df=tuples_df,
+                probe_scores_by_prompt_df=probe_scores_by_prompt_df,
+                probes_meta=probes_meta,
+                probe_candidate_scores_df=candidate_scores_df,
+            )
+            terminal_lines = build_terminal_final_stats_lines(payload)
+            markdown = build_executive_summary_markdown(payload)
+
+            self.assertTrue(payload["sampling_only"])
+            self.assertEqual(payload["probe_training_status"], "skipped_by_sampling_only")
+            self.assertEqual(payload["headline_counts"]["probe_score_prompt_rows"], 0)
+            self.assertEqual(payload["headline_counts"]["probe_family_count"], 0)
+            self.assertEqual(payload["probe_score_summaries"], [])
+            self.assertIsNone(payload["selected_probe_overview"])
+            self.assertIn("probe_training_status=skipped_by_sampling_only", terminal_lines)
+            self.assertFalse(any(line.startswith("best_probe_name=") for line in terminal_lines))
+            self.assertIn("## Probe Overview", markdown)
 
 
 if __name__ == "__main__":

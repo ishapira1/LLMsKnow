@@ -22,7 +22,7 @@ from llmssycoph.saving_manager import (
 
 
 class IntegrityContractTests(unittest.TestCase):
-    def _build_smoke_run(self, run_dir: Path) -> None:
+    def _build_smoke_run(self, run_dir: Path, *, sampling_only: bool = False) -> None:
         run_dir.mkdir(parents=True, exist_ok=True)
         question_splits = {"train": ["q_1"], "val": ["q_2"], "test": ["q_3"]}
         bias_types = ["incorrect_suggestion"]
@@ -34,6 +34,8 @@ class IntegrityContractTests(unittest.TestCase):
         sampling_records_path = preferred_run_artifact_path(run_dir, "sampling_records")
         probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
         reports_summary_path = preferred_run_artifact_path(run_dir, "reports_summary")
+        reports_summary_csv_path = preferred_run_artifact_path(run_dir, "reports_summary_csv")
+        run_summary_path = preferred_run_artifact_path(run_dir, "run_summary")
         executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
 
         all_records = []
@@ -46,7 +48,7 @@ class IntegrityContractTests(unittest.TestCase):
                     is_neutral = template_type == "neutral"
                     prompt_id = f"{question_id}__{template_type}"
                     t_prompt = 0.9 if is_neutral else 0.7
-                    probe_score = 0.25 if is_neutral else 0.65
+                    probe_score = None if sampling_only else (0.25 if is_neutral else 0.65)
                     all_records.append(
                         {
                             "record_id": record_id,
@@ -89,33 +91,34 @@ class IntegrityContractTests(unittest.TestCase):
                         }
                     )
                     probe_name = "probe_no_bias" if is_neutral else "probe_bias_incorrect_suggestion"
-                    for candidate_choice, candidate_probability, candidate_correctness, candidate_is_selected, score in (
-                        ("A", t_prompt, 1, True, probe_score),
-                        ("B", 1.0 - t_prompt, 0, False, probe_score - 0.2),
-                    ):
-                        probe_candidate_rows.append(
-                            {
-                                "probe_name": probe_name,
-                                "split": split_name,
-                                "question_id": question_id,
-                                "prompt_id": prompt_id,
-                                "dataset": dataset_name,
-                                "template_type": template_type,
-                                "draw_idx": 0,
-                                "source_record_id": record_id,
-                                "record_id": candidate_record_id,
-                                "correct_letter": "A",
-                                "source_selected_choice": "A",
-                                "candidate_choice": candidate_choice,
-                                "candidate_rank": 0 if candidate_choice == "A" else 1,
-                                "candidate_probability": candidate_probability,
-                                "probe_sample_weight": candidate_probability,
-                                "candidate_correctness": candidate_correctness,
-                                "candidate_is_selected": candidate_is_selected,
-                                "probe_score": score,
-                            }
-                        )
-                        candidate_record_id += 1
+                    if not sampling_only:
+                        for candidate_choice, candidate_probability, candidate_correctness, candidate_is_selected, score in (
+                            ("A", t_prompt, 1, True, probe_score),
+                            ("B", 1.0 - t_prompt, 0, False, probe_score - 0.2),
+                        ):
+                            probe_candidate_rows.append(
+                                {
+                                    "probe_name": probe_name,
+                                    "split": split_name,
+                                    "question_id": question_id,
+                                    "prompt_id": prompt_id,
+                                    "dataset": dataset_name,
+                                    "template_type": template_type,
+                                    "draw_idx": 0,
+                                    "source_record_id": record_id,
+                                    "record_id": candidate_record_id,
+                                    "correct_letter": "A",
+                                    "source_selected_choice": "A",
+                                    "candidate_choice": candidate_choice,
+                                    "candidate_rank": 0 if candidate_choice == "A" else 1,
+                                    "candidate_probability": candidate_probability,
+                                    "probe_sample_weight": candidate_probability,
+                                    "candidate_correctness": candidate_correctness,
+                                    "candidate_is_selected": candidate_is_selected,
+                                    "probe_score": score,
+                                }
+                            )
+                            candidate_record_id += 1
                     record_id += 1
 
         samples_df = to_samples_df(all_records, model_name=model_name)
@@ -124,55 +127,8 @@ class IntegrityContractTests(unittest.TestCase):
         probe_candidate_scores_df = to_probe_candidate_scores_df(probe_candidate_rows, model_name=model_name)
         probe_scores_by_prompt_df = build_mc_probe_scores_by_prompt_df(probe_candidate_scores_df)
 
-        probe_no_bias_metrics = run_dir / "probe_no_bias_metrics.json"
-        probe_bias_metrics = run_dir / "probe_bias_metrics.json"
-        write_text_atomic(
-            probe_no_bias_metrics,
-            json.dumps(
-                {
-                    "splits": {
-                        "train": {"auc": 0.72, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
-                        "val": {"auc": 0.7, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
-                        "test": {"auc": 0.68, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
-                    }
-                }
-            ),
-        )
-        write_text_atomic(
-            probe_bias_metrics,
-            json.dumps(
-                {
-                    "splits": {
-                        "train": {"auc": 0.84, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
-                        "val": {"auc": 0.82, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
-                        "test": {"auc": 0.8, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
-                    }
-                }
-            ),
-        )
-
         probes_meta = {
-            "probe_training_status": "completed",
-            "probe_no_bias": {
-                "template_type": "neutral",
-                "best_layer": 1,
-                "best_dev_auc": 0.7,
-                "trained_layers": [1],
-                "auc_per_layer": {1: 0.7},
-                "probe_construction": "choice_candidates",
-                "probe_example_weighting": "model_probability",
-                "chosen_probe_metrics_path": str(probe_no_bias_metrics),
-            },
-            "probe_bias_incorrect_suggestion": {
-                "template_type": "incorrect_suggestion",
-                "best_layer": 1,
-                "best_dev_auc": 0.82,
-                "trained_layers": [1],
-                "auc_per_layer": {1: 0.82},
-                "probe_construction": "choice_candidates",
-                "probe_example_weighting": "model_probability",
-                "chosen_probe_metrics_path": str(probe_bias_metrics),
-            },
+            "probe_training_status": "skipped_by_sampling_only" if sampling_only else "completed",
             "strict_mc_quality": {
                 "status": "passed",
                 "issues": [],
@@ -190,11 +146,63 @@ class IntegrityContractTests(unittest.TestCase):
                 },
             },
         }
+        if not sampling_only:
+            probe_no_bias_metrics = run_dir / "probe_no_bias_metrics.json"
+            probe_bias_metrics = run_dir / "probe_bias_metrics.json"
+            write_text_atomic(
+                probe_no_bias_metrics,
+                json.dumps(
+                    {
+                        "splits": {
+                            "train": {"auc": 0.72, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                            "val": {"auc": 0.7, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                            "test": {"auc": 0.68, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                        }
+                    }
+                ),
+            )
+            write_text_atomic(
+                probe_bias_metrics,
+                json.dumps(
+                    {
+                        "splits": {
+                            "train": {"auc": 0.84, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                            "val": {"auc": 0.82, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                            "test": {"auc": 0.8, "accuracy": 1.0, "balanced_accuracy": 1.0, "n_total": 2},
+                        }
+                    }
+                ),
+            )
+            probes_meta.update(
+                {
+                    "probe_no_bias": {
+                        "template_type": "neutral",
+                        "best_layer": 1,
+                        "best_dev_auc": 0.7,
+                        "trained_layers": [1],
+                        "auc_per_layer": {1: 0.7},
+                        "probe_construction": "choice_candidates",
+                        "probe_example_weighting": "model_probability",
+                        "chosen_probe_metrics_path": str(probe_no_bias_metrics),
+                    },
+                    "probe_bias_incorrect_suggestion": {
+                        "template_type": "incorrect_suggestion",
+                        "best_layer": 1,
+                        "best_dev_auc": 0.82,
+                        "trained_layers": [1],
+                        "auc_per_layer": {1: 0.82},
+                        "probe_construction": "choice_candidates",
+                        "probe_example_weighting": "model_probability",
+                        "chosen_probe_metrics_path": str(probe_bias_metrics),
+                    },
+                }
+            )
 
         args = SimpleNamespace(
             model=model_name,
             dataset_name=dataset_name,
             bias_types=bias_types,
+            sampling_only=sampling_only,
         )
         reports_summary = build_reports_summary_payload(
             args=args,
@@ -208,13 +216,15 @@ class IntegrityContractTests(unittest.TestCase):
         executive_summary = build_executive_summary_markdown(reports_summary)
 
         write_csv_atomic(samples_path, samples_df)
+        write_csv_atomic(reports_summary_csv_path, pd.DataFrame(reports_summary["summary_rows"]))
         sampling_records_path.parent.mkdir(parents=True, exist_ok=True)
         sampling_records_path.write_text(
             "\n".join(json.dumps(row, ensure_ascii=False) for row in all_records) + "\n",
             encoding="utf-8",
         )
         write_csv_atomic(probe_scores_by_prompt_path, probe_scores_by_prompt_df)
-        write_json_atomic(reports_summary_path, reports_summary)
+        write_json_atomic(reports_summary_path, reports_summary["summary_rows"])
+        write_json_atomic(run_summary_path, reports_summary)
         write_text_atomic(executive_summary_path, executive_summary)
 
         write_json_atomic(
@@ -239,6 +249,7 @@ class IntegrityContractTests(unittest.TestCase):
                 "sample_batch_size": 1,
                 "temperature": 1.0,
                 "max_new_tokens": 32,
+                "sampling_only": sampling_only,
                 "probe_construction": "auto",
                 "probe_example_weighting": "model_probability",
                 "strict_mc_choice_scoring": True,
@@ -249,6 +260,8 @@ class IntegrityContractTests(unittest.TestCase):
                 ),
                 "sampled_responses_path": str(samples_path),
                 "reports_summary_path": str(reports_summary_path),
+                "reports_summary_csv_path": str(reports_summary_csv_path),
+                "run_summary_path": str(run_summary_path),
                 "probe_scores_by_prompt_path": str(probe_scores_by_prompt_path),
                 "executive_summary_path": str(executive_summary_path),
             },
@@ -296,32 +309,33 @@ class IntegrityContractTests(unittest.TestCase):
             },
         )
 
-        all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
-        chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
-        write_json_atomic(
-            all_probes_dir / "manifest.json",
-            {
-                "artifact_group": "all_probes",
-                "probe_names": ["probe_bias_incorrect_suggestion", "probe_no_bias"],
-            },
-        )
-        write_json_atomic(
-            chosen_probe_dir / "manifest.json",
-            {
-                "artifact_group": "chosen_probe",
-                "probe_names": ["probe_bias_incorrect_suggestion", "probe_no_bias"],
-            },
-        )
-        write_json_atomic(all_probes_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
-        write_json_atomic(
-            all_probes_dir / "probe_bias_incorrect_suggestion" / "manifest.json",
-            {"probe_name": "probe_bias_incorrect_suggestion"},
-        )
-        write_json_atomic(chosen_probe_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
-        write_json_atomic(
-            chosen_probe_dir / "probe_bias_incorrect_suggestion" / "manifest.json",
-            {"probe_name": "probe_bias_incorrect_suggestion"},
-        )
+        if not sampling_only:
+            all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
+            chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
+            write_json_atomic(
+                all_probes_dir / "manifest.json",
+                {
+                    "artifact_group": "all_probes",
+                    "probe_names": ["probe_bias_incorrect_suggestion", "probe_no_bias"],
+                },
+            )
+            write_json_atomic(
+                chosen_probe_dir / "manifest.json",
+                {
+                    "artifact_group": "chosen_probe",
+                    "probe_names": ["probe_bias_incorrect_suggestion", "probe_no_bias"],
+                },
+            )
+            write_json_atomic(all_probes_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
+            write_json_atomic(
+                all_probes_dir / "probe_bias_incorrect_suggestion" / "manifest.json",
+                {"probe_name": "probe_bias_incorrect_suggestion"},
+            )
+            write_json_atomic(chosen_probe_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
+            write_json_atomic(
+                chosen_probe_dir / "probe_bias_incorrect_suggestion" / "manifest.json",
+                {"probe_name": "probe_bias_incorrect_suggestion"},
+            )
 
         run_log_path = preferred_run_artifact_path(run_dir, "run_log")
         write_text_atomic(run_log_path, "ok\n")
@@ -330,6 +344,17 @@ class IntegrityContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir) / "run"
             self._build_smoke_run(run_dir)
+
+            report = check_run_integrity(run_dir)
+
+            self.assertEqual(report["sample_count"], 6)
+            self.assertEqual(report["tuple_count"], 3)
+            self.assertEqual(report["question_count"], 3)
+
+    def test_check_run_integrity_accepts_sampling_only_smoke_run(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            self._build_smoke_run(run_dir, sampling_only=True)
 
             report = check_run_integrity(run_dir)
 

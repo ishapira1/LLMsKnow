@@ -34,7 +34,7 @@ ALLOWED_REQUESTED_DEVICE_VALUES = {"auto", "cpu", "cuda", "mps"}
 ALLOWED_RESOLVED_DEVICE_VALUES = {"cpu", "cuda", "mps"}
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -46,6 +46,16 @@ def _parse_list_like(value: Any) -> List[str]:
     if isinstance(value, (list, tuple)):
         return [str(part).strip() for part in value if str(part).strip()]
     return [str(value).strip()]
+
+
+def _bool_like(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return bool(value)
 
 
 def _format_pct(value: float) -> str:
@@ -62,6 +72,54 @@ def _resolve_device_metadata(run_config: Dict[str, Any]) -> tuple[str, str]:
     if not resolved_device and requested_device and requested_device != "auto":
         resolved_device = requested_device
     return requested_device, resolved_device
+
+
+def _extract_reports_summary_rows(reports_summary: Any, run_summary: Any) -> List[Dict[str, Any]]:
+    for payload in (reports_summary, run_summary):
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+        if isinstance(payload, dict):
+            raw_rows = payload.get("summary_rows")
+            if isinstance(raw_rows, list):
+                return [row for row in raw_rows if isinstance(row, dict)]
+
+    if not isinstance(reports_summary, dict):
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    overall = reports_summary.get("overall", {})
+    if isinstance(overall, dict):
+        rows.append(
+            {
+                "bias_type": "overall",
+                "accuracy": overall.get("accuracy"),
+                "avg_p_correct": overall.get("avg_p_correct"),
+                "avg_p_selected": overall.get("avg_p_selected"),
+                "avg_delta_p_biased_minus_neutral": overall.get("avg_delta_p_xprime_minus_x"),
+                "harmful_flip_rate": overall.get("harmful_flip_rate"),
+                "helpful_flip_rate": overall.get("helpful_flip_rate"),
+                "unchanged_correctness_rate": overall.get("unchanged_correctness_rate"),
+            }
+        )
+
+    for bias_row in reports_summary.get("accuracy_by_bias_type", []):
+        if not isinstance(bias_row, dict):
+            continue
+        rows.append(
+            {
+                "bias_type": bias_row.get("bias_type"),
+                "accuracy": bias_row.get("accuracy_xprime"),
+                "avg_p_correct": bias_row.get("avg_p_xprime"),
+                "avg_p_selected": None,
+                "neutral_accuracy": bias_row.get("accuracy_x"),
+                "biased_accuracy": bias_row.get("accuracy_xprime"),
+                "avg_delta_p_biased_minus_neutral": bias_row.get("avg_delta_p_xprime_minus_x"),
+                "harmful_flip_rate": bias_row.get("harmful_flip_rate"),
+                "helpful_flip_rate": bias_row.get("helpful_flip_rate"),
+                "unchanged_correctness_rate": bias_row.get("unchanged_correctness_rate"),
+            }
+        )
+    return rows
 
 
 def _check_probability_series(series: pd.Series, column_name: str, issues: List[str]) -> None:
@@ -175,6 +233,7 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     sampling_integrity_path = resolve_run_artifact_path(run_dir, "sampling_integrity_summary")
     samples_path = resolve_run_artifact_path(run_dir, "sampled_responses")
     reports_summary_path = resolve_run_artifact_path(run_dir, "reports_summary")
+    run_summary_path = resolve_run_artifact_path(run_dir, "run_summary")
     probe_scores_by_prompt_path = resolve_run_artifact_path(run_dir, "probe_scores_by_prompt")
     executive_summary_path = resolve_run_artifact_path(run_dir, "executive_summary")
 
@@ -182,7 +241,20 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     status = _load_json(status_path)
     manifest = _load_json(manifest_path)
     reports_summary = _load_json(reports_summary_path)
+    run_summary = _load_json(run_summary_path) if run_summary_path.exists() else {}
     sampling_integrity = _load_json(sampling_integrity_path)
+    summary_meta = run_summary if isinstance(run_summary, dict) and run_summary else (
+        reports_summary if isinstance(reports_summary, dict) else {}
+    )
+    sampling_only = _bool_like(run_config.get("sampling_only", False))
+    probe_training_status = ""
+    if isinstance(summary_meta, dict):
+        probe_training_status = str(summary_meta.get("probe_training_status", "") or "")
+    if not probe_training_status and sampling_only:
+        probe_training_status = "skipped_by_sampling_only"
+    probe_stage_skipped = sampling_only or probe_training_status == "skipped_by_sampling_only"
+    summary_rows = _extract_reports_summary_rows(reports_summary, run_summary)
+    summary_rows_df = pd.DataFrame(summary_rows)
 
     samples = pd.read_csv(samples_path)
     probe_scores_by_prompt_df = pd.read_csv(probe_scores_by_prompt_path)
@@ -194,17 +266,16 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         issues.append(
             f"sampled_responses.csv is missing required columns: {missing_sample_columns}"
         )
-    reports_summary_required_keys = {
-        "headline_counts",
-        "overall",
-        "accuracy_by_template",
-        "accuracy_by_bias_type",
-        "probe_score_summaries",
-        "selected_probe_overview",
-    }
-    missing_reports_summary_keys = sorted(reports_summary_required_keys.difference(reports_summary.keys()))
-    if missing_reports_summary_keys:
-        issues.append(f"reports/summary.json is missing required keys: {missing_reports_summary_keys}")
+    summary_required_columns = {"bias_type", "accuracy", "avg_p_correct", "avg_p_selected"}
+    if summary_rows_df.empty:
+        issues.append("reports/summary.json is empty")
+    else:
+        missing_summary_columns = sorted(summary_required_columns.difference(summary_rows_df.columns))
+        if missing_summary_columns:
+            issues.append(
+                "reports/summary.json is missing required columns: "
+                f"{missing_summary_columns}"
+            )
 
     probe_scores_by_prompt_required_columns = {
         "probe_name",
@@ -242,6 +313,8 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         issues.append("dataset_name is not aqua_mc")
     if str(run_config.get("mc_mode")) != "strict_mc":
         issues.append("mc_mode is not strict_mc")
+    if sampling_only and probe_training_status != "skipped_by_sampling_only":
+        issues.append("sampling_only run is missing probe_training_status=skipped_by_sampling_only")
     requested_device, resolved_device = _resolve_device_metadata(run_config)
     if not requested_device:
         issues.append("run_config.json is missing requested_device/device")
@@ -467,10 +540,32 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
                 f"reconstructed pair table contains unexpected bias types: {sorted(tuple_biases - set(bias_types))}"
             )
 
-    strict_quality = reports_summary.get("strict_mc_quality")
-    if not isinstance(strict_quality, dict):
-        issues.append("reports/summary.json is missing strict_mc_quality")
-    else:
+    if not summary_rows_df.empty:
+        if "bias_type" in summary_rows_df.columns:
+            duplicate_summary_rows = int(summary_rows_df.duplicated(subset=["bias_type"]).sum())
+            if duplicate_summary_rows:
+                issues.append(f"reports/summary.json has {duplicate_summary_rows} duplicate bias_type rows")
+            summary_biases = set(summary_rows_df["bias_type"].dropna().astype(str))
+            expected_summary_biases = {"overall", *bias_types}
+            if summary_biases != expected_summary_biases:
+                issues.append("reports/summary.json has unexpected bias coverage")
+        for column_name in (
+            "accuracy",
+            "avg_p_correct",
+            "avg_p_selected",
+            "neutral_accuracy",
+            "biased_accuracy",
+            "neutral_avg_p_correct",
+            "biased_avg_p_correct",
+            "harmful_flip_rate",
+            "helpful_flip_rate",
+            "unchanged_correctness_rate",
+        ):
+            if column_name in summary_rows_df.columns:
+                _check_probability_series(summary_rows_df[column_name], f"reports.summary.{column_name}", issues)
+
+    strict_quality = summary_meta.get("strict_mc_quality") if isinstance(summary_meta, dict) else None
+    if isinstance(strict_quality, dict):
         if strict_quality.get("status") != "passed":
             issues.append(
                 f"strict_mc_quality status is {strict_quality.get('status')!r}, expected 'passed'"
@@ -485,38 +580,31 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
                 f"strict_mc_quality summary is missing templates: {sorted(missing_quality_templates)}"
             )
 
-    headline_counts = reports_summary.get("headline_counts", {})
-    if int(headline_counts.get("sample_rows", -1)) != len(samples):
-        issues.append("reports/summary.json headline_counts.sample_rows does not match sampled_responses.csv")
-    if int(headline_counts.get("question_count", -1)) != len(expected_question_ids):
-        issues.append("reports/summary.json headline_counts.question_count does not match sampling_manifest.json")
-    if int(headline_counts.get("probe_score_prompt_rows", -1)) != len(probe_scores_by_prompt_df):
-        issues.append("reports/summary.json headline_counts.probe_score_prompt_rows does not match probe_scores_by_prompt.csv")
+    headline_counts = summary_meta.get("headline_counts", {}) if isinstance(summary_meta, dict) else {}
+    if headline_counts:
+        if int(headline_counts.get("sample_rows", -1)) != len(samples):
+            issues.append("run summary headline_counts.sample_rows does not match sampled_responses.csv")
+        if int(headline_counts.get("question_count", -1)) != len(expected_question_ids):
+            issues.append("run summary headline_counts.question_count does not match sampling_manifest.json")
+        if int(headline_counts.get("probe_score_prompt_rows", -1)) != len(probe_scores_by_prompt_df):
+            issues.append("run summary headline_counts.probe_score_prompt_rows does not match probe_scores_by_prompt.csv")
+        if probe_stage_skipped and int(headline_counts.get("probe_family_count", -1)) != 0:
+            issues.append("run summary headline_counts.probe_family_count should be 0 when sampling_only=true")
 
-    summary_template_df = pd.DataFrame(reports_summary.get("accuracy_by_template", []))
-    if not summary_template_df.empty:
-        summary_template_templates = set(summary_template_df["template_type"].dropna().astype(str))
-        if summary_template_templates != expected_templates:
-            issues.append("reports/summary.json accuracy_by_template has unexpected template coverage")
-    else:
-        issues.append("reports/summary.json accuracy_by_template is empty")
-
-    summary_bias_df = pd.DataFrame(reports_summary.get("accuracy_by_bias_type", []))
-    if bias_types and summary_bias_df.empty:
-        issues.append("reports/summary.json accuracy_by_bias_type is empty")
-    if not summary_bias_df.empty:
-        summary_biases = set(summary_bias_df["bias_type"].dropna().astype(str))
-        if summary_biases != set(bias_types):
-            issues.append("reports/summary.json accuracy_by_bias_type has unexpected bias coverage")
-
-    probe_summary_df = pd.DataFrame(reports_summary.get("probe_score_summaries", []))
+    probe_summary_df = pd.DataFrame(summary_meta.get("probe_score_summaries", [])) if isinstance(summary_meta, dict) else pd.DataFrame()
     expected_probe_names = {"probe_no_bias", *[f"probe_bias_{bias_type}" for bias_type in bias_types]}
-    if not probe_summary_df.empty:
-        present_probe_names = set(probe_summary_df["probe_name"].dropna().astype(str))
-        if present_probe_names != expected_probe_names:
-            issues.append("reports/summary.json probe_score_summaries has unexpected probe coverage")
-    elif expected_probe_names:
-        issues.append("reports/summary.json probe_score_summaries is empty")
+    if probe_stage_skipped:
+        if not probe_scores_by_prompt_df.empty:
+            issues.append("probe_scores_by_prompt.csv should be empty when sampling_only=true")
+        if not probe_summary_df.empty:
+            issues.append("run summary probe_score_summaries should be empty when sampling_only=true")
+    else:
+        if not probe_summary_df.empty:
+            present_probe_names = set(probe_summary_df["probe_name"].dropna().astype(str))
+            if present_probe_names != expected_probe_names:
+                issues.append("run summary probe_score_summaries has unexpected probe coverage")
+        elif expected_probe_names and isinstance(summary_meta, dict) and "probe_score_summaries" in summary_meta:
+            issues.append("run summary probe_score_summaries is empty")
 
     executive_summary_text = executive_summary_path.read_text(encoding="utf-8").strip()
     if not executive_summary_text:
@@ -526,24 +614,30 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
 
     all_probes_dir = resolve_run_artifact_path(run_dir, "all_probes_dir")
     chosen_probe_dir = resolve_run_artifact_path(run_dir, "chosen_probe_dir")
-    if all_probes_dir.exists():
-        all_manifest_path = all_probes_dir / "manifest.json"
-        if not all_manifest_path.exists():
-            issues.append("all_probes/manifest.json is missing")
-    if chosen_probe_dir.exists():
-        chosen_manifest_path = chosen_probe_dir / "manifest.json"
-        if not chosen_manifest_path.exists():
-            issues.append("chosen_probe/manifest.json is missing")
-
-    for probe_name in ["probe_no_bias", *[f"probe_bias_{bias_type}" for bias_type in bias_types]]:
+    if probe_stage_skipped:
         if all_probes_dir.exists():
-            family_manifest = all_probes_dir / probe_name / "manifest.json"
-            if not family_manifest.exists():
-                issues.append(f"all_probes manifest is missing for {probe_name}")
+            issues.append("all_probes directory should be absent when sampling_only=true")
         if chosen_probe_dir.exists():
-            family_manifest = chosen_probe_dir / probe_name / "manifest.json"
-            if not family_manifest.exists():
-                issues.append(f"chosen_probe manifest is missing for {probe_name}")
+            issues.append("chosen_probe directory should be absent when sampling_only=true")
+    else:
+        if all_probes_dir.exists():
+            all_manifest_path = all_probes_dir / "manifest.json"
+            if not all_manifest_path.exists():
+                issues.append("all_probes/manifest.json is missing")
+        if chosen_probe_dir.exists():
+            chosen_manifest_path = chosen_probe_dir / "manifest.json"
+            if not chosen_manifest_path.exists():
+                issues.append("chosen_probe/manifest.json is missing")
+
+        for probe_name in ["probe_no_bias", *[f"probe_bias_{bias_type}" for bias_type in bias_types]]:
+            if all_probes_dir.exists():
+                family_manifest = all_probes_dir / probe_name / "manifest.json"
+                if not family_manifest.exists():
+                    issues.append(f"all_probes manifest is missing for {probe_name}")
+            if chosen_probe_dir.exists():
+                family_manifest = chosen_probe_dir / probe_name / "manifest.json"
+                if not family_manifest.exists():
+                    issues.append(f"chosen_probe manifest is missing for {probe_name}")
 
     if issues:
         raise RuntimeError("\n".join(issues))

@@ -21,9 +21,13 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("run.log"),
     ),
     "warnings_log": (
+        Path("reports") / "warnings.log",
         Path("logs") / "warnings.log",
         Path("internal") / "logs" / "warnings.log",
         Path("warnings.log"),
+    ),
+    "warnings_summary": (
+        Path("reports") / "warnings_summary.json",
     ),
     "run_config": (
         Path("internal") / "run_config.json",
@@ -61,6 +65,9 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("reports") / "summary.json",
         Path("internal") / "run_summary.json",
         Path("analysis") / "run_summary.json",
+    ),
+    "reports_summary_csv": (
+        Path("reports") / "summary.csv",
     ),
     "model_summary_by_template": (
         Path("analysis") / "model_summary_by_template.csv",
@@ -157,6 +164,13 @@ def make_run_dir(base_out_dir: str, model_name: str, run_name: Optional[str]) ->
 
 
 def _canonical_resume_value(key: str, value: Any) -> Any:
+    if key == "sampling_only":
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
     if key not in {"ays_mc_datasets", "bias_types"}:
         return value
 
@@ -281,7 +295,7 @@ def release_run_lock(lock_path: Path) -> None:
         pass
 
 
-def write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
+def write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
     try:

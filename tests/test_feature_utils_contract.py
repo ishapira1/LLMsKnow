@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from llmssycoph.llm import score_choices, score_logprob_answer
+from llmssycoph.llm import audit_choice_tokenization, score_choices, score_logprob_answer
 from llmssycoph.probes import get_hidden_feature_for_completion
 from llmssycoph.probes.features import _assistant_text_last_token_index
 from llmssycoph.probes import get_hidden_feature_all_layers_for_completion
@@ -121,12 +121,25 @@ class FakeChoiceTokenizer:
         token_map = {
             "A": [1],
             " A": [4],
+            "\nA": [6],
             " B": [2],
             "B": [3],
+            "\nB": [5],
         }
         if text not in token_map:
             raise AssertionError(f"Unexpected tokenization request: {text!r}")
         return SimpleNamespace(input_ids=token_map[text])
+
+    def decode(self, token_ids, skip_special_tokens=False):
+        token_map = {
+            1: "A",
+            2: " B",
+            3: "B",
+            4: " A",
+            5: "\nB",
+            6: "\nA",
+        }
+        return "".join(token_map[int(token_id)] for token_id in token_ids)
 
 
 class FakeChoiceLogitModel:
@@ -134,11 +147,28 @@ class FakeChoiceLogitModel:
 
     def __call__(self, input_ids=None, attention_mask=None, use_cache=False, output_hidden_states=False, return_dict=True):
         seq_len = input_ids.shape[1]
-        logits = np.zeros((1, seq_len, 8), dtype=np.float32)
+        logits = np.zeros((1, seq_len, 10), dtype=np.float32)
         logits[0, -1, 1] = 0.0
         logits[0, -1, 4] = -1.0
+        logits[0, -1, 6] = -0.5
         logits[0, -1, 2] = 2.0
         logits[0, -1, 3] = -2.0
+        logits[0, -1, 5] = 1.5
+        return SimpleNamespace(logits=FakeTensor(logits))
+
+
+class FakeNewlineChoiceLogitModel:
+    device = 'cpu'
+
+    def __call__(self, input_ids=None, attention_mask=None, use_cache=False, output_hidden_states=False, return_dict=True):
+        seq_len = input_ids.shape[1]
+        logits = np.zeros((1, seq_len, 10), dtype=np.float32)
+        logits[0, -1, 1] = -4.0
+        logits[0, -1, 4] = -4.0
+        logits[0, -1, 6] = 4.0
+        logits[0, -1, 2] = 1.0
+        logits[0, -1, 3] = 1.0
+        logits[0, -1, 5] = -4.0
         return SimpleNamespace(logits=FakeTensor(logits))
 
 
@@ -253,6 +283,50 @@ class FeatureUtilsContractTests(unittest.TestCase):
 
         self.assertAlmostEqual(sum(probs.values()), 1.0)
         self.assertGreater(probs['B'], probs['A'])
+
+    def test_audit_choice_tokenization_reports_newline_variants(self):
+        encoded = FakeTensor([[11, 22, 33]])
+        tokenizer = FakeChoiceTokenizer()
+        model = FakeChoiceLogitModel()
+
+        with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
+            with patch('llmssycoph.llm.scoring._resolve_model_inputs', return_value=(encoded, None)):
+                audit = audit_choice_tokenization(
+                    model=model,
+                    tokenizer=tokenizer,
+                    messages=[{'type': 'human', 'content': 'Question\n\nAnswer:'}],
+                    choices=['A', 'B'],
+                )
+
+        a_variants = {
+            entry['variant_text']: entry
+            for entry in audit['choices']['A']['variants']
+        }
+        self.assertIn('\nA', a_variants)
+        self.assertTrue(a_variants['\nA']['single_token'])
+        self.assertTrue(a_variants['\nA']['counted_in_choice_probability'])
+        self.assertEqual(audit['choices']['A']['counted_token_ids'], [1, 4, 6])
+        self.assertAlmostEqual(
+            audit['choices']['A']['renormalized_probability'],
+            audit['choice_probabilities']['A'],
+        )
+
+    def test_score_choices_counts_newline_prefixed_variants(self):
+        encoded = FakeTensor([[11, 22, 33]])
+        tokenizer = FakeChoiceTokenizer()
+        model = FakeNewlineChoiceLogitModel()
+
+        with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
+            with patch('llmssycoph.llm.scoring._resolve_model_inputs', return_value=(encoded, None)):
+                probs = score_choices(
+                    model=model,
+                    tokenizer=tokenizer,
+                    messages=[{'type': 'human', 'content': 'Question\n\nAnswer:'}],
+                    choices=['A', 'B'],
+                )
+
+        self.assertAlmostEqual(sum(probs.values()), 1.0)
+        self.assertGreater(probs['A'], probs['B'])
 
 
 if __name__ == '__main__':

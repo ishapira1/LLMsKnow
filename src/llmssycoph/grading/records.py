@@ -130,6 +130,9 @@ def refresh_sample_records_for_groups(
 
 
 def add_empirical_t(records: List[Dict[str, Any]]) -> None:
+    # T_prompt is intentionally overloaded:
+    # - strict-MC choice scoring: exact P(correct) for the prompt
+    # - generation-based paths: empirical mean correctness over usable draws
     direct_tvals: Dict[Tuple[str, str, str], float] = {}
     grouped: Dict[Tuple[str, str, str], List[int]] = {}
     for record in records:

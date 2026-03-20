@@ -17,7 +17,7 @@ It then:
 2. Produces one or more response records for each prompt in each split.
 3. Extracts a short answer for evaluation.
 4. Labels each sampled answer as correct, incorrect, or ambiguous.
-5. Estimates prompt-level correctness either empirically over repeated draws or directly from the strict-MC gold-choice probability.
+5. Computes prompt-level `T_prompt`: empirical mean correctness over repeated draws in generation-based paths, and `P(correct)` in strict MC.
 6. Trains candidate probes on `train`, choosing the best layer by AUC on `val`.
    For strict MC, probe examples are explicit teacher-forced `(prompt, answer_choice)` rows and are probability-weighted by default.
 7. Retrains the selected layer on `train + val`.
@@ -31,6 +31,7 @@ The main question is whether bias changes only the model's output, or also chang
 - `run_sycophancy_bias_probe.py`: thin public wrapper for the current pipeline
 - `src/llmssycoph/`: main package for dataset prep, sampling, probes, outputs, and runtime helpers
 - `src/llmssycoph/grading/`: answer parsing, correctness grading, graded record preparation, and probe-data assembly
+- `src/llmssycoph/grading/MULTIPLE_CHOICE_DEFINITIONS.md`: strict-MC terminology and metric definitions
 - `pyproject.toml`: packaging metadata for the `src` layout and editable installs
 - `RESULTS_FORMAT.md`: artifact layout, cache rules, and parsing guide for run outputs
 - `jobs/sycophancy_bias_probe/`: SLURM job scripts for cluster runs
@@ -139,9 +140,9 @@ Important flags:
 - `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`
 - `--mc_mode`: `strict_mc` for the canonical benchmark path, or `mc_with_rationale` for the auxiliary rationale-preserving path
 - strict MC prompts require `Answer: <LETTER>` and explicitly forbid non-answers such as `None`, `unknown`, or `cannot determine`
-- strict MC now reads the first answer-token distribution directly over the option letters and uses one deterministic top-choice row per prompt
+- strict MC now reads the first answer-token distribution directly over the option letters and uses one deterministic selected-choice row per prompt
 - `--n_draws`: number of sampled completions per prompt for generation-based paths; strict MC forces this to `1`
-- `--temperature`: generation temperature; strict MC forces this to `0.0` because it uses first-token choice scoring rather than stochastic sampling
+- `--temperature`: generation temperature; strict MC records this as `1.0` for bookkeeping because first-token choice scoring does not use sampling temperature
 - `--max_new_tokens`: generation ceiling; if omitted, the pipeline uses `256` to avoid truncating answer-bearing completions
 - `--max_questions`: limit the number of question groups
 - `--test_frac`: fraction of questions reserved for the held-out test split
@@ -161,16 +162,20 @@ Each run writes to:
 
 Main artifacts:
 
-- `sampled_responses.csv`: one row per sampled completion, including both `question_id` and `prompt_id`, the raw `question`, the rendered `prompt_text`/`prompt_template`, split membership, grading result, and for MC-derived runs the preserved choice metadata (`correct_letter`, `letters`, `answer_options`, `answers_list`) plus exported strict-MC probability columns such as `P(correct)`, `P(selected)`, and `P(A)` / `P(B)` / ...
+- `sampled_responses.csv`: one row per sampled completion, or one deterministic strict-MC selected-choice row per prompt, including both `question_id` and `prompt_id`, the raw `question`, the rendered `prompt_text`/`prompt_template`, split membership, grading result, and for MC-derived runs the preserved choice metadata (`correct_letter`, `letters`, `answer_options`, `answers_list`) plus exported strict-MC probability columns such as `P(correct)`, `P(selected)`, and `P(A)` / `P(B)` / ...
 - strict MC rows also expose compliance/audit fields such as `committed_answer`, `starts_with_answer_prefix`, `strict_format_exact`, `commitment_line`, `answer_marker_count`, `multiple_answer_markers`, and generation-stop metadata (`finish_reason`, `hit_max_new_tokens`)
 - `sampling_integrity_summary.json`: post-sampling compliance summary, including exact-compliance / minor-deviation / failure buckets by sampling mode and template
 - `final_tuples.csv`: paired neutral and biased records for the same question and draw index, including `question`, `prompt_id_x`, `prompt_id_xprime`, `prompt_x`, `prompt_with_bias`, and prompt-template provenance after dropping ambiguous samples
 - `summary_by_question.csv`: question-level aggregates across repeated draws, grouped by split, with `question`, prompt ids, prompt text, `dataset`, and prompt-template provenance retained
 - `probe_candidate_scores.csv`: one row per `(prompt, answer_choice)` probe evaluation example, including candidate probability, training weight, and chosen-probe score
 - `probe_metadata.json`: selected layers, validation metrics, probe-construction metadata, and saved probe paths
+- `reports/summary.csv` and `reports/summary.json`: flat run-level summary table with one `overall` row and one row per bias type
+- `reports/warnings.log`: warning-only report file, created only when the run emitted warnings
+- `reports/warnings_summary.json`: structured warning rollup with counts by warning code and source, plus the chronological warning list
+- `reports/executive_summary.md`: quick markdown overview of the run
 - `sampling_records.jsonl`: resumable per-sample checkpoint state
 - `sampling_manifest.json`: sampling spec and checkpoint metadata
-- `run_config.json`: resolved run configuration, including normalized strict-MC settings such as `n_draws = 1`, `temperature = 0.0`, and the chosen probe-construction/weighting mode
+- `run_config.json`: resolved run configuration, including normalized strict-MC settings such as `n_draws = 1`, `temperature = 1.0`, and the chosen probe-construction/weighting mode
 - `status.json`: run lifecycle state
 - `probe_models/`: serialized sklearn probe models
 
@@ -189,7 +194,7 @@ For artifact schemas and parsing guidance, see `RESULTS_FORMAT.md`.
 - Neutral and bias-specific probes are trained separately.
 - Probe layer selection is done by validation AUC on the held-out `val` split.
 - After selecting the best layer, the final probe is retrained on `train + val` before scoring records.
-- For strict MC, the selected-answer probe score is still written back to `sampled_responses.csv`, and the full per-choice probe table is written to `probe_candidate_scores.csv`.
+- For strict MC, the selected-choice probe score is still written back to `sampled_responses.csv`, and the full per-choice probe table is written to `probe_candidate_scores.csv`.
 - The `test` split stays untouched during layer selection and is the clean held-out evaluation split.
 - Sampling checkpoints can be reused when the sampling specification matches.
 

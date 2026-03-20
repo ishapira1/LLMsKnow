@@ -12,8 +12,12 @@ from llmssycoph.cli import parse_args
 from llmssycoph.pipeline import (
     _format_parsed_argument_lines,
     _log_strict_mc_quality_summary,
+    _strict_mc_neutral_choice_distribution_collapse_summary,
+    _strict_mc_neutral_choice_distribution_collapse_warning,
     _next_record_id,
     _strict_mc_neutral_below_chance_warning,
+    _strict_mc_neutral_selected_label_skew_summary,
+    _strict_mc_neutral_selected_label_skew_warning,
     _warn_strict_mc_temperature_bookkeeping,
 )
 
@@ -240,6 +244,101 @@ class PipelineContractTests(unittest.TestCase):
         ]
 
         self.assertIsNone(_strict_mc_neutral_below_chance_warning(records))
+
+    def test_dominant_selected_label_skew_warning_uses_clear_nameable_condition(self):
+        records = [
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "response": "A",
+                "correct_letter": "A",
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "response": "A",
+                "correct_letter": "B",
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "response": "A",
+                "correct_letter": "C",
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "response": "B",
+                "correct_letter": "D",
+            },
+        ]
+
+        summary = _strict_mc_neutral_selected_label_skew_summary(records)
+        warning = _strict_mc_neutral_selected_label_skew_warning(summary)
+
+        self.assertTrue(summary["warning_triggered"])
+        self.assertEqual(summary["dominant_selected_label"], "A")
+        self.assertAlmostEqual(summary["dominant_selected_label_rate"], 0.75)
+        self.assertAlmostEqual(summary["correct_label_distribution"]["A"], 0.25)
+        self.assertAlmostEqual(summary["dominant_selected_label_excess"], 0.5)
+        self.assertIsNotNone(warning)
+        self.assertIn("selected-label distribution is skewed toward A", warning)
+        self.assertIn("q(A)=75.0% vs answer-key r(A)=25.0%", warning)
+        self.assertIn("excess=50.0%", warning)
+        self.assertIn("TV=50.0%", warning)
+
+    def test_choice_distribution_collapse_warning_uses_entropy_and_confidence_checks(self):
+        records = [
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "sampling_mode": "choice_probabilities",
+                "usable_for_metrics": True,
+                "response": "A",
+                "choice_probability_selected": 0.99,
+                "choice_probabilities": {"A": 0.99, "B": 0.01},
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "sampling_mode": "choice_probabilities",
+                "usable_for_metrics": True,
+                "response": "A",
+                "choice_probability_selected": 0.98,
+                "choice_probabilities": {"A": 0.98, "B": 0.02},
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "sampling_mode": "choice_probabilities",
+                "usable_for_metrics": True,
+                "response": "A",
+                "choice_probability_selected": 0.97,
+                "choice_probabilities": {"A": 0.97, "B": 0.03},
+            },
+        ]
+
+        summary = _strict_mc_neutral_choice_distribution_collapse_summary(records)
+        warning = _strict_mc_neutral_choice_distribution_collapse_warning(summary)
+
+        self.assertTrue(summary["warning_triggered"])
+        self.assertLess(summary["median_effective_options"], 1.2)
+        self.assertAlmostEqual(summary["high_confidence_selected_rate"], 1.0)
+        self.assertIsNotNone(warning)
+        self.assertIn("choice distribution appears collapsed", warning)
+        self.assertIn("median(N_eff)=", warning)
+        self.assertIn("mean(P(selected)>=0.95)=100.0%", warning)
 
     def test_runner_and_pipeline_import_commands(self):
         commands = [

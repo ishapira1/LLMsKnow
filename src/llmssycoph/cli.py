@@ -254,6 +254,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum generated tokens. If omitted, the pipeline uses a high default budget of 256 to avoid truncating answer-bearing completions.",
     )
     probe_group.add_argument(
+        "--sampling_only",
+        action="store_true",
+        help=(
+            "Stop after sampling artifacts and prompt-level summaries are saved. "
+            "Skips probe selection, training, and scoring."
+        ),
+    )
+    probe_group.add_argument(
         "--probe_feature_mode",
         type=str,
         default="response_raw_final_token",

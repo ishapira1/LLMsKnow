@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
 import os
 import random
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
 
@@ -12,11 +14,17 @@ from .cli import build_parser, load_env_file, resolve_bias_types, resolve_device
 from .constants import (
     MC_MODE_STRICT,
     STRICT_MC_MAX_CAP_HIT_RATE,
+    STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_RATE_WARN,
+    STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_SELECTED_PROB,
+    STRICT_MC_COLLAPSE_MEDIAN_EFFECTIVE_OPTIONS_WARN,
+    STRICT_MC_DOMINANT_SELECTED_LABEL_EXCESS_WARN,
+    STRICT_MC_DOMINANT_SELECTED_LABEL_RATE_WARN,
     STRICT_MC_MAX_EXPLICIT_PARSE_FAILURES,
     STRICT_MC_MAX_MULTIPLE_ANSWER_MARKER_ROWS,
     STRICT_MC_MIN_EXACT_FORMAT_RATE,
     STRICT_MC_MIN_COMMITMENT_RATE,
     STRICT_MC_MIN_STARTS_WITH_ANSWER_RATE,
+    STRICT_MC_SELECTED_LABEL_TV_DISTANCE_WARN,
 )
 from .data import (
     build_question_groups,
@@ -29,7 +37,15 @@ from .data import (
     unique_dataset_names,
 )
 from .grading import add_empirical_t, build_probe_record_sets, refresh_sample_records_for_groups
-from .logging_utils import clear_run_logging, configure_run_logging, log_status, ok_status, tqdm_desc, warn_status
+from .logging_utils import (
+    build_warning_summary_payload,
+    clear_run_logging,
+    configure_run_logging,
+    log_status,
+    ok_status,
+    tqdm_desc,
+    warn_status,
+)
 from .llm import (
     build_sampling_spec,
     load_llm,
@@ -58,6 +74,7 @@ from .runtime import (
     preferred_run_artifact_path,
     release_run_lock,
     run_lock_path,
+    write_json_atomic,
     write_run_status,
 )
 from .sampling_integrity import build_sampling_integrity_summary, log_sampling_integrity_summary
@@ -516,6 +533,266 @@ def _log_sampling_mode_warnings(records: Sequence[Dict[str, Any]]) -> None:
         )
 
 
+def _strict_mc_neutral_rows(
+    records: Sequence[Dict[str, Any]],
+    *,
+    require_choice_probabilities: bool = False,
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for record in records:
+        if str(record.get("template_type", "") or "") != "neutral":
+            continue
+        if str(record.get("task_format", "") or "") != "multiple_choice":
+            continue
+        if str(record.get("mc_mode", "") or "") != MC_MODE_STRICT:
+            continue
+        if not bool(record.get("usable_for_metrics", False)):
+            continue
+        if require_choice_probabilities and str(record.get("sampling_mode", "") or "") != "choice_probabilities":
+            continue
+        rows.append(record)
+    return rows
+
+
+def _strict_mc_letter(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if len(text) == 1 and text.isalpha():
+        return text
+    if len(text) == 3 and text[0] == "(" and text[2] == ")" and text[1].isalpha():
+        return text[1]
+    return ""
+
+
+def _strict_mc_selected_letter(record: Dict[str, Any]) -> str:
+    selected = _strict_mc_letter(record.get("response"))
+    if selected:
+        return selected
+    return _strict_mc_letter(record.get("response_raw"))
+
+
+def _strict_mc_choice_probability_map(record: Dict[str, Any]) -> Dict[str, float]:
+    probabilities_raw = record.get("choice_probabilities", {})
+    if not isinstance(probabilities_raw, dict):
+        return {}
+
+    parsed: Dict[str, float] = {}
+    for raw_choice, raw_value in probabilities_raw.items():
+        choice = _strict_mc_letter(raw_choice)
+        if not choice:
+            continue
+        try:
+            probability = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(probability) or probability < 0.0:
+            continue
+        parsed[choice] = probability
+    return dict(sorted(parsed.items()))
+
+
+def _effective_option_count(probabilities: Dict[str, float]) -> Optional[float]:
+    if not probabilities:
+        return None
+    total_mass = float(sum(probabilities.values()))
+    if not math.isfinite(total_mass) or total_mass <= 0.0:
+        return None
+
+    entropy = 0.0
+    for probability in probabilities.values():
+        p = float(probability) / total_mass
+        if p > 0.0:
+            entropy -= p * math.log(p)
+    return float(math.exp(entropy))
+
+
+def _strict_mc_neutral_selected_label_skew_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    neutral_rows = _strict_mc_neutral_rows(records)
+    selected_counts: Counter[str] = Counter()
+    correct_counts: Counter[str] = Counter()
+    for record in neutral_rows:
+        selected_label = _strict_mc_selected_letter(record)
+        correct_label = _strict_mc_letter(record.get("correct_letter"))
+        if selected_label:
+            selected_counts[selected_label] += 1
+        if correct_label:
+            correct_counts[correct_label] += 1
+
+    selected_total = int(sum(selected_counts.values()))
+    correct_total = int(sum(correct_counts.values()))
+    labels = sorted(set(selected_counts) | set(correct_counts))
+    selected_distribution = {
+        label: (0.0 if selected_total <= 0 else float(selected_counts[label]) / float(selected_total))
+        for label in labels
+    }
+    correct_distribution = {
+        label: (0.0 if correct_total <= 0 else float(correct_counts[label]) / float(correct_total))
+        for label in labels
+    }
+
+    dominant_label = ""
+    dominant_rate = None
+    dominant_excess = None
+    if selected_counts:
+        dominant_label, dominant_count = sorted(selected_counts.items(), key=lambda item: (-item[1], item[0]))[0]
+        dominant_rate = 0.0 if selected_total <= 0 else float(dominant_count) / float(selected_total)
+        dominant_excess = (
+            None
+            if dominant_rate is None
+            else float(dominant_rate - correct_distribution.get(dominant_label, 0.0))
+        )
+
+    total_variation_distance = None
+    if labels and selected_total > 0 and correct_total > 0:
+        total_variation_distance = 0.5 * sum(
+            abs(selected_distribution.get(label, 0.0) - correct_distribution.get(label, 0.0))
+            for label in labels
+        )
+
+    warning_triggered = bool(
+        (
+            dominant_rate is not None
+            and dominant_excess is not None
+            and dominant_rate > STRICT_MC_DOMINANT_SELECTED_LABEL_RATE_WARN
+            and dominant_excess > STRICT_MC_DOMINANT_SELECTED_LABEL_EXCESS_WARN
+        )
+        or (
+            total_variation_distance is not None
+            and total_variation_distance > STRICT_MC_SELECTED_LABEL_TV_DISTANCE_WARN
+        )
+    )
+
+    return {
+        "neutral_row_count": int(len(neutral_rows)),
+        "selected_label_row_count": selected_total,
+        "correct_label_row_count": correct_total,
+        "selected_label_distribution": selected_distribution,
+        "correct_label_distribution": correct_distribution,
+        "dominant_selected_label": dominant_label,
+        "dominant_selected_label_rate": dominant_rate,
+        "dominant_selected_label_excess": dominant_excess,
+        "selected_vs_answer_key_tv_distance": total_variation_distance,
+        "thresholds": {
+            "dominant_selected_label_rate_warn": STRICT_MC_DOMINANT_SELECTED_LABEL_RATE_WARN,
+            "dominant_selected_label_excess_warn": STRICT_MC_DOMINANT_SELECTED_LABEL_EXCESS_WARN,
+            "selected_label_tv_distance_warn": STRICT_MC_SELECTED_LABEL_TV_DISTANCE_WARN,
+        },
+        "warning_triggered": warning_triggered,
+    }
+
+
+def _strict_mc_neutral_selected_label_skew_warning(summary: Dict[str, Any]) -> Optional[str]:
+    if not summary or not bool(summary.get("warning_triggered", False)):
+        return None
+
+    dominant_label = str(summary.get("dominant_selected_label", "") or "").strip().upper()
+    if not dominant_label:
+        return None
+
+    correct_distribution = dict(summary.get("correct_label_distribution", {}) or {})
+    dominant_rate = summary.get("dominant_selected_label_rate")
+    answer_key_rate = correct_distribution.get(dominant_label)
+    dominant_excess = summary.get("dominant_selected_label_excess")
+    tv_distance = summary.get("selected_vs_answer_key_tv_distance")
+    row_count = int(summary.get("selected_label_row_count", 0) or 0)
+    return (
+        f"neutral strict-MC selected-label distribution is skewed toward {dominant_label}: "
+        f"q({dominant_label})={float(dominant_rate or 0.0):.1%} vs answer-key "
+        f"r({dominant_label})={float(answer_key_rate or 0.0):.1%} "
+        f"(excess={float(dominant_excess or 0.0):.1%}, "
+        f"TV={float(tv_distance or 0.0):.1%}) across {row_count} usable neutral rows. "
+        f"Thresholds: q_max>{STRICT_MC_DOMINANT_SELECTED_LABEL_RATE_WARN:.0%} and excess>"
+        f"{STRICT_MC_DOMINANT_SELECTED_LABEL_EXCESS_WARN:.0%}, or TV>"
+        f"{STRICT_MC_SELECTED_LABEL_TV_DISTANCE_WARN:.0%}."
+    )
+
+
+def _strict_mc_neutral_choice_distribution_collapse_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    neutral_rows = _strict_mc_neutral_rows(records, require_choice_probabilities=True)
+    effective_option_counts: List[float] = []
+    high_confidence_rows = 0
+    selected_probability_rows = 0
+
+    for record in neutral_rows:
+        probability_map = _strict_mc_choice_probability_map(record)
+        if not probability_map:
+            continue
+
+        effective_options = _effective_option_count(probability_map)
+        if effective_options is not None:
+            effective_option_counts.append(float(effective_options))
+
+        try:
+            selected_probability = float(record.get("choice_probability_selected"))
+        except (TypeError, ValueError):
+            selected_probability = math.nan
+        if not math.isfinite(selected_probability):
+            selected_label = _strict_mc_selected_letter(record)
+            selected_probability = probability_map.get(selected_label, math.nan)
+        if math.isfinite(selected_probability):
+            selected_probability_rows += 1
+            if selected_probability >= STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_SELECTED_PROB:
+                high_confidence_rows += 1
+
+    median_effective_options = (
+        float(np.median(np.asarray(effective_option_counts, dtype=float)))
+        if effective_option_counts
+        else None
+    )
+    high_confidence_selected_rate = (
+        float(high_confidence_rows) / float(selected_probability_rows)
+        if selected_probability_rows > 0
+        else None
+    )
+    warning_triggered = bool(
+        (
+            median_effective_options is not None
+            and median_effective_options < STRICT_MC_COLLAPSE_MEDIAN_EFFECTIVE_OPTIONS_WARN
+        )
+        or (
+            high_confidence_selected_rate is not None
+            and high_confidence_selected_rate > STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_RATE_WARN
+        )
+    )
+
+    return {
+        "neutral_choice_probability_row_count": int(len(neutral_rows)),
+        "effective_option_row_count": int(len(effective_option_counts)),
+        "selected_probability_row_count": int(selected_probability_rows),
+        "median_effective_options": median_effective_options,
+        "high_confidence_selected_rate": high_confidence_selected_rate,
+        "high_confidence_selected_prob_threshold": STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_SELECTED_PROB,
+        "thresholds": {
+            "median_effective_options_warn": STRICT_MC_COLLAPSE_MEDIAN_EFFECTIVE_OPTIONS_WARN,
+            "high_confidence_selected_rate_warn": STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_RATE_WARN,
+        },
+        "warning_triggered": warning_triggered,
+    }
+
+
+def _strict_mc_neutral_choice_distribution_collapse_warning(summary: Dict[str, Any]) -> Optional[str]:
+    if not summary or not bool(summary.get("warning_triggered", False)):
+        return None
+
+    row_count = int(summary.get("selected_probability_row_count", 0) or 0)
+    median_effective_options = summary.get("median_effective_options")
+    high_confidence_selected_rate = summary.get("high_confidence_selected_rate")
+    median_text = "n/a" if median_effective_options is None else f"{float(median_effective_options):.2f}"
+    high_confidence_text = (
+        "n/a"
+        if high_confidence_selected_rate is None
+        else f"{float(high_confidence_selected_rate):.1%}"
+    )
+    return (
+        "neutral strict-MC choice distribution appears collapsed across "
+        f"{row_count} neutral choice-probability rows: "
+        f"median(N_eff)={median_text} and "
+        f"mean(P(selected)>={STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_SELECTED_PROB:.2f})="
+        f"{high_confidence_text}. "
+        f"Thresholds: median(N_eff)<{STRICT_MC_COLLAPSE_MEDIAN_EFFECTIVE_OPTIONS_WARN:.2f} "
+        f"or high-confidence rate>{STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_RATE_WARN:.0%}."
+    )
+
+
 def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     strict_records = [
         record
@@ -581,6 +858,9 @@ def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, A
                 continue
             max_bias_gap = max(max_bias_gap, abs(neutral_rate - stats["starts_with_answer_rate"]))
 
+    neutral_selected_label_skew = _strict_mc_neutral_selected_label_skew_summary(records)
+    neutral_choice_distribution = _strict_mc_neutral_choice_distribution_collapse_summary(records)
+
     return {
         "total": total,
         "commitment_rate": committed / total,
@@ -590,6 +870,8 @@ def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, A
         "exact_format_rate": exact_format_rows / total,
         "multiple_answer_marker_rows": multiple_answer_marker_rows,
         "max_neutral_bias_answer_gap": max_bias_gap,
+        "neutral_selected_label_skew": neutral_selected_label_skew,
+        "neutral_choice_distribution_collapse": neutral_choice_distribution,
         "by_template": by_template,
     }
 
@@ -618,6 +900,33 @@ def _log_strict_mc_quality_summary(summary: Dict[str, Any], issues: Optional[Seq
             f"cap_hit_rate={stats['cap_hit_rate']:.1%} "
             f"exact_format_rate={stats['exact_format_rate']:.1%} "
             f"multiple_answer_marker_rows={int(stats['multiple_answer_marker_rows'])}",
+        )
+    selected_label_skew = summary.get("neutral_selected_label_skew", {})
+    if selected_label_skew:
+        dominant_label = str(selected_label_skew.get("dominant_selected_label", "") or "").strip().upper() or "n/a"
+        answer_key_distribution = dict(selected_label_skew.get("correct_label_distribution", {}) or {})
+        log_status(
+            "pipeline.py",
+            "strict MC neutral selected-label skew: "
+            f"rows={int(selected_label_skew.get('selected_label_row_count', 0) or 0)} "
+            f"dominant_label={dominant_label} "
+            f"q_max={float(selected_label_skew.get('dominant_selected_label_rate') or 0.0):.1%} "
+            f"r_max={float(answer_key_distribution.get(dominant_label, 0.0) or 0.0):.1%} "
+            f"excess={float(selected_label_skew.get('dominant_selected_label_excess') or 0.0):.1%} "
+            f"tv={float(selected_label_skew.get('selected_vs_answer_key_tv_distance') or 0.0):.1%}",
+        )
+    choice_distribution = summary.get("neutral_choice_distribution_collapse", {})
+    if choice_distribution:
+        median_effective_options = choice_distribution.get("median_effective_options")
+        high_confidence_selected_rate = choice_distribution.get("high_confidence_selected_rate")
+        log_status(
+            "pipeline.py",
+            "strict MC neutral choice distribution: "
+            f"rows={int(choice_distribution.get('selected_probability_row_count', 0) or 0)} "
+            f"median_effective_options="
+            f"{'n/a' if median_effective_options is None else f'{float(median_effective_options):.2f}'} "
+            f"high_confidence_selected_rate="
+            f"{'n/a' if high_confidence_selected_rate is None else f'{float(high_confidence_selected_rate):.1%}'}",
         )
 
 
@@ -712,6 +1021,26 @@ def _strict_mc_neutral_below_chance_warning(records: Sequence[Dict[str, Any]]) -
     )
 
 
+def _finalize_warning_summary(run_dir: Path) -> Optional[Path]:
+    summary_payload = build_warning_summary_payload()
+    total_warnings = int(summary_payload.get("total_warnings", 0) or 0)
+    if total_warnings <= 0:
+        ok_status("pipeline.py", "warnings summary: no warnings emitted")
+        return None
+
+    summary_path = preferred_run_artifact_path(run_dir, "warnings_summary")
+    write_json_atomic(summary_path, summary_payload)
+    log_status(
+        "pipeline.py",
+        "warnings summary: "
+        f"total={total_warnings} "
+        f"unique_codes={int(summary_payload.get('unique_warning_codes', 0) or 0)} "
+        f"unique_sources={int(summary_payload.get('unique_sources', 0) or 0)} "
+        f"path={summary_path}",
+    )
+    return summary_path
+
+
 def run_pipeline(args) -> None:
     import torch
 
@@ -745,6 +1074,7 @@ def run_pipeline(args) -> None:
     run_error: Optional[str] = None
     strict_mc_quality_report: Dict[str, Any] = {}
     strict_mc_quality_failures: List[str] = []
+    strict_mc_behavior_warnings: List[Dict[str, str]] = []
     sampling_integrity_summary: Dict[str, Any] = {}
     sampling_integrity_summary_path = preferred_run_artifact_path(run_dir, "sampling_integrity_summary")
     probe_candidate_score_rows: List[Dict[str, Any]] = []
@@ -774,7 +1104,8 @@ def run_pipeline(args) -> None:
             f"bias_types={planned_bias_types} "
             f"dataset_name={args.dataset_name} "
             f"draws={args.n_draws} temperature={args.temperature} top_p={args.top_p} "
-            f"max_new_tokens={args.max_new_tokens} smoke_test={args.smoke_test}",
+            f"max_new_tokens={args.max_new_tokens} smoke_test={args.smoke_test} "
+            f"sampling_only={bool(getattr(args, 'sampling_only', False))}",
         )
         finish_stage()
 
@@ -1126,239 +1457,273 @@ def run_pipeline(args) -> None:
         strict_mc_quality_report = _strict_mc_quality_summary(all_records)
         strict_mc_quality_failures = _strict_mc_quality_issues(strict_mc_quality_report)
         _log_strict_mc_quality_summary(strict_mc_quality_report, issues=strict_mc_quality_failures)
+        dominant_selected_label_skew_warning = _strict_mc_neutral_selected_label_skew_warning(
+            strict_mc_quality_report.get("neutral_selected_label_skew", {})
+        )
+        if dominant_selected_label_skew_warning is not None:
+            strict_mc_behavior_warnings.append(
+                {
+                    "code": "dominant_selected_label_skew",
+                    "message": dominant_selected_label_skew_warning,
+                }
+            )
+        choice_distribution_collapse_warning = _strict_mc_neutral_choice_distribution_collapse_warning(
+            strict_mc_quality_report.get("neutral_choice_distribution_collapse", {})
+        )
+        if choice_distribution_collapse_warning is not None:
+            strict_mc_behavior_warnings.append(
+                {
+                    "code": "choice_distribution_collapse",
+                    "message": choice_distribution_collapse_warning,
+                }
+            )
         for issue in strict_mc_quality_failures:
             warn_status("pipeline.py", "strict_mc_quality_gate", issue)
+        for warning in strict_mc_behavior_warnings:
+            warn_status("pipeline.py", warning["code"], warning["message"])
         finish_stage()
 
         begin_stage(7, "probe selection, training, and scoring")
-        model, tokenizer = llm.get_model_and_tokenizer()
         probes_meta: Dict[str, Any] = {}
         if strict_mc_quality_report:
             probes_meta["strict_mc_quality"] = {
                 "summary": strict_mc_quality_report,
                 "issues": strict_mc_quality_failures,
+                "warnings": strict_mc_behavior_warnings,
                 "status": "failed" if strict_mc_quality_failures else "passed",
             }
 
-        if args.smoke_test and strict_mc_quality_failures:
-            warn_status(
+        if bool(getattr(args, "sampling_only", False)):
+            log_status(
                 "pipeline.py",
-                "probe_training_skipped_due_to_strict_mc_quality",
-                "skipping probe training because the strict MC quality gate failed for this smoke run",
+                "sampling-only mode enabled; skipping probe selection, training, and scoring",
             )
-            all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
-            chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
-            all_probes_manifest_path = write_probe_group_manifest(
-                group_dir=all_probes_dir,
-                artifact_group="all_probes",
-                probe_summaries={},
-            )
-            chosen_probe_manifest_path = write_probe_group_manifest(
-                group_dir=chosen_probe_dir,
-                artifact_group="chosen_probe",
-                probe_summaries={},
-            )
-            probes_meta["probe_training_status"] = "skipped_due_to_strict_mc_quality"
-            probes_meta["all_probes_dir"] = str(all_probes_dir)
-            probes_meta["chosen_probe_dir"] = str(chosen_probe_dir)
-            probes_meta["all_probes_manifest"] = str(all_probes_manifest_path)
-            probes_meta["chosen_probe_manifest"] = str(chosen_probe_manifest_path)
+            probes_meta["probe_training_status"] = "skipped_by_sampling_only"
             probes_meta["probe_construction"] = str(args.probe_construction)
             probes_meta["probe_example_weighting"] = str(args.probe_example_weighting)
             probes_meta["probe_candidate_score_rows"] = 0
         else:
-            n_layers = int(getattr(model.config, "num_hidden_layers", args.probe_layer_max))
-            layer_min = max(1, args.probe_layer_min)
-            layer_max = min(args.probe_layer_max, n_layers)
-            layer_grid = list(range(layer_min, layer_max + 1))
-            log_status("pipeline.py", f"probe layer grid: {layer_min}..{layer_max} (num_layers={len(layer_grid)})")
+            model, tokenizer = llm.get_model_and_tokenizer()
 
-            feature_source_spec = {
-                "probe_feature_mode": args.probe_feature_mode,
-                "record_field": "response_raw",
-                "fallback_record_field": "response",
-                "token_position": "last_token_of_full_sampled_completion",
-            }
-
-            probe_record_sets = build_probe_record_sets(
-                train_records=train_records,
-                val_records=val_records,
-                test_records=test_records,
-                all_records=all_records,
-                bias_types=planned_bias_types,
-                probe_construction=args.probe_construction,
-                probe_example_weighting=args.probe_example_weighting,
-            )
-            all_probe_group_summary: Dict[str, Dict[str, Any]] = {}
-            chosen_probe_group_summary: Dict[str, Dict[str, Any]] = {}
-
-            def _run_probe_family_artifacts(probe_bundle: Dict[str, Any]) -> Dict[str, Any]:
-                log_status(
+            if args.smoke_test and strict_mc_quality_failures:
+                warn_status(
                     "pipeline.py",
-                    f"probe selection {probe_bundle['desc']}: train_records={len(probe_bundle['train_records'])} "
-                    f"val_records={len(probe_bundle['val_records'])} test_records={len(probe_bundle['test_records'])} "
-                    f"construction={probe_bundle['probe_construction']} "
-                    f"weighting={probe_bundle['probe_example_weighting']}",
+                    "probe_training_skipped_due_to_strict_mc_quality",
+                    "skipping probe training because the strict MC quality gate failed for this smoke run",
                 )
+                all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
+                chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
+                all_probes_manifest_path = write_probe_group_manifest(
+                    group_dir=all_probes_dir,
+                    artifact_group="all_probes",
+                    probe_summaries={},
+                )
+                chosen_probe_manifest_path = write_probe_group_manifest(
+                    group_dir=chosen_probe_dir,
+                    artifact_group="chosen_probe",
+                    probe_summaries={},
+                )
+                probes_meta["probe_training_status"] = "skipped_due_to_strict_mc_quality"
+                probes_meta["all_probes_dir"] = str(all_probes_dir)
+                probes_meta["chosen_probe_dir"] = str(chosen_probe_dir)
+                probes_meta["all_probes_manifest"] = str(all_probes_manifest_path)
+                probes_meta["chosen_probe_manifest"] = str(chosen_probe_manifest_path)
+                probes_meta["probe_construction"] = str(args.probe_construction)
+                probes_meta["probe_example_weighting"] = str(args.probe_example_weighting)
+                probes_meta["probe_candidate_score_rows"] = 0
+            else:
+                n_layers = int(getattr(model.config, "num_hidden_layers", args.probe_layer_max))
+                layer_min = max(1, args.probe_layer_min)
+                layer_max = min(args.probe_layer_max, n_layers)
+                layer_grid = list(range(layer_min, layer_max + 1))
+                log_status("pipeline.py", f"probe layer grid: {layer_min}..{layer_max} (num_layers={len(layer_grid)})")
 
-                eval_cache = prepare_probe_eval_cache(
-                    model=model,
-                    tokenizer=tokenizer,
-                    split_records=probe_bundle["split_records"],
-                    layer_grid=layer_grid,
-                    desc=probe_bundle["desc"],
+                feature_source_spec = {
+                    "probe_feature_mode": args.probe_feature_mode,
+                    "record_field": "response_raw",
+                    "fallback_record_field": "response",
+                    "token_position": "last_token_of_full_sampled_completion",
+                }
+
+                probe_record_sets = build_probe_record_sets(
+                    train_records=train_records,
+                    val_records=val_records,
+                    test_records=test_records,
+                    all_records=all_records,
+                    bias_types=planned_bias_types,
+                    probe_construction=args.probe_construction,
+                    probe_example_weighting=args.probe_example_weighting,
                 )
-                best_layer, best_auc, auc_per_layer, layer_clfs = select_best_layer_by_auc(
-                    model=model,
-                    tokenizer=tokenizer,
-                    train_records=probe_bundle["train_records"],
-                    val_records=probe_bundle["val_records"],
-                    layer_grid=layer_grid,
-                    seed=args.probe_seed,
-                    max_selection_samples=args.probe_selection_max_samples,
-                    desc=probe_bundle["desc"],
-                )
-                clf = (
-                    train_probe_for_layer(
+                all_probe_group_summary: Dict[str, Dict[str, Any]] = {}
+                chosen_probe_group_summary: Dict[str, Dict[str, Any]] = {}
+
+                def _run_probe_family_artifacts(probe_bundle: Dict[str, Any]) -> Dict[str, Any]:
+                    log_status(
+                        "pipeline.py",
+                        f"probe selection {probe_bundle['desc']}: train_records={len(probe_bundle['train_records'])} "
+                        f"val_records={len(probe_bundle['val_records'])} test_records={len(probe_bundle['test_records'])} "
+                        f"construction={probe_bundle['probe_construction']} "
+                        f"weighting={probe_bundle['probe_example_weighting']}",
+                    )
+
+                    eval_cache = prepare_probe_eval_cache(
                         model=model,
                         tokenizer=tokenizer,
-                        records=probe_bundle["retrain_records"],
-                        layer=best_layer if best_layer is not None else layer_min,
-                        seed=args.probe_seed,
-                        max_train_samples=args.probe_train_max_samples,
+                        split_records=probe_bundle["split_records"],
+                        layer_grid=layer_grid,
                         desc=probe_bundle["desc"],
                     )
-                    if best_layer is not None
-                    else None
-                )
-                log_status(
-                    "pipeline.py",
-                    f"probe retrain {probe_bundle['desc']}: best_layer={best_layer} best_dev_auc={best_auc}",
-                )
+                    best_layer, best_auc, auc_per_layer, layer_clfs = select_best_layer_by_auc(
+                        model=model,
+                        tokenizer=tokenizer,
+                        train_records=probe_bundle["train_records"],
+                        val_records=probe_bundle["val_records"],
+                        layer_grid=layer_grid,
+                        seed=args.probe_seed,
+                        max_selection_samples=args.probe_selection_max_samples,
+                        desc=probe_bundle["desc"],
+                    )
+                    clf = (
+                        train_probe_for_layer(
+                            model=model,
+                            tokenizer=tokenizer,
+                            records=probe_bundle["retrain_records"],
+                            layer=best_layer if best_layer is not None else layer_min,
+                            seed=args.probe_seed,
+                            max_train_samples=args.probe_train_max_samples,
+                            desc=probe_bundle["desc"],
+                        )
+                        if best_layer is not None
+                        else None
+                    )
+                    log_status(
+                        "pipeline.py",
+                        f"probe retrain {probe_bundle['desc']}: best_layer={best_layer} best_dev_auc={best_auc}",
+                    )
 
-                score_records_with_probe(
-                    model=model,
-                    tokenizer=tokenizer,
-                    records=probe_bundle["score_records"],
-                    clf=clf,
-                    layer=best_layer,
-                    score_key=probe_bundle["score_key"],
-                    desc=probe_bundle["desc"],
-                )
-                if probe_bundle["candidate_score_records"]:
                     score_records_with_probe(
                         model=model,
                         tokenizer=tokenizer,
-                        records=probe_bundle["candidate_score_records"],
+                        records=probe_bundle["score_records"],
                         clf=clf,
                         layer=best_layer,
-                        score_key="probe_score",
-                        desc=f"{probe_bundle['desc']} candidate_scores",
+                        score_key=probe_bundle["score_key"],
+                        desc=probe_bundle["desc"],
                     )
-                    probe_candidate_score_rows.extend(probe_bundle["candidate_score_records"])
+                    if probe_bundle["candidate_score_records"]:
+                        score_records_with_probe(
+                            model=model,
+                            tokenizer=tokenizer,
+                            records=probe_bundle["candidate_score_records"],
+                            clf=clf,
+                            layer=best_layer,
+                            score_key="probe_score",
+                            desc=f"{probe_bundle['desc']} candidate_scores",
+                        )
+                        probe_candidate_score_rows.extend(probe_bundle["candidate_score_records"])
 
-                layer_metrics: Dict[int, Dict[str, Any]] = {}
-                for layer_id, clf_layer in layer_clfs.items():
-                    if clf_layer is None:
-                        continue
-                    layer_metrics[int(layer_id)] = evaluate_probe_from_cache(
-                        eval_cache,
-                        clf_layer,
-                        int(layer_id),
+                    layer_metrics: Dict[int, Dict[str, Any]] = {}
+                    for layer_id, clf_layer in layer_clfs.items():
+                        if clf_layer is None:
+                            continue
+                        layer_metrics[int(layer_id)] = evaluate_probe_from_cache(
+                            eval_cache,
+                            clf_layer,
+                            int(layer_id),
+                        )
+                    chosen_metrics = evaluate_probe_from_cache(eval_cache, clf, best_layer)
+
+                    selection_fit_records = _probe_fit_subset(
+                        probe_bundle["train_records"],
+                        args.probe_selection_max_samples,
+                        args.probe_seed,
                     )
-                chosen_metrics = evaluate_probe_from_cache(eval_cache, clf, best_layer)
+                    selection_val_records = _probe_fit_subset(
+                        probe_bundle["val_records"],
+                        args.probe_selection_max_samples,
+                        args.probe_seed + 1,
+                    )
+                    chosen_fit_records = _probe_fit_subset(
+                        probe_bundle["retrain_records"],
+                        args.probe_train_max_samples,
+                        args.probe_seed,
+                    )
 
-                selection_fit_records = _probe_fit_subset(
-                    probe_bundle["train_records"],
-                    args.probe_selection_max_samples,
-                    args.probe_seed,
-                )
-                selection_val_records = _probe_fit_subset(
-                    probe_bundle["val_records"],
-                    args.probe_selection_max_samples,
-                    args.probe_seed + 1,
-                )
-                chosen_fit_records = _probe_fit_subset(
-                    probe_bundle["retrain_records"],
-                    args.probe_train_max_samples,
-                    args.probe_seed,
-                )
+                    family_summary = save_probe_family_artifacts(
+                        run_dir=run_dir,
+                        probe_name=probe_bundle["meta_key"],
+                        template_type=probe_bundle["template_type"],
+                        desc=probe_bundle["desc"],
+                        feature_source={
+                            **feature_source_spec,
+                            "probe_construction": probe_bundle["probe_construction"],
+                            "probe_example_weighting": probe_bundle["probe_example_weighting"],
+                        },
+                        split_records=probe_bundle["split_records"],
+                        selection_models=layer_clfs,
+                        selection_metrics_by_layer=layer_metrics,
+                        auc_per_layer=auc_per_layer,
+                        best_layer=best_layer,
+                        best_dev_auc=best_auc,
+                        chosen_model=clf,
+                        chosen_metrics=chosen_metrics,
+                        selection_fit_records=selection_fit_records,
+                        selection_val_records=selection_val_records,
+                        chosen_fit_records=chosen_fit_records,
+                        selection_fit_max_samples=args.probe_selection_max_samples,
+                        chosen_fit_max_samples=args.probe_train_max_samples,
+                        probe_seed=args.probe_seed,
+                        probe_construction=probe_bundle["probe_construction"],
+                        probe_example_weighting=probe_bundle["probe_example_weighting"],
+                    )
 
-                family_summary = save_probe_family_artifacts(
-                    run_dir=run_dir,
-                    probe_name=probe_bundle["meta_key"],
-                    template_type=probe_bundle["template_type"],
-                    desc=probe_bundle["desc"],
-                    feature_source={
-                        **feature_source_spec,
+                    all_probe_group_summary[probe_bundle["meta_key"]] = {
+                        "probe_dir": family_summary["all_probes_dir"],
+                        "manifest_path": family_summary["all_probes_manifest"],
+                        "trained_layers": list(family_summary.get("trained_layers", [])),
+                        "best_layer": family_summary["best_layer"],
+                        "best_dev_auc": family_summary["best_dev_auc"],
                         "probe_construction": probe_bundle["probe_construction"],
                         "probe_example_weighting": probe_bundle["probe_example_weighting"],
-                    },
-                    split_records=probe_bundle["split_records"],
-                    selection_models=layer_clfs,
-                    selection_metrics_by_layer=layer_metrics,
-                    auc_per_layer=auc_per_layer,
-                    best_layer=best_layer,
-                    best_dev_auc=best_auc,
-                    chosen_model=clf,
-                    chosen_metrics=chosen_metrics,
-                    selection_fit_records=selection_fit_records,
-                    selection_val_records=selection_val_records,
-                    chosen_fit_records=chosen_fit_records,
-                    selection_fit_max_samples=args.probe_selection_max_samples,
-                    chosen_fit_max_samples=args.probe_train_max_samples,
-                    probe_seed=args.probe_seed,
-                    probe_construction=probe_bundle["probe_construction"],
-                    probe_example_weighting=probe_bundle["probe_example_weighting"],
+                    }
+                    chosen_probe_group_summary[probe_bundle["meta_key"]] = {
+                        "probe_dir": family_summary["chosen_probe_dir"],
+                        "manifest_path": family_summary["chosen_probe_manifest"],
+                        "chosen_layer": family_summary["best_layer"],
+                        "best_dev_auc": family_summary["best_dev_auc"],
+                        "model_path": family_summary["saved_best_model"],
+                        "metrics_path": family_summary["chosen_probe_metrics_path"],
+                        "probe_construction": probe_bundle["probe_construction"],
+                        "probe_example_weighting": probe_bundle["probe_example_weighting"],
+                    }
+                    return family_summary
+
+                probes_meta[probe_record_sets["neutral"]["meta_key"]] = _run_probe_family_artifacts(
+                    probe_record_sets["neutral"]
                 )
+                for btype in planned_bias_types:
+                    bias_probe = probe_record_sets[btype]
+                    probes_meta[bias_probe["meta_key"]] = _run_probe_family_artifacts(bias_probe)
 
-                all_probe_group_summary[probe_bundle["meta_key"]] = {
-                    "probe_dir": family_summary["all_probes_dir"],
-                    "manifest_path": family_summary["all_probes_manifest"],
-                    "trained_layers": list(family_summary.get("trained_layers", [])),
-                    "best_layer": family_summary["best_layer"],
-                    "best_dev_auc": family_summary["best_dev_auc"],
-                    "probe_construction": probe_bundle["probe_construction"],
-                    "probe_example_weighting": probe_bundle["probe_example_weighting"],
-                }
-                chosen_probe_group_summary[probe_bundle["meta_key"]] = {
-                    "probe_dir": family_summary["chosen_probe_dir"],
-                    "manifest_path": family_summary["chosen_probe_manifest"],
-                    "chosen_layer": family_summary["best_layer"],
-                    "best_dev_auc": family_summary["best_dev_auc"],
-                    "model_path": family_summary["saved_best_model"],
-                    "metrics_path": family_summary["chosen_probe_metrics_path"],
-                    "probe_construction": probe_bundle["probe_construction"],
-                    "probe_example_weighting": probe_bundle["probe_example_weighting"],
-                }
-                return family_summary
-
-            probes_meta[probe_record_sets["neutral"]["meta_key"]] = _run_probe_family_artifacts(
-                probe_record_sets["neutral"]
-            )
-            for btype in planned_bias_types:
-                bias_probe = probe_record_sets[btype]
-                probes_meta[bias_probe["meta_key"]] = _run_probe_family_artifacts(bias_probe)
-
-            all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
-            chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
-            all_probes_manifest_path = write_probe_group_manifest(
-                group_dir=all_probes_dir,
-                artifact_group="all_probes",
-                probe_summaries=all_probe_group_summary,
-            )
-            chosen_probe_manifest_path = write_probe_group_manifest(
-                group_dir=chosen_probe_dir,
-                artifact_group="chosen_probe",
-                probe_summaries=chosen_probe_group_summary,
-            )
-            probes_meta["all_probes_dir"] = str(all_probes_dir)
-            probes_meta["chosen_probe_dir"] = str(chosen_probe_dir)
-            probes_meta["all_probes_manifest"] = str(all_probes_manifest_path)
-            probes_meta["chosen_probe_manifest"] = str(chosen_probe_manifest_path)
-            probes_meta["probe_construction"] = str(args.probe_construction)
-            probes_meta["probe_example_weighting"] = str(args.probe_example_weighting)
-            probes_meta["probe_candidate_score_rows"] = int(len(probe_candidate_score_rows))
+                all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
+                chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
+                all_probes_manifest_path = write_probe_group_manifest(
+                    group_dir=all_probes_dir,
+                    artifact_group="all_probes",
+                    probe_summaries=all_probe_group_summary,
+                )
+                chosen_probe_manifest_path = write_probe_group_manifest(
+                    group_dir=chosen_probe_dir,
+                    artifact_group="chosen_probe",
+                    probe_summaries=chosen_probe_group_summary,
+                )
+                probes_meta["all_probes_dir"] = str(all_probes_dir)
+                probes_meta["chosen_probe_dir"] = str(chosen_probe_dir)
+                probes_meta["all_probes_manifest"] = str(all_probes_manifest_path)
+                probes_meta["chosen_probe_manifest"] = str(chosen_probe_manifest_path)
+                probes_meta["probe_construction"] = str(args.probe_construction)
+                probes_meta["probe_example_weighting"] = str(args.probe_example_weighting)
+                probes_meta["probe_candidate_score_rows"] = int(len(probe_candidate_score_rows))
         finish_stage()
 
         begin_stage(8, "final artifact saving")
@@ -1391,7 +1756,8 @@ def run_pipeline(args) -> None:
         run_status = "completed"
         log_status("pipeline.py", f"run completed successfully: {run_dir}")
         try:
-            reports_summary_payload = json.loads(saved_paths["reports_summary_path"].read_text(encoding="utf-8"))
+            summary_path = saved_paths.get("run_summary_path", saved_paths["reports_summary_path"])
+            reports_summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
         except Exception:
             reports_summary_payload = {}
         for line in build_terminal_final_stats_lines(reports_summary_payload):
@@ -1409,7 +1775,16 @@ def run_pipeline(args) -> None:
         raise
     finally:
         try:
-            write_run_status(run_dir, args=args, status=run_status, lock_path=lock_path, error=run_error)
+            try:
+                write_run_status(run_dir, args=args, status=run_status, lock_path=lock_path, error=run_error)
+            finally:
+                try:
+                    _finalize_warning_summary(run_dir)
+                except Exception as warning_summary_exc:
+                    log_status(
+                        "pipeline.py",
+                        f"warning summary finalization failed: {type(warning_summary_exc).__name__}: {warning_summary_exc}",
+                    )
         finally:
             if stage_bar is not None:
                 stage_bar.close()

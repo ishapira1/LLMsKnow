@@ -12,7 +12,7 @@ It is responsible for:
 - loading the LLM and tokenizer
 - converting chat messages into model inputs
 - running single and batched generation
-- scoring first-token choice probabilities for strict multiple-choice prompts
+- scoring first-token choice probabilities for strict multiple-choice prompts and selecting the deterministic selected choice
 - building per-draw sampling records around model calls
 - model-side scoring helpers such as answer log-probability and `p_true`
 

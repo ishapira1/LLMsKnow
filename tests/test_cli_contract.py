@@ -81,6 +81,7 @@ class CliContractTests(unittest.TestCase):
 
         self.assertIn("--instruction_policy", help_text)
         self.assertIn("--mc_mode", help_text)
+        self.assertIn("--sampling_only", help_text)
         self.assertIn("--probe_construction", help_text)
         self.assertIn("--probe_example_weighting", help_text)
         self.assertIn("--override_sampling_cache", help_text)
@@ -91,6 +92,10 @@ class CliContractTests(unittest.TestCase):
         args = parse_args(["--override_sampling_cache"])
 
         self.assertTrue(args.no_reuse_sampling_cache)
+
+    def test_sampling_only_flag_defaults_false_and_parses_true(self):
+        self.assertFalse(parse_args([]).sampling_only)
+        self.assertTrue(parse_args(["--sampling_only"]).sampling_only)
 
 
 if __name__ == "__main__":

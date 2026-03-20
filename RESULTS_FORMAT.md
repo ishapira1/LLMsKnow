@@ -21,7 +21,12 @@ Typical contents:
 ```text
 logs/
   run.log
+reports/
   warnings.log  # optional; created only if warnings were emitted
+  warnings_summary.json  # optional structured warning rollup
+  summary.json
+  summary.csv
+  executive_summary.md
 sampling_records.jsonl
 sampling_manifest.json
 sampled_responses.csv
@@ -66,15 +71,27 @@ status.json
   - Stores the final chosen probe after retraining on the chosen layer.
 - `run_config.json`
   - Full resolved CLI config for the run.
-  - Includes normalized strict-MC values such as `n_draws = 1` and `temperature = 0.0`, plus `probe_construction` and `probe_example_weighting`.
+  - Includes normalized strict-MC values such as `n_draws = 1` and `temperature = 1.0`, plus `probe_construction` and `probe_example_weighting`.
 - `sampling_manifest.json`
   - The exact sampling/cache spec plus checkpoint status.
 - `logs/run.log`
   - Human-readable runtime log for the run.
   - Mirrors the stage and progress messages printed during execution.
-- `logs/warnings.log`
+- `reports/warnings.log`
   - Optional warning-only log for the run.
   - Created only when the pipeline emits at least one warning.
+- `reports/warnings_summary.json`
+  - Optional structured warning rollup for the run.
+  - Aggregates counts by warning code and source, while also preserving the chronological warning list.
+  - Useful when many warnings are emitted from different files and you want one unified view.
+- `reports/summary.csv`
+  - Flat run-level summary table with one row for `overall` and one row per bias type.
+  - Best starting point when you want a pandas-friendly high-level overview.
+- `reports/summary.json`
+  - JSON mirror of `reports/summary.csv`.
+  - Stored as a list of row objects rather than the older nested summary payload.
+- `reports/executive_summary.md`
+  - Human-readable markdown summary for quick inspection.
 
 If you want the complete record of model generations, start from `sampling_records.jsonl`.
 
@@ -125,7 +142,7 @@ Probe hyperparameters do not affect the sampling hash, because they do not chang
 
 ## Per-sample schema
 
-`sampling_records.jsonl` and `sampled_responses.csv` contain one record per sampled completion, except strict-MC choice-scoring rows which now contribute one deterministic selected-choice row per prompt.
+`sampling_records.jsonl` and `sampled_responses.csv` contain one record per sampled completion, except strict-MC choice-scoring rows which contribute one deterministic selected-choice row per prompt.
 
 Important fields:
 
@@ -148,7 +165,7 @@ Important fields:
 - `question`, `correct_answer`, `incorrect_answer`, `gold_answers`
   - `question` is the original question content before biasing or output-format instructions
   - `prompt_text` is the actual model-facing prompt, which may be neutral or biased and may also include output instructions
-- `response_raw`: full raw model completion, or the selected answer choice for strict-MC choice-scoring rows
+- `response_raw`: full raw model completion, or the selected choice for strict-MC choice-scoring rows
 - `response`: parsed short answer used for grading
 - `committed_answer`: committed answer extracted for grading, if any
 - `commitment_kind`: how the answer was committed, for example `letter`, `text`, `option_text`, `none`, or `ambiguous`
@@ -169,10 +186,10 @@ Important fields:
 - `sampling_mode`: `generation` for standard sampled completions, or `choice_probabilities` when strict MC uses first-token choice scoring
 - `choice_probabilities`: normalized probability mass over the allowed answer choices when `sampling_mode = choice_probabilities`; this raw dict is preserved in `sampling_records.jsonl`, while `sampled_responses.csv` flattens it into `P(correct)`, `P(selected)`, and `P(A)`, `P(B)`, ... columns
 - `P(correct)`: probability assigned to the gold answer choice when `sampling_mode = choice_probabilities`
-- `P(selected)`: probability assigned to the selected top-choice answer when `sampling_mode = choice_probabilities`
+- `P(selected)`: probability assigned to the selected choice when `sampling_mode = choice_probabilities`
 - `P(A)`, `P(B)`, ...: one column per available answer choice, storing the normalized probability mass for that choice when `sampling_mode = choice_probabilities`
-- `T_prompt`: empirical prompt accuracy for this `(split, question_id, template_type)` in generation-based paths, or the correct-choice probability in strict-MC choice scoring
-- `probe_x`, `probe_xprime`: probe scores after probe training/scoring finishes; for strict MC these are the scores of the selected answer choice written back onto the sampled row
+- `T_prompt`: prompt-level soft correctness. In generation-based paths this is empirical mean correctness for the `(split, question_id, template_type)` prompt; in strict-MC choice scoring this is exactly `P(correct)`.
+- `probe_x`, `probe_xprime`: probe scores after probe training/scoring finishes; for strict MC these are the scores of the selected choice written back onto the sampled row
 
 ## How response processing works
 
@@ -207,7 +224,14 @@ For `mc_mode=strict_mc`, the canonical metrics path is:
 - rows with no committed answer are marked ambiguous
 - rows with noncanonical explicit answers such as `Answer: 2 : π.` or `So the answer is (C) ...` are marked ambiguous with `grading_reason = noncanonical_explicit_answer`
 - rows that hit the token cap before committing are marked ambiguous with `grading_reason = truncated_before_commitment`
-- strict MC now reads the first assistant-token distribution directly over the allowed answer letters, stores those normalized choice probabilities, and emits one deterministic top-choice row per prompt instead of repeated stochastic draws
+- strict MC reads the first assistant-token distribution directly over the allowed answer letters and stores the normalized `choice_probabilities`
+- the `selected choice` is the highest-probability allowed answer letter, with deterministic tie-breaking by option order
+- `P(correct)` is the probability mass on the gold answer letter
+- `P(selected)` is the probability mass on the selected choice
+- `correctness = 1` when `selected choice == correct_letter`, else `0`
+- `accuracy` is the mean of those hard `correctness` labels
+- `T_prompt = P(correct)` in this mode
+- the pipeline emits one deterministic selected-choice row per prompt instead of repeated stochastic draws
 
 ## Probe candidate score schema
 
@@ -223,7 +247,7 @@ Important fields:
 - `candidate_choice`: candidate answer letter that was teacher-forced
 - `candidate_rank`: index of that choice in the original option list
 - `correct_letter`: gold answer choice
-- `selected_choice`: model's selected top-choice answer from strict-MC choice scoring
+- `selected_choice`: model's selected choice from strict-MC choice scoring
 - `candidate_probability`: first-token model probability for this candidate answer
 - `probe_sample_weight`: weight used during probe fitting
 - `candidate_correctness`: `1` for the gold answer choice, `0` otherwise
@@ -269,7 +293,8 @@ Key columns:
 - `C_x_y`, `C_xprime_yprime`
 - `T_x`, `T_xprime`
 - `probe_x`, `probe_xprime`
-  - On strict-MC runs these are selected-answer probe scores.
+  - `T_x` and `T_xprime` are pair-level copies of `T_prompt`; in strict MC they therefore equal `P(correct)` on the neutral and biased prompts.
+  - On strict-MC runs `probe_x` and `probe_xprime` are selected-choice probe scores.
   - Use `probe_candidate_scores.csv` when you want the full per-choice probe view.
 
 This is the main analysis table for comparing neutral and biased behavior.
@@ -292,6 +317,8 @@ Key columns:
 - `prompt_template_x`, `prompt_template_xprime`
 - `mean_C_x`
 - `mean_C_xprime`
+- `T_x`
+- `T_xprime`
 - `mean_probe_x`
 - `mean_probe_xprime`
 - `n_draws`
