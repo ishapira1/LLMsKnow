@@ -1,9 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=full_aqua_mc_gpt54mini_20260320_seas
-#SBATCH --partition=seas_gpu
-#SBATCH --gres=gpu:1
+#SBATCH --partition=shared,sapphire
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=20G
+#SBATCH --mem=8G
 #SBATCH --time=05:00:00
 #SBATCH --output=jobs/sycophancy_bias_probe/logs/%x.%j.out
 #SBATCH --error=jobs/sycophancy_bias_probe/logs/%x.%j.err

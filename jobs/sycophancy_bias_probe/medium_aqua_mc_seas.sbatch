@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=medium_aqua_mc_mistral7b_seas
-#SBATCH --partition=seas_gpu
+#SBATCH --partition=gpu,seas_gpu,gpu_h200
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G

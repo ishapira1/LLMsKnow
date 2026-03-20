@@ -1,9 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=full_commonsense_qa_dataset5_gpt54mini_250q_20260320_seas
-#SBATCH --partition=seas_gpu
-#SBATCH --gres=gpu:1
+#SBATCH --partition=shared,sapphire
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=20G
+#SBATCH --mem=8G
 #SBATCH --time=05:00:00
 #SBATCH --output=jobs/sycophancy_bias_probe/logs/commonsense_qa_dataset5_250q_20260320_seas/%x.%j.out
 #SBATCH --error=jobs/sycophancy_bias_probe/logs/commonsense_qa_dataset5_250q_20260320_seas/%x.%j.err

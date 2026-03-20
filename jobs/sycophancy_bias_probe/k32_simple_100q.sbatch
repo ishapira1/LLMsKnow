@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=syco_k32_simple_V2
-#SBATCH --partition=gpu_requeue
+#SBATCH --partition=gpu,seas_gpu,gpu_h200
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=80G

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=fast_aqua_mc_mistral7b_instruct_v0_2_v9
-#SBATCH --partition=gpu_requeue
+#SBATCH --partition=gpu,seas_gpu,gpu_h200
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=80G

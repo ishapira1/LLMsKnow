@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=full_commonsense_qa_dataset5_qwen3_4b_250q_20260320_seas
-#SBATCH --partition=seas_gpu
+#SBATCH --partition=gpu,seas_gpu,gpu_h200
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
