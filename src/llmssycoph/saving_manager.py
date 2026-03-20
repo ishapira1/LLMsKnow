@@ -549,6 +549,27 @@ def _choice_labels_for_record(record: Dict[str, Any]) -> List[str]:
     return ordered
 
 
+def _mc_option_count_from_record(record: Dict[str, Any]) -> Optional[int]:
+    if str(record.get("task_format", "") or "") != "multiple_choice":
+        return None
+
+    candidate_counts: List[int] = []
+
+    choice_labels = _choice_labels_for_record(record)
+    if choice_labels:
+        candidate_counts.append(len(choice_labels))
+
+    answers_list = record.get("answers_list")
+    if isinstance(answers_list, list):
+        non_empty_answers = [str(answer).strip() for answer in answers_list if str(answer).strip()]
+        if non_empty_answers:
+            candidate_counts.append(len(non_empty_answers))
+
+    if not candidate_counts:
+        return None
+    return max(candidate_counts)
+
+
 def _sample_choice_probability_columns(records: Sequence[Dict[str, Any]]) -> List[str]:
     columns: List[str] = []
     seen: Set[str] = set()
@@ -621,6 +642,85 @@ def _effective_option_count_from_probability_map(probabilities: Dict[str, float]
         if normalized > 0.0:
             entropy -= normalized * math.log(normalized)
     return float(math.exp(entropy))
+
+
+def _mc_option_count_values_from_sample_records(
+    sample_records: Optional[Sequence[Dict[str, Any]]],
+) -> List[int]:
+    if not sample_records:
+        return []
+
+    option_counts: List[int] = []
+    for record in sample_records:
+        if not isinstance(record, dict):
+            continue
+        option_count = _mc_option_count_from_record(record)
+        if option_count is not None and option_count > 0:
+            option_counts.append(int(option_count))
+    return option_counts
+
+
+def _mc_option_count_values_from_samples_df(samples_df: pd.DataFrame) -> List[int]:
+    if samples_df.empty:
+        return []
+
+    choice_labels = _choice_probability_labels_from_df(samples_df)
+    if not choice_labels:
+        return []
+
+    eligible_mask = pd.Series([True] * len(samples_df), index=samples_df.index)
+    if "task_format" in samples_df.columns:
+        eligible_mask = eligible_mask & (
+            _series_from_df(samples_df, "task_format", "").astype(str) == "multiple_choice"
+        )
+
+    eligible_df = samples_df[eligible_mask].copy()
+    if eligible_df.empty:
+        return []
+
+    option_counts: List[int] = []
+    for _, row in eligible_df.iterrows():
+        option_count = 0
+        for label in choice_labels:
+            if _float_or_none(row.get(_choice_probability_column(label))) is not None:
+                option_count += 1
+        if option_count > 0:
+            option_counts.append(option_count)
+    return option_counts
+
+
+def _format_mc_option_count_display(option_counts: Sequence[int]) -> Optional[str]:
+    normalized_counts = sorted({int(count) for count in option_counts if int(count) > 0})
+    if not normalized_counts:
+        return None
+    if len(normalized_counts) == 1:
+        return str(normalized_counts[0])
+
+    contiguous_counts = list(range(normalized_counts[0], normalized_counts[-1] + 1))
+    if normalized_counts == contiguous_counts:
+        count_text = f"{normalized_counts[0]}-{normalized_counts[-1]}"
+    else:
+        count_text = "/".join(str(count) for count in normalized_counts)
+    return f"{count_text} (varies by question)"
+
+
+def _build_mc_option_count_summary(
+    samples_df: pd.DataFrame,
+    *,
+    sample_records: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    option_counts = _mc_option_count_values_from_sample_records(sample_records)
+    if not option_counts:
+        option_counts = _mc_option_count_values_from_samples_df(samples_df)
+
+    observed_counts = sorted({int(count) for count in option_counts if int(count) > 0})
+    return _json_ready(
+        {
+            "observed_counts": observed_counts,
+            "n_multiple_choice_rows": int(len(option_counts)),
+            "display": _format_mc_option_count_display(observed_counts),
+        }
+    )
 
 
 def _build_mc_option_selection_row(
@@ -1788,6 +1888,10 @@ def build_reports_summary_payload(
     selected_probe_overview = probe_summary_payload.get("overview", {}).get("best_probe_on_test")
     prompt_overview = model_summary_payload.get("prompt_level", {}).get("all_rows", {})
     pair_overview = model_summary_payload.get("paired_effects", {}).get("all_pairs", {})
+    mc_option_count_summary = _build_mc_option_count_summary(
+        samples_df,
+        sample_records=sample_records,
+    )
     mc_option_selection = _build_mc_option_selection_summary(
         samples_df,
         bias_types=_list_like_strings(getattr(args, "bias_types", [])),
@@ -1833,6 +1937,7 @@ def build_reports_summary_payload(
             },
             "accuracy_by_template": _records_from_df(template_df),
             "accuracy_by_bias_type": _records_from_df(bias_df),
+            "mc_option_count_summary": mc_option_count_summary,
             "mc_confusion_matrix": mc_confusion_matrix,
             "mc_option_selection": mc_option_selection,
             "probe_score_summaries": _records_from_df(probe_summary_df),
@@ -2088,6 +2193,9 @@ def build_executive_summary_markdown(
         for label in (mc_option_selection.get("choice_labels", []) if isinstance(mc_option_selection, dict) else [])
         if str(label)
     ]
+    mc_option_count_summary = (
+        payload_dict.get("mc_option_count_summary", {}) if isinstance(payload_dict, dict) else {}
+    )
     mc_summary_df = pd.DataFrame(
         mc_option_selection.get("summary_rows", []) if isinstance(mc_option_selection, dict) else []
     )
@@ -2116,6 +2224,10 @@ def build_executive_summary_markdown(
             {"metric": "question_count", "value": headline_counts.get("question_count")},
             {"metric": "paired_rows", "value": headline_counts.get("paired_rows")},
             {"metric": "probe_families", "value": headline_counts.get("probe_family_count")},
+            {
+                "metric": "mc_options_per_question",
+                "value": mc_option_count_summary.get("display") if isinstance(mc_option_count_summary, dict) else None,
+            },
             {"metric": "overall_accuracy", "value": overall_row.get("accuracy")},
             {"metric": "overall_avg_p_correct", "value": overall_row.get("avg_p_correct")},
             {"metric": "overall_avg_p_selected", "value": overall_row.get("avg_p_selected")},

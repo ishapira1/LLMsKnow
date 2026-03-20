@@ -22,13 +22,18 @@ from llmssycoph.saving_manager import (
 
 
 class IntegrityContractTests(unittest.TestCase):
-    def _build_smoke_run(self, run_dir: Path, *, sampling_only: bool = False) -> None:
+    def _build_smoke_run(
+        self,
+        run_dir: Path,
+        *,
+        sampling_only: bool = False,
+        dataset_name: str = "aqua_mc",
+    ) -> None:
         run_dir.mkdir(parents=True, exist_ok=True)
         question_splits = {"train": ["q_1"], "val": ["q_2"], "test": ["q_3"]}
         bias_types = ["incorrect_suggestion"]
         templates = ["neutral", *bias_types]
         model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
-        dataset_name = "aqua_mc"
 
         samples_path = preferred_run_artifact_path(run_dir, "sampled_responses")
         sampling_records_path = preferred_run_artifact_path(run_dir, "sampling_records")
@@ -363,6 +368,17 @@ class IntegrityContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir) / "run"
             self._build_smoke_run(run_dir, sampling_only=True)
+
+            report = check_run_integrity(run_dir)
+
+            self.assertEqual(report["sample_count"], 6)
+            self.assertEqual(report["tuple_count"], 3)
+            self.assertEqual(report["question_count"], 3)
+
+    def test_check_run_integrity_accepts_non_aqua_ays_smoke_run(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            self._build_smoke_run(run_dir, dataset_name="commonsense_qa")
 
             report = check_run_integrity(run_dir)
 

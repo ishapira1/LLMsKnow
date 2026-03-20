@@ -12,6 +12,11 @@ SLURM jobs for `run_sycophancy_bias_probe.py`:
 - `full_aqua_mc_llama31_8b_20260320_seas.sbatch`: dated `seas_gpu` batch job for `meta-llama/Llama-3.1-8B-Instruct`, using the same full `aqua_mc` SEAS setup with probe layers `1..32`.
 - `full_aqua_mc_qwen3_4b_20260320_seas.sbatch`: dated `seas_gpu` batch job for `Qwen/Qwen3-4B-Instruct-2507`, using the same full `aqua_mc` SEAS setup with probe layers `1..32`.
 - `submit_aqua_mc_20260320_seas.sh`: submits the dated `20260320` SEAS batch of four jobs: `gpt-5.4-mini` sample-only, `Mistral-7B-Instruct-v0.2`, `Llama-3.1-8B-Instruct`, and `Qwen3-4B-Instruct-2507`.
+- `full_aqua_mc_dataset5_gpt54mini_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch wrapper for `gpt-5.4-mini`, restricted to the `aqua_mc` 250-question subset and pinned to `split_seed=5` so the same question pool is used across models. This remains sample-only.
+- `full_aqua_mc_dataset5_mistral7b_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch job for `mistralai/Mistral-7B-Instruct-v0.2`, with `max_questions=250`, `split_seed=5`, `seed=5`, and `probe_seed=5`.
+- `full_aqua_mc_dataset5_llama31_8b_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch job for `meta-llama/Llama-3.1-8B-Instruct`, with the same 250-question pinned subset and seeds.
+- `full_aqua_mc_dataset5_qwen3_4b_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch job for `Qwen/Qwen3-4B-Instruct-2507`, with the same 250-question pinned subset and seeds.
+- `submit_aqua_mc_dataset5_250q_20260320_seas.sh`: submits the dated `dataset5` 250-question SEAS batch of four jobs.
 - `fast_dirty.sbatch`: very quick sanity run.
 - `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
 - `fast_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
@@ -41,6 +46,11 @@ sbatch jobs/sycophancy_bias_probe/full_aqua_mc_mistral7b_20260320_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_llama31_8b_20260320_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_qwen3_4b_20260320_seas.sbatch
 bash jobs/sycophancy_bias_probe/submit_aqua_mc_20260320_seas.sh
+sbatch jobs/sycophancy_bias_probe/full_aqua_mc_dataset5_gpt54mini_250q_20260320_seas.sbatch
+sbatch jobs/sycophancy_bias_probe/full_aqua_mc_dataset5_mistral7b_250q_20260320_seas.sbatch
+sbatch jobs/sycophancy_bias_probe/full_aqua_mc_dataset5_llama31_8b_250q_20260320_seas.sbatch
+sbatch jobs/sycophancy_bias_probe/full_aqua_mc_dataset5_qwen3_4b_250q_20260320_seas.sbatch
+bash jobs/sycophancy_bias_probe/submit_aqua_mc_dataset5_250q_20260320_seas.sh
 sbatch jobs/sycophancy_bias_probe/fast_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/medium_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_seas.sbatch

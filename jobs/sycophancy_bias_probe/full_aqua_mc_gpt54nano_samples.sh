@@ -19,7 +19,10 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 MODEL_ID="${MODEL_ID:-gpt-5.4-nano}"
 DEVICE="${DEVICE:-auto}"
 OUT_DIR="${OUT_DIR:-results/sycophancy_bias_probe}"
-RUN_NAME="${RUN_NAME:-full_aqua_mc_gpt54nano_auto_allq_samples}"
+DATASET_NAME="${DATASET_NAME:-commonsense_qa}"
+AYS_MC_DATASETS="${AYS_MC_DATASETS:-$DATASET_NAME}"
+MAX_QUESTIONS="${MAX_QUESTIONS:-500}"
+RUN_NAME="${RUN_NAME:-full_${DATASET_NAME}_gpt54nano_auto_q${MAX_QUESTIONS}_samples}"
 SAMPLE_BATCH_SIZE="${SAMPLE_BATCH_SIZE:-8}"
 
 HF_CACHE_DIR="${HF_HUB_CACHE:-${HUGGINGFACE_HUB_CACHE:-${TRANSFORMERS_CACHE:-}}}"
@@ -55,6 +58,15 @@ for arg in "$@"; do
     --run_name=*)
       RUN_NAME="${arg#--run_name=}"
       ;;
+    --dataset_name=*|--dataset_type=*)
+      DATASET_NAME="${arg#*=}"
+      ;;
+    --ays_mc_datasets=*)
+      AYS_MC_DATASETS="${arg#*=}"
+      ;;
+    --max_questions=*)
+      MAX_QUESTIONS="${arg#--max_questions=}"
+      ;;
   esac
 done
 
@@ -81,6 +93,21 @@ for ((i = 0; i < ${#args[@]}; i++)); do
         RUN_NAME="${args[$((i + 1))]}"
       fi
       ;;
+    --dataset_name|--dataset_type)
+      if (( i + 1 < ${#args[@]} )); then
+        DATASET_NAME="${args[$((i + 1))]}"
+      fi
+      ;;
+    --ays_mc_datasets)
+      if (( i + 1 < ${#args[@]} )); then
+        AYS_MC_DATASETS="${args[$((i + 1))]}"
+      fi
+      ;;
+    --max_questions)
+      if (( i + 1 < ${#args[@]} )); then
+        MAX_QUESTIONS="${args[$((i + 1))]}"
+      fi
+      ;;
   esac
 done
 
@@ -90,13 +117,14 @@ cmd=(
   --device "$DEVICE"
   --benchmark_source ays_mc_single_turn
   --input_jsonl are_you_sure.jsonl
-  --dataset_name aqua_mc
-  --ays_mc_datasets aqua_mc
+  --dataset_name "$DATASET_NAME"
+  --ays_mc_datasets "$AYS_MC_DATASETS"
   --instruction_policy answer_only
   --mc_mode strict_mc
   --sampling_only
   --test_frac 0
   --probe_val_frac 0
+  --max_questions "$MAX_QUESTIONS"
   --n_draws 1
   --temperature 0.1
   --top_p 1.0

@@ -336,8 +336,23 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         issues.append("benchmark_source is not ays_mc_single_turn")
     if str(run_config.get("input_jsonl")) != "are_you_sure.jsonl":
         issues.append("input_jsonl is not are_you_sure.jsonl")
-    if str(run_config.get("dataset_name")) != "aqua_mc":
-        issues.append("dataset_name is not aqua_mc")
+    configured_dataset_name = str(run_config.get("dataset_name", "") or "").strip()
+    if not configured_dataset_name:
+        issues.append("run_config.json is missing dataset_name")
+    elif configured_dataset_name == "all":
+        issues.append("dataset_name is 'all', expected a concrete AYS MC dataset for smoke validation")
+    configured_ays_datasets = _parse_list_like(run_config.get("ays_mc_datasets"))
+    if (
+        configured_dataset_name
+        and configured_dataset_name != "all"
+        and configured_ays_datasets
+        and configured_dataset_name not in configured_ays_datasets
+    ):
+        issues.append(
+            "dataset_name is not listed in ays_mc_datasets: "
+            f"dataset_name={configured_dataset_name!r} "
+            f"ays_mc_datasets={configured_ays_datasets!r}"
+        )
     if str(run_config.get("mc_mode")) != "strict_mc":
         issues.append("mc_mode is not strict_mc")
     if sampling_only and probe_training_status != "skipped_by_sampling_only":

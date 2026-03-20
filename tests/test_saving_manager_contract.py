@@ -430,7 +430,10 @@ class SavingManagerContractTests(unittest.TestCase):
             )
 
             choice_summary = payload["mc_option_selection"]
+            option_count_summary = payload["mc_option_count_summary"]
             self.assertEqual(choice_summary["choice_labels"], ["A", "B", "C"])
+            self.assertEqual(option_count_summary["observed_counts"], [3])
+            self.assertEqual(option_count_summary["display"], "3")
             self.assertEqual(
                 [row["template_type"] for row in choice_summary["summary_rows"]],
                 ["overall", "neutral", "incorrect_suggestion"],
@@ -446,7 +449,89 @@ class SavingManagerContractTests(unittest.TestCase):
             expected_biased_neff = math.exp(-(0.1 * math.log(0.1) + 0.6 * math.log(0.6) + 0.3 * math.log(0.3)))
             self.assertAlmostEqual(neutral_row["avg_effective_options"], expected_neutral_neff)
             self.assertAlmostEqual(biased_row["avg_effective_options"], expected_biased_neff)
-            self.assertIn("## MC Option Selection", build_executive_summary_markdown(payload))
+            markdown = build_executive_summary_markdown(payload)
+            self.assertIn("## MC Option Selection", markdown)
+            self.assertIn("| mc_options_per_question | 3 |", markdown)
+
+    def test_reports_summary_payload_formats_varying_mc_option_counts_in_model_overview(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            sample_records = [
+                {
+                    "record_id": 1,
+                    "split": "test",
+                    "question_id": "q_1",
+                    "prompt_id": "q_1__neutral",
+                    "dataset": "mixed_mc",
+                    "template_type": "neutral",
+                    "draw_idx": 0,
+                    "task_format": "multiple_choice",
+                    "mc_mode": "strict_mc",
+                    "question": "Question 1",
+                    "correct_answer": "Option A",
+                    "incorrect_answer": "Option B",
+                    "correct_letter": "A",
+                    "incorrect_letter": "B",
+                    "letters": "ABCD",
+                    "answers_list": ["Option A", "Option B", "Option C", "Option D"],
+                    "prompt_template": "{question}",
+                    "prompt_text": "Question 1",
+                    "response_raw": "A",
+                    "response": "A",
+                    "correctness": 1,
+                    "usable_for_metrics": True,
+                    "T_prompt": 0.9,
+                },
+                {
+                    "record_id": 2,
+                    "split": "test",
+                    "question_id": "q_2",
+                    "prompt_id": "q_2__neutral",
+                    "dataset": "mixed_mc",
+                    "template_type": "neutral",
+                    "draw_idx": 0,
+                    "task_format": "multiple_choice",
+                    "mc_mode": "strict_mc",
+                    "question": "Question 2",
+                    "correct_answer": "Option A",
+                    "incorrect_answer": "Option B",
+                    "correct_letter": "A",
+                    "incorrect_letter": "B",
+                    "letters": "ABCDE",
+                    "answers_list": ["Option A", "Option B", "Option C", "Option D", "Option E"],
+                    "prompt_template": "{question}",
+                    "prompt_text": "Question 2",
+                    "response_raw": "A",
+                    "response": "A",
+                    "correctness": 1,
+                    "usable_for_metrics": True,
+                    "T_prompt": 0.9,
+                },
+            ]
+            samples_df = to_samples_df(sample_records, model_name="test/model")
+            args = SimpleNamespace(
+                model="test/model",
+                dataset_name="mixed_mc",
+                bias_types=[],
+            )
+
+            payload = build_reports_summary_payload(
+                args=args,
+                run_dir=run_dir,
+                samples_df=samples_df,
+                sample_records=sample_records,
+                tuples_df=pd.DataFrame(),
+                probe_scores_by_prompt_df=pd.DataFrame(),
+                probes_meta={},
+                probe_candidate_scores_df=pd.DataFrame(),
+            )
+            markdown = build_executive_summary_markdown(payload)
+
+            self.assertEqual(payload["mc_option_count_summary"]["observed_counts"], [4, 5])
+            self.assertEqual(payload["mc_option_count_summary"]["display"], "4-5 (varies by question)")
+            self.assertIn("| mc_options_per_question | 4-5 (varies by question) |", markdown)
 
     def test_reports_summary_payload_captures_mc_confusion_matrix_for_mc_runs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
