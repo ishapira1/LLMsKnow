@@ -1,20 +1,22 @@
 #!/bin/bash
-#SBATCH --job-name=full_aqua_mc_dataset5_llama31_8b_250q_20260320_seas
+#SBATCH --job-name=full_commonsense_qa_dataset5_llama31_8b_250q_20260320_seas
 #SBATCH --partition=seas_gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
 #SBATCH --time=05:00:00
-#SBATCH --output=jobs/sycophancy_bias_probe/logs/%x.%j.out
-#SBATCH --error=jobs/sycophancy_bias_probe/logs/%x.%j.err
+#SBATCH --output=jobs/sycophancy_bias_probe/logs/commonsense_qa_dataset5_250q_20260320_seas/%x.%j.out
+#SBATCH --error=jobs/sycophancy_bias_probe/logs/commonsense_qa_dataset5_250q_20260320_seas/%x.%j.err
 
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
-RUN_NAME="${RUN_NAME:-full_aqua_mc_dataset5_llama31_8b_250q_20260320_l32_seas}"
+RUN_NAME="${RUN_NAME:-full_commonsense_qa_dataset5_llama31_8b_250q_20260320_l32_seas}"
 
 exec "$REPO_DIR/jobs/sycophancy_bias_probe/aqua_mc_seas_common.sh" \
   --model "meta-llama/Llama-3.1-8B-Instruct" \
+  --dataset_name commonsense_qa \
+  --ays_mc_datasets commonsense_qa \
   --max_questions 250 \
   --split_seed 5 \
   --seed 5 \
