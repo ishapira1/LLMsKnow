@@ -54,7 +54,22 @@ pip install -e .
 The repository now uses a `src` layout, and `pip install -e .` keeps the `llmssycoph` package importable for tests, scripts, and notebooks.
 
 The pipeline loads Hugging Face models and uses the sycophancy evaluation data in `data/sycophancy-eval/`. If those files are missing, the runner can fetch them from `meg-tong/sycophancy-eval`.
-For direct runs, `.env` is optional: the main pipeline only uses it to populate cache-related environment variables such as `HF_HUB_CACHE`, and if it is missing the code falls back to Hugging Face's default cache location. The repo does not wire in a Hugging Face token itself, but the SLURM job scripts under `jobs/` do require `.env` because they source it and expect `HUGGINGFACE_HUB_CACHE` to be set.
+For direct runs, `.env` is optional. If it is missing, the code falls back to your shell environment and Hugging Face's default cache location.
+
+Recommended `.env` keys:
+
+- `HF_TOKEN` or `HUGGINGFACE_TOKEN`: optional Hugging Face access token used when loading gated or private Hugging Face repos such as Llama-family models. If neither key is present, public Hugging Face models still work as before.
+- `HF_HUB_CACHE` or `HUGGINGFACE_HUB_CACHE`: optional cache directory for Hugging Face model/tokenizer downloads.
+- `HF_DATASETS_CACHE`: optional cache directory for Hugging Face datasets.
+- `OPENAI_API_KEY` or `OPENAI_API_KEY_FOR_PROJECT`: required only when using an OpenAI-backed model such as `gpt-5.4-nano`.
+
+Why these matter:
+
+- gated Hugging Face models require both account access and a token at runtime
+- cache paths keep model downloads off small home directories and make cluster jobs more stable
+- OpenAI-backed models ignore the Hugging Face token but do require an OpenAI API key
+
+The pipeline now reads `HF_TOKEN` directly and also aliases `HUGGINGFACE_TOKEN` to `HF_TOKEN` after loading `.env`, so existing `.env` files that already contain `HUGGINGFACE_TOKEN` continue to work.
 
 ## Quick start
 

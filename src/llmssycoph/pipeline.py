@@ -1286,6 +1286,8 @@ def run_pipeline(args) -> None:
                 torch.cuda.manual_seed_all(args.seed)
 
         load_env_file(args.env_file)
+        if os.getenv("HUGGINGFACE_TOKEN") and not os.getenv("HF_TOKEN"):
+            os.environ["HF_TOKEN"] = os.environ["HUGGINGFACE_TOKEN"]
         hf_cache_dir = resolve_hf_cache_dir(args.hf_cache_dir)
         if hf_cache_dir:
             Path(hf_cache_dir).mkdir(parents=True, exist_ok=True)

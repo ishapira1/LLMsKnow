@@ -9,7 +9,7 @@ Partition defaults in this directory:
 
 - `smoke_aqua_mc_auto.sh`: direct smoke/integrity run using `mistralai/Mistral-7B-Instruct-v0.2` on the AYS-derived `aqua_mc` slice, preferring GPU via `--device auto` and falling back to CPU when no accelerator is available, with an artifact-level integrity check after the pipeline finishes. The wrapper normalizes `HF_HUB_CACHE` / `HUGGINGFACE_HUB_CACHE` / `TRANSFORMERS_CACHE` / `HF_HOME` into a single Hugging Face cache path and passes it to the pipeline. The integrity CLI warns by default and only exits non-zero when passed `--strict`.
 - `full_aqua_mc_gpt54nano_samples.sh`: direct run wrapper for the `aqua_mc` all-questions slice aligned to the `full_aqua_mc_mistral7b_auto_allq_l32_seas` setup, but using `gpt-5.4-nano` and `--sampling_only` so the saved sampling artifacts can be compared against the Mistral reference later. It sources `.env`, requires `OPENAI_API_KEY_FOR_PROJECT` (or `OPENAI_API_KEY`), defaults to bounded parallel OpenAI requests via `SAMPLE_BATCH_SIZE=8`, and runs integrity checks after sampling completes.
-- `full_aqua_mc_gpt54mini_20260320_seas.sbatch`: dated CPU batch wrapper for `gpt-5.4-mini` on the `aqua_mc` all-questions slice. It reuses the sample-only OpenAI wrapper, so probes are skipped and the job / log names include `20260320`.
+- `full_aqua_mc_gpt54nano_20260320_seas.sbatch`: dated CPU batch wrapper for `gpt-5.4-nano` on the `aqua_mc` all-questions slice. It reuses the sample-only OpenAI wrapper, so probes are skipped and the job / log names include `20260320`.
 - `smoke_aqua_mc_cpu.sh`: compatibility alias for the historical job name; it forwards to `smoke_aqua_mc_auto.sh`.
 - `aqua_mc_seas_common.sh`: shared helper used by the dated local-model GPU batch jobs. It keeps the smoke job's `aqua_mc` + `Mistral-7B-Instruct-v0.2` setup, normalizes the Hugging Face cache env vars, and omits strict-MC sampling flags that are normalized away anyway.
 - `fast_aqua_mc_seas.sbatch`: `aqua_mc` fast preset using the stable full-GPU partition list, with 24 smoke questions and probe layers `1..8`.
@@ -18,8 +18,8 @@ Partition defaults in this directory:
 - `full_aqua_mc_mistral7b_20260320_seas.sbatch`: dated local-GPU batch job for `mistralai/Mistral-7B-Instruct-v0.2`, matching the current full `aqua_mc` setup with probe layers `1..32`.
 - `full_aqua_mc_llama31_8b_20260320_seas.sbatch`: dated local-GPU batch job for `meta-llama/Llama-3.1-8B-Instruct`, using the same full `aqua_mc` setup with probe layers `1..32`.
 - `full_aqua_mc_qwen3_4b_20260320_seas.sbatch`: dated local-GPU batch job for `Qwen/Qwen3-4B-Instruct-2507`, using the same full `aqua_mc` setup with probe layers `1..32`.
-- `submit_aqua_mc_20260320_seas.sh`: submits the dated `20260320` SEAS batch of four jobs: `gpt-5.4-mini` sample-only, `Mistral-7B-Instruct-v0.2`, `Llama-3.1-8B-Instruct`, and `Qwen3-4B-Instruct-2507`.
-- `full_commonsense_qa_dataset5_gpt54mini_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch wrapper for `gpt-5.4-mini`, restricted to the `commonsense_qa` 250-question subset and pinned to `split_seed=5` so the same question pool is used across models. This remains sample-only.
+- `submit_aqua_mc_20260320_seas.sh`: submits the dated `20260320` SEAS batch of four jobs: `gpt-5.4-nano` sample-only, `Mistral-7B-Instruct-v0.2`, `Llama-3.1-8B-Instruct`, and `Qwen3-4B-Instruct-2507`.
+- `full_commonsense_qa_dataset5_gpt54nano_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch wrapper for `gpt-5.4-nano`, restricted to the `commonsense_qa` 250-question subset and pinned to `split_seed=5` so the same question pool is used across models. This remains sample-only.
 - `full_commonsense_qa_dataset5_mistral7b_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch job for `mistralai/Mistral-7B-Instruct-v0.2`, with `dataset_name=commonsense_qa`, `ays_mc_datasets=commonsense_qa`, `max_questions=250`, `split_seed=5`, `seed=5`, and `probe_seed=5`.
 - `full_commonsense_qa_dataset5_llama31_8b_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch job for `meta-llama/Llama-3.1-8B-Instruct`, with the same pinned `commonsense_qa` 250-question subset and seeds.
 - `full_commonsense_qa_dataset5_qwen3_4b_250q_20260320_seas.sbatch`: dated `dataset5` SEAS batch job for `Qwen/Qwen3-4B-Instruct-2507`, with the same pinned `commonsense_qa` 250-question subset and seeds.
@@ -48,12 +48,12 @@ Submit examples:
 ```bash
 bash jobs/sycophancy_bias_probe/smoke_aqua_mc_auto.sh
 bash jobs/sycophancy_bias_probe/full_aqua_mc_gpt54nano_samples.sh
-sbatch jobs/sycophancy_bias_probe/full_aqua_mc_gpt54mini_20260320_seas.sbatch
+sbatch jobs/sycophancy_bias_probe/full_aqua_mc_gpt54nano_20260320_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_mistral7b_20260320_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_llama31_8b_20260320_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_qwen3_4b_20260320_seas.sbatch
 bash jobs/sycophancy_bias_probe/submit_aqua_mc_20260320_seas.sh
-sbatch jobs/sycophancy_bias_probe/full_commonsense_qa_dataset5_gpt54mini_250q_20260320_seas.sbatch
+sbatch jobs/sycophancy_bias_probe/full_commonsense_qa_dataset5_gpt54nano_250q_20260320_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_commonsense_qa_dataset5_mistral7b_250q_20260320_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_commonsense_qa_dataset5_llama31_8b_250q_20260320_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_commonsense_qa_dataset5_qwen3_4b_250q_20260320_seas.sbatch

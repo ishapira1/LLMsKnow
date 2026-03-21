@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..logging_utils import log_status, warn_status
@@ -22,6 +23,34 @@ def _warn_if_not_using_gpu(model_name: str, device: str) -> None:
         f"loading model={model_name} without GPU acceleration (resolved device={device}). "
         "This run may be much slower.",
     )
+
+
+def _hf_load_kwargs(hf_cache_dir: Optional[str]) -> Dict[str, Any]:
+    hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+    load_kwargs: Dict[str, Any] = {"cache_dir": hf_cache_dir}
+    if hf_token:
+        load_kwargs["token"] = hf_token
+    return load_kwargs
+
+
+def _is_gated_repo_error(exc: Exception) -> bool:
+    lowered = str(exc).lower()
+    return "gated repo" in lowered or "cannot access gated repo" in lowered or "401 client error" in lowered
+
+
+def _raise_helpful_hf_auth_error(model_name: str, exc: Exception) -> None:
+    hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+    if hf_token:
+        raise RuntimeError(
+            f"Hugging Face model {model_name!r} appears to require gated-repo access, and the request "
+            "failed even though HF_TOKEN/HUGGINGFACE_TOKEN is set. Make sure the Hugging Face account "
+            "behind that token has been granted access to the model."
+        ) from exc
+    raise RuntimeError(
+        f"Hugging Face model {model_name!r} appears to require gated-repo access, but no Hugging Face "
+        "token was found. Add HF_TOKEN or HUGGINGFACE_TOKEN to your .env file or shell environment "
+        "and retry."
+    ) from exc
 
 
 class HuggingFaceLLM(BaseLLM):
@@ -63,31 +92,39 @@ class HuggingFaceLLM(BaseLLM):
 
         log_status("llm/huggingface.py", f"loading model={model_name} on device={device}")
         _warn_if_not_using_gpu(model_name=model_name, device=device)
-        if device == "cuda":
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                torch_dtype=torch.float16,
-                device_map="auto" if device_map_auto else None,
-                cache_dir=hf_cache_dir,
-            )
-            if not device_map_auto:
-                model = model.to("cuda")
-        elif device == "mps":
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                torch_dtype=torch.float32,
-                cache_dir=hf_cache_dir,
-            )
-            model = model.to("mps")
-        else:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                torch_dtype=torch.float32,
-                cache_dir=hf_cache_dir,
-            )
-            model = model.to("cpu")
+        load_kwargs = _hf_load_kwargs(hf_cache_dir)
+        if "token" in load_kwargs:
+            log_status("llm/huggingface.py", f"using Hugging Face auth token for model={model_name}")
+        try:
+            if device == "cuda":
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float16,
+                    device_map="auto" if device_map_auto else None,
+                    **load_kwargs,
+                )
+                if not device_map_auto:
+                    model = model.to("cuda")
+            elif device == "mps":
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float32,
+                    **load_kwargs,
+                )
+                model = model.to("mps")
+            else:
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float32,
+                    **load_kwargs,
+                )
+                model = model.to("cpu")
 
-        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, cache_dir=hf_cache_dir)
+            tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, **load_kwargs)
+        except Exception as exc:
+            if _is_gated_repo_error(exc):
+                _raise_helpful_hf_auth_error(model_name, exc)
+            raise
         model.eval()
         return model, tokenizer
 
@@ -134,4 +171,9 @@ class HuggingFaceLLM(BaseLLM):
         return self.model, self.tokenizer
 
 
-__all__ = ["HuggingFaceLLM"]
+__all__ = [
+    "HuggingFaceLLM",
+    "_hf_load_kwargs",
+    "_is_gated_repo_error",
+    "_raise_helpful_hf_auth_error",
+]

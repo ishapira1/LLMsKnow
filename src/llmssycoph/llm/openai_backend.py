@@ -174,14 +174,21 @@ class OpenAILLM(BaseLLM):
         return name in {"RateLimitError", "APITimeoutError", "APIConnectionError", "InternalServerError"}
 
     def _request_with_retries(self, request_fn):
-        max_attempts = 6
+        max_attempts = max(1, int(os.getenv("LLMSSYCOPH_OPENAI_MAX_ATTEMPTS", "12")))
+        base_sleep = max(0.0, float(os.getenv("LLMSSYCOPH_OPENAI_RETRY_BASE_SLEEP", "1.0")))
+        max_sleep = max(base_sleep, float(os.getenv("LLMSSYCOPH_OPENAI_RETRY_MAX_SLEEP", "30.0")))
+        if max_attempts > 1:
+            log_status(
+                "llm/openai_backend.py",
+                f"OpenAI retry policy: attempts={max_attempts} base_sleep={base_sleep:.2f}s max_sleep={max_sleep:.2f}s",
+            )
         for attempt_idx in range(max_attempts):
             try:
                 return request_fn()
             except Exception as exc:
                 if attempt_idx >= max_attempts - 1 or not self._should_retry_openai_exception(exc):
                     raise
-                sleep_seconds = min(8.0, 0.5 * (2**attempt_idx)) + random.uniform(0.0, 0.25)
+                sleep_seconds = min(max_sleep, base_sleep * (2**attempt_idx)) + random.uniform(0.0, 0.5)
                 log_status(
                     "llm/openai_backend.py",
                     f"OpenAI request retry {attempt_idx + 1}/{max_attempts - 1} after "
