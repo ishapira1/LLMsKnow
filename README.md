@@ -149,6 +149,19 @@ python run_sycophancy_bias_probe.py \
   --run_name commonsense_qa_strict_mc_run
 ```
 
+Run the same path on ARC-Challenge. On first use, the loader normalizes `allenai/ai2_arc` with config `ARC-Challenge` into `data/sycophancy-eval/arc_challenge.jsonl`. Because ARC-Challenge already ships `train`, `validation`, and `test`, the pipeline preserves those native splits instead of re-splitting the questions locally:
+
+```bash
+python run_sycophancy_bias_probe.py \
+  --model mistralai/Mistral-7B-Instruct-v0.2 \
+  --benchmark_source ays_mc_single_turn \
+  --input_jsonl are_you_sure.jsonl \
+  --ays_mc_datasets arc_challenge \
+  --dataset_name arc_challenge \
+  --mc_mode strict_mc \
+  --run_name arc_challenge_strict_mc_run
+```
+
 Show all options:
 
 ```bash
@@ -165,7 +178,7 @@ Important flags:
 - `--input_jsonl`: `answer.jsonl` for the original pipeline, or `are_you_sure.jsonl` when using `--benchmark_source ays_mc_single_turn`
 - `--bias_types`: comma-separated subset of `incorrect_suggestion`, `doubt_correct`, `suggest_correct`
 - `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset
-- `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`, and it also supports normalized HF-backed sources such as `commonsense_qa`
+- `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`, and it also supports normalized HF-backed sources such as `commonsense_qa` and `arc_challenge`
 - `--mc_mode`: `strict_mc` for the canonical benchmark path, or `mc_with_rationale` for the auxiliary rationale-preserving path
 - strict MC prompts require `Answer: <LETTER>` and explicitly forbid non-answers such as `None`, `unknown`, or `cannot determine`
 - strict MC now reads the first answer-token distribution directly over the option letters and uses one deterministic selected-choice row per prompt
@@ -173,8 +186,8 @@ Important flags:
 - `--temperature`: generation temperature; strict MC records this as `1.0` for bookkeeping because first-token choice scoring does not use sampling temperature
 - `--max_new_tokens`: generation ceiling; if omitted, the pipeline uses `256` to avoid truncating answer-bearing completions
 - `--max_questions`: limit the number of question groups
-- `--test_frac`: fraction of questions reserved for the held-out test split
-- `--val_frac` / `--probe_val_frac`: fraction of the non-test questions reserved for validation during probe layer selection
+- `--test_frac`: fraction of questions reserved for the held-out test split; ignored for datasets with preserved native splits such as `arc_challenge`
+- `--val_frac` / `--probe_val_frac`: fraction of the non-test questions reserved for validation during probe layer selection; ignored for datasets with preserved native splits such as `arc_challenge`
 - `--probe_construction`: `auto`, `sampled_completions`, or `choice_candidates`; `auto` uses choice candidates for strict MC and sampled completions otherwise
 - `--probe_example_weighting`: `model_probability` or `uniform`; strict-MC choice-candidate probes default to model-probability weighting
 - `--sample_batch_size`: generation batch size

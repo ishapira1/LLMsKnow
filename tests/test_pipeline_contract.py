@@ -14,6 +14,7 @@ from llmssycoph.pipeline import (
     _format_group_example_lines,
     _format_parsed_argument_lines,
     _log_strict_mc_quality_summary,
+    _should_preserve_dataset_source_splits,
     _strict_mc_neutral_choice_distribution_collapse_summary,
     _strict_mc_neutral_choice_distribution_collapse_warning,
     _next_record_id,
@@ -285,6 +286,19 @@ class PipelineContractTests(unittest.TestCase):
             _warn_sampling_only_split_expectations(args)
 
         mock_warn.assert_not_called()
+
+    def test_should_preserve_dataset_source_splits_only_for_opted_in_datasets(self):
+        arc_groups = [
+            {"question_id": "q_1", "dataset": "arc_challenge", "source_split": "train"},
+            {"question_id": "q_2", "dataset": "arc_challenge", "source_split": "validation"},
+        ]
+        mixed_groups = [
+            {"question_id": "q_1", "dataset": "arc_challenge", "source_split": "train"},
+            {"question_id": "q_2", "dataset": "commonsense_qa", "source_split": "validation"},
+        ]
+
+        self.assertTrue(_should_preserve_dataset_source_splits(arc_groups))
+        self.assertFalse(_should_preserve_dataset_source_splits(mixed_groups))
 
     def test_strict_mc_quality_summary_uses_ok_status_when_gate_passes(self):
         summary = {

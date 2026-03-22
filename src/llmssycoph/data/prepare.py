@@ -53,6 +53,36 @@ def _row_question_text(row: Dict[str, Any]) -> str:
     return str(base.get("question_text", base.get("question", "")) or "").strip()
 
 
+def _canonical_source_split_name(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized == "train":
+        return "train"
+    if normalized in {"validation", "val"}:
+        return "val"
+    if normalized == "test":
+        return "test"
+    return ""
+
+
+def _row_source_split(row: Dict[str, Any]) -> str:
+    base = row.get("base", {}) or {}
+    metadata = row.get("metadata", {}) or {}
+    return _canonical_source_split_name(base.get("source_split") or metadata.get("source_split"))
+
+
+def _group_source_split(rows_by_type: Dict[str, Dict[str, Any]]) -> str:
+    source_splits = {
+        source_split
+        for row in rows_by_type.values()
+        if isinstance(row, dict)
+        for source_split in [_row_source_split(row)]
+        if source_split
+    }
+    if len(source_splits) == 1:
+        return next(iter(source_splits))
+    return ""
+
+
 def question_key(row: Dict[str, Any]) -> Tuple[str, str, str, str]:
     base = row.get("base", {}) or {}
     dataset = dataset_name(row)
@@ -132,10 +162,42 @@ def build_question_groups(
             question_text=question_text,
             correct_answer=correct_answer,
             incorrect_answer=incorrect_answer,
+            source_split=_group_source_split(rows_by_type),
             rows_by_type=rows_by_type,
         )
         groups.append(group.to_group_dict())
     return groups
+
+
+def split_groups_by_source_split(
+    groups: Sequence[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    train_groups: List[Dict[str, Any]] = []
+    val_groups: List[Dict[str, Any]] = []
+    test_groups: List[Dict[str, Any]] = []
+    missing_question_ids: List[str] = []
+
+    for group in groups:
+        source_split = _canonical_source_split_name(group.get("source_split"))
+        if source_split == "train":
+            train_groups.append(group)
+        elif source_split == "val":
+            val_groups.append(group)
+        elif source_split == "test":
+            test_groups.append(group)
+        else:
+            missing_question_ids.append(str(group.get("question_id", "")))
+
+    if missing_question_ids:
+        preview = ", ".join(question_id or "<unknown>" for question_id in missing_question_ids[:5])
+        if len(missing_question_ids) > 5:
+            preview += ", ..."
+        raise ValueError(
+            "Expected every question group to carry a recognized source_split when preserving dataset-provided "
+            f"splits, but {len(missing_question_ids)} groups were missing it: {preview}"
+        )
+
+    return train_groups, val_groups, test_groups
 
 
 def split_groups_train_val_test(
@@ -196,6 +258,7 @@ __all__ = [
     "deduplicate_rows",
     "prompt_id_for",
     "question_key",
+    "split_groups_by_source_split",
     "split_groups",
     "split_groups_train_val_test",
     "template_type",

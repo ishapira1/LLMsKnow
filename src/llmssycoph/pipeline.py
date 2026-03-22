@@ -29,6 +29,7 @@ from .constants import (
     STRICT_MC_SELECTED_LABEL_TV_DISTANCE_WARN,
 )
 from .data import (
+    HF_AYS_MC_DATASET_SPECS,
     build_question_groups,
     deduplicate_rows,
     ensure_sycophancy_eval_cached,
@@ -36,6 +37,7 @@ from .data import (
     prepare_benchmark_rows,
     read_jsonl,
     resolve_ays_mc_datasets,
+    split_groups_by_source_split,
     split_groups_train_val_test,
     unique_dataset_names,
 )
@@ -288,6 +290,17 @@ def _warn_sampling_only_split_expectations(args: Any) -> None:
         "Some questions will still be assigned to val/test and sampled there. "
         "Use --test_frac 0 --probe_val_frac 0 if you want one unsplit sampling pool.",
     )
+
+
+def _should_preserve_dataset_source_splits(groups: Sequence[Dict[str, Any]]) -> bool:
+    dataset_names = {
+        str(group.get("dataset", "") or "").strip().lower()
+        for group in groups
+        if str(group.get("dataset", "") or "").strip()
+    }
+    if not dataset_names:
+        return False
+    return all(bool(HF_AYS_MC_DATASET_SPECS.get(dataset_name, {}).get("preserve_source_splits")) for dataset_name in dataset_names)
 
 
 def _apply_model_backend_overrides(args: Any, model_capabilities: Any) -> None:
@@ -1407,19 +1420,32 @@ def run_pipeline(args) -> None:
             )
             args.n_draws = 1
 
-        _warn_sampling_only_split_expectations(args)
-        train_groups, val_groups, test_groups = split_groups_train_val_test(
-            groups,
-            test_frac=args.test_frac,
-            val_frac=args.probe_val_frac,
-            seed=args.split_seed,
-        )
-        log_status(
-            "pipeline.py",
-            f"dataset split: train_questions={len(train_groups)} "
-            f"val_questions={len(val_groups)} test_questions={len(test_groups)} "
-            f"split_seed={args.split_seed}",
-        )
+        preserve_source_splits = _should_preserve_dataset_source_splits(groups)
+        if not preserve_source_splits:
+            _warn_sampling_only_split_expectations(args)
+        if preserve_source_splits:
+            train_groups, val_groups, test_groups = split_groups_by_source_split(groups)
+            dataset_labels = sorted({str(group.get("dataset", "") or "").strip() for group in groups if str(group.get("dataset", "") or "").strip()})
+            log_status(
+                "pipeline.py",
+                "dataset split: using dataset-provided source splits "
+                f"datasets={dataset_labels} train_questions={len(train_groups)} "
+                f"val_questions={len(val_groups)} test_questions={len(test_groups)} "
+                f"(ignoring test_frac={args.test_frac} probe_val_frac={args.probe_val_frac})",
+            )
+        else:
+            train_groups, val_groups, test_groups = split_groups_train_val_test(
+                groups,
+                test_frac=args.test_frac,
+                val_frac=args.probe_val_frac,
+                seed=args.split_seed,
+            )
+            log_status(
+                "pipeline.py",
+                f"dataset split: train_questions={len(train_groups)} "
+                f"val_questions={len(val_groups)} test_questions={len(test_groups)} "
+                f"split_seed={args.split_seed}",
+            )
         finish_stage()
 
         begin_stage(3, "sampling plan and checkpoint layout")

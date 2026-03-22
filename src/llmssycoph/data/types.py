@@ -47,6 +47,7 @@ class QuestionGroup:
     question_text: str
     correct_answer: str
     incorrect_answer: str
+    source_split: str = ""
     rows_by_type: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def to_group_dict(self) -> Dict[str, Any]:
@@ -57,6 +58,7 @@ class QuestionGroup:
             "question_text": self.question_text,
             "correct_answer": self.correct_answer,
             "incorrect_answer": self.incorrect_answer,
+            "source_split": self.source_split,
             "rows_by_type": dict(self.rows_by_type),
         }
 

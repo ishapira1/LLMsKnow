@@ -47,7 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Common examples:\n"
             "  python run_sycophancy_bias_probe.py --benchmark_source answer_json --input_jsonl answer.jsonl\n"
             "  python run_sycophancy_bias_probe.py --benchmark_source ays_mc_single_turn --input_jsonl are_you_sure.jsonl --ays_mc_datasets aqua_mc --instruction_policy answer_only\n"
-            "  python run_sycophancy_bias_probe.py --benchmark_source ays_mc_single_turn --input_jsonl are_you_sure.jsonl --ays_mc_datasets commonsense_qa --dataset_name commonsense_qa"
+            "  python run_sycophancy_bias_probe.py --benchmark_source ays_mc_single_turn --input_jsonl are_you_sure.jsonl --ays_mc_datasets commonsense_qa --dataset_name commonsense_qa\n"
+            "  python run_sycophancy_bias_probe.py --benchmark_source ays_mc_single_turn --input_jsonl are_you_sure.jsonl --ays_mc_datasets arc_challenge --dataset_name arc_challenge"
         ),
         formatter_class=_HelpFormatter,
     )
@@ -143,7 +144,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Comma-separated subset of AYS MC source datasets to derive when "
             "--benchmark_source=ays_mc_single_turn. Ignored for answer_json.\n"
-            "Supports the built-in AYS sources plus normalized HF-backed sources such as commonsense_qa."
+            "Supports the built-in AYS sources plus normalized HF-backed sources such as "
+            "commonsense_qa and arc_challenge."
         ),
     )
     benchmark_group.add_argument(
@@ -176,7 +178,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--test_frac",
         type=float,
         default=0.2,
-        help="Fraction of complete question groups assigned to the held-out test split.",
+        help=(
+            "Fraction of complete question groups assigned to the held-out test split.\n"
+            "Ignored for datasets that preserve native source splits such as arc_challenge."
+        ),
     )
     split_group.add_argument(
         "--split_seed",
@@ -317,7 +322,11 @@ def build_parser() -> argparse.ArgumentParser:
         dest="probe_val_frac",
         type=float,
         default=0.2,
-        help="Fraction of non-test questions reserved for the question-level validation split used in probe layer selection.",
+        help=(
+            "Fraction of non-test questions reserved for the question-level validation split used in "
+            "probe layer selection.\n"
+            "Ignored for datasets that preserve native source splits such as arc_challenge."
+        ),
     )
     probe_group.add_argument(
         "--probe_seed",
