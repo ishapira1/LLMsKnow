@@ -134,6 +134,20 @@ def _probability_with_prefix(frame: pd.DataFrame, prefix: str, option_series: pd
     return pd.Series(outputs, index=frame.index, dtype=float)
 
 
+def _max_other_probability_with_prefix(frame: pd.DataFrame, prefix: str, option_series: pd.Series) -> pd.Series:
+    outputs = []
+    for idx, option in option_series.astype(str).str.strip().str.upper().items():
+        other_values = []
+        for letter in "ABCDE":
+            if letter == option:
+                continue
+            column = f"{prefix}{letter}"
+            if column in frame.columns and pd.notna(frame.loc[idx, column]):
+                other_values.append(float(frame.loc[idx, column]))
+        outputs.append(max(other_values) if other_values else np.nan)
+    return pd.Series(outputs, index=frame.index, dtype=float)
+
+
 def _paired_external_metrics(ctx: AnalysisContext) -> pd.DataFrame:
     paired = build_paired_external_df(ctx)
     if paired.empty:
@@ -158,11 +172,11 @@ def _paired_external_metrics(ctx: AnalysisContext) -> pd.DataFrame:
     paired["effective_responses_xprime"] = entropy_and_effective_responses(prob_xprime)[1]
     paired["js_divergence"] = js_divergence(prob_x, prob_xprime)
     paired["total_variation"] = total_variation(prob_x, prob_xprime)
-    paired["delta_p_correct"] = paired["p_correct_x"] - paired["p_correct_xprime"]
+    paired["delta_p_correct"] = paired["p_correct_xprime"] - paired["p_correct_x"]
     denom = paired["p_correct_x"] + paired["p_correct_xprime"]
     paired["delta_relative_p_correct"] = np.where(
         denom > 0,
-        (paired["p_correct_x"] - paired["p_correct_xprime"]) / denom,
+        (paired["p_correct_xprime"] - paired["p_correct_x"]) / denom,
         np.nan,
     )
     paired["same_answer"] = paired["response_x"].eq(paired["response_xprime"])
@@ -184,6 +198,10 @@ def _paired_external_metrics(ctx: AnalysisContext) -> pd.DataFrame:
     paired["delta_p_bias_target"] = paired["p_bias_target_xprime"] - paired["p_bias_target_x"]
     paired["m_bias_external_x"] = _probability_with_prefix(paired, "p_x_", paired["correct_letter"]) - paired["p_bias_target_x"]
     paired["adopts_bias_target"] = paired["response_xprime"].eq(paired["bias_target_letter"])
+    paired["p_chosen_x"] = _probability_with_prefix(paired, "p_x_", paired["response_x"])
+    paired["p_chosen_xprime"] = _probability_with_prefix(paired, "p_xprime_", paired["response_xprime"])
+    paired["chosen_margin_x"] = paired["p_chosen_x"] - _max_other_probability_with_prefix(paired, "p_x_", paired["response_x"])
+    paired["chosen_margin_xprime"] = paired["p_chosen_xprime"] - _max_other_probability_with_prefix(paired, "p_xprime_", paired["response_xprime"])
 
     same_wrong = (
         paired["correctness_x"].eq(0)
@@ -471,8 +489,6 @@ def _display_value(value: Any) -> None:
         display = None
         Markdown = None
     if hasattr(value, "savefig"):
-        if display is not None:
-            display(value)
         return
     if display is not None:
         display(value)
@@ -888,17 +904,19 @@ def plot_sycophancy_delta_histograms(ctx: AnalysisContext) -> Any:
         subset = paired.loc[paired["bias_type"].astype(str).eq(bias_type)]
         color = BIAS_COLORS.get(bias_type, DEFAULT_COLORS["fallback"])
         sns.histplot(subset["delta_p_correct"], bins=15, color=color, edgecolor="white", ax=axes[0, col])
+        axes[0, col].axvline(0, linestyle="--", color="black", linewidth=1.2)
         _set_panel_labels(
             axes[0, col],
             title=_format_panel_title(DISPLAY_LABELS.get(bias_type, bias_type.title()), len(subset)),
-            xlabel=r"$\Delta P(correct)=P(correct|x)-P(correct|x')$",
+            xlabel=r"$\Delta P(correct)=P(correct|x')-P(correct|x)$",
             ylabel="Count",
         )
         sns.histplot(subset["delta_relative_p_correct"], bins=15, color=color, edgecolor="white", ax=axes[1, col])
+        axes[1, col].axvline(0, linestyle="--", color="black", linewidth=1.2)
         _set_panel_labels(
             axes[1, col],
             title=_format_panel_title(DISPLAY_LABELS.get(bias_type, bias_type.title()), len(subset)),
-            xlabel=r"$\Delta_{rel}=(P_x-P_{x'})/(P_x+P_{x'})$",
+            xlabel=r"$\Delta_{rel}=(P_{x'}-P_x)/(P_x+P_{x'})$",
             ylabel="Count",
         )
     fig.suptitle("External Accuracy-Probability Shift Under Bias", fontsize=24, y=1.01)
@@ -995,16 +1013,18 @@ def plot_incorrect_suggestion_transition_heatmap(ctx: AnalysisContext) -> Any:
         )
     )
     matrix = matrix.div(matrix.sum(axis=1).replace(0, np.nan), axis=0)
+    matrix.index = ["Neutral is correct", "Neutral agrees w. bias", "Neutral other"]
+    matrix.columns = ["Bias is correct", "Bias agrees w. bias", "Bias other"]
     fig, ax = plt.subplots(figsize=(7.5, 5.8))
     sns.heatmap(
         matrix,
         annot=True,
         fmt=".2f",
-        cmap="YlGnBu",
+        cmap="crest",
         vmin=0,
         vmax=1,
         cbar=True,
-        linewidths=1.0,
+        linewidths=2.5,
         linecolor="white",
         ax=ax,
     )
@@ -1030,21 +1050,21 @@ def plot_incorrect_suggestion_top1_confidence_before_after(ctx: AnalysisContext)
     if subset.empty:
         raise AnalysisNotSupportedError("No incorrect_suggestion rows are available for this run.")
     fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.8), sharey=True)
-    sns.histplot(subset["top1_probability_x"], bins=15, stat="density", color=DEFAULT_COLORS["primary"], edgecolor="white", ax=axes[0])
+    sns.histplot(subset["p_chosen_x"], bins=15, stat="density", color=DEFAULT_COLORS["primary"], edgecolor="white", ax=axes[0])
     _set_panel_labels(
         axes[0],
         title=_format_panel_title("Neutral x", len(subset)),
-        xlabel="Top-1 confidence",
+        xlabel="Chosen-answer probability",
         ylabel="Density",
     )
-    sns.histplot(subset["top1_probability_xprime"], bins=15, stat="density", color=DEFAULT_COLORS["secondary"], edgecolor="white", ax=axes[1])
+    sns.histplot(subset["p_chosen_xprime"], bins=15, stat="density", color=DEFAULT_COLORS["secondary"], edgecolor="white", ax=axes[1])
     _set_panel_labels(
         axes[1],
         title=_format_panel_title("Biased x'", len(subset)),
-        xlabel="Top-1 confidence",
+        xlabel="Chosen-answer probability",
         ylabel="Density",
     )
-    fig.suptitle("Top-1 Confidence Before vs After Incorrect Suggestion", fontsize=24, y=1.02)
+    fig.suptitle("Chosen-Answer Probability Before vs After Incorrect Suggestion", fontsize=24, y=1.02)
     fig.tight_layout()
     return fig
 
@@ -1064,15 +1084,15 @@ def plot_incorrect_suggestion_bias_target_gain_and_margin(ctx: AnalysisContext) 
     sns.histplot(subset["delta_p_bias_target"], bins=15, color=DEFAULT_COLORS["secondary"], edgecolor="white", ax=axes[0])
     _set_panel_labels(
         axes[0],
-        title=f"Bias-target gain\nmean={subset['delta_p_bias_target'].mean():.3f}",
-        xlabel=r"$\Delta_{bias}=P_{x'}(b)-P_x(b)$",
+        title=f"Probability gain of the user-suggested answer\nmean={subset['delta_p_bias_target'].mean():.3f}",
+        xlabel=r"$P_{x'}(\mathrm{suggested})-P_x(\mathrm{suggested})$",
         ylabel="Count",
     )
     sns.histplot(subset["m_bias_external_x"], bins=15, color=DEFAULT_COLORS["primary"], edgecolor="white", ax=axes[1])
     _set_panel_labels(
         axes[1],
-        title=f"Neutral correct-vs-target margin\nmean={subset['m_bias_external_x'].mean():.3f}",
-        xlabel=r"$m_{bias}(x)=P_x(c)-P_x(b)$",
+        title=f"Neutral true-vs-suggested probability gap\nmean={subset['m_bias_external_x'].mean():.3f}",
+        xlabel=r"$P_x(\mathrm{true})-P_x(\mathrm{suggested})$",
         ylabel="Count",
     )
     fig.tight_layout()
@@ -1093,7 +1113,7 @@ def plot_target_adoption_by_prebias_chosen_margin(ctx: AnalysisContext, *, n_bin
         axes = [axes]
     for ax, bias_type in zip(axes, bias_types):
         subset = paired.loc[paired["bias_type"].astype(str).eq(bias_type)].copy()
-        subset["minus_chosen_margin_x"] = -subset["top1_margin_x"]
+        subset["minus_chosen_margin_x"] = -subset["chosen_margin_x"]
         summary = _quantile_rate_summary(subset, "minus_chosen_margin_x", "adopts_bias_target", n_bins=n_bins)
         x_positions = np.arange(len(summary))
         ax.plot(x_positions, summary["rate"], color=BIAS_COLORS.get(bias_type, DEFAULT_COLORS["fallback"]), marker="o")
@@ -1103,11 +1123,41 @@ def plot_target_adoption_by_prebias_chosen_margin(ctx: AnalysisContext, *, n_bin
         _set_panel_labels(
             ax,
             title=_format_panel_title(DISPLAY_LABELS.get(bias_type, bias_type.title()), len(subset)),
-            xlabel=r"Quantile of $-m_{top}(x)$",
+            xlabel=r"Quantile of $-(P_x(\hat{y}_x)-\max_{i\neq \hat{y}_x}P_x(i))$",
             ylabel="Rate of adopting user target",
         )
         ax.set_ylim(0, 1)
     fig.suptitle("Target Adoption vs Neutral Chosen-Answer Margin", fontsize=24, y=1.02)
+    fig.tight_layout()
+    return fig
+
+
+@register_analysis_function(
+    output_kind="plot",
+    description="Rate of changing away from the neutral chosen answer under doubt_correct.",
+    requires_labels=True,
+)
+def plot_doubt_correct_change_rate_by_prebias_chosen_margin(ctx: AnalysisContext, *, n_bins: int = 5) -> Any:
+    paired = _paired_external_metrics(ctx)
+    subset = paired.loc[paired["bias_type"].astype(str).eq("doubt_correct")].copy()
+    if subset.empty:
+        raise AnalysisNotSupportedError("No doubt_correct rows are available for this run.")
+    subset["changes_to_any_other_answer"] = subset["response_xprime"].ne(subset["response_x"]).astype(int)
+    subset["minus_chosen_margin_x"] = -subset["chosen_margin_x"]
+    summary = _quantile_rate_summary(subset, "minus_chosen_margin_x", "changes_to_any_other_answer", n_bins=n_bins)
+    fig, ax = plt.subplots(figsize=(7.0, 5.0))
+    x_positions = np.arange(len(summary))
+    ax.plot(x_positions, summary["rate"], color=BIAS_COLORS["doubt_correct"], marker="o")
+    ax.fill_between(x_positions, summary["ci_low"], summary["ci_high"], color=BIAS_COLORS["doubt_correct"], alpha=0.2)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(summary["bucket"])
+    _set_panel_labels(
+        ax,
+        title=_format_panel_title(DISPLAY_LABELS["doubt_correct"], len(subset)),
+        xlabel=r"Quantile of $-(P_x(\hat{y}_x)-\max_{i\neq \hat{y}_x}P_x(i))$",
+        ylabel="Rate of changing to any other answer",
+    )
+    ax.set_ylim(0, 1)
     fig.tight_layout()
     return fig
 
