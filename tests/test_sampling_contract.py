@@ -20,6 +20,7 @@ from llmssycoph.runtime import model_slug, preferred_run_artifact_path
 from llmssycoph.llm.sampling import (
     build_sampling_spec,
     enumerate_expected_sample_keys,
+    load_current_run_sampling_checkpoint,
     load_sampling_cache_candidate,
     normalize_sample_records,
     sample_record_key,
@@ -276,6 +277,96 @@ class SamplingContractTests(unittest.TestCase):
             fallback = load_sampling_cache_candidate(tmpdir, args.model, digest, exclude_run_dir=run_complete)
             self.assertIsNotNone(fallback)
             self.assertEqual(fallback["run_dir"], run_incomplete)
+
+    def test_current_run_sampling_checkpoint_reuses_matching_records(self):
+        expected_keys = {
+            sample_record_key_values("train", "q_1", "neutral", 0),
+            sample_record_key_values("train", "q_1", "incorrect_suggestion", 0),
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / model_slug("model") / "resume_case"
+            records_path = preferred_run_artifact_path(run_dir, "sampling_records")
+            manifest_path = preferred_run_artifact_path(run_dir, "sampling_manifest")
+            records_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            records_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "split": "train",
+                                "question_id": "q_1",
+                                "template_type": "neutral",
+                                "draw_idx": 0,
+                                "value": "keep",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "split": "train",
+                                "question_id": "q_1",
+                                "template_type": "incorrect_suggestion",
+                                "draw_idx": 0,
+                                "value": "keep-too",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "split": "train",
+                                "question_id": "q_2",
+                                "template_type": "neutral",
+                                "draw_idx": 0,
+                                "value": "drop",
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            manifest_path.write_text(json.dumps({"sampling_hash": "abc123"}), encoding="utf-8")
+
+            records = load_current_run_sampling_checkpoint(
+                run_dir,
+                expected_all_keys=expected_keys,
+                sampling_hash="abc123",
+            )
+
+            self.assertEqual(
+                [(record["question_id"], record["template_type"], record["draw_idx"]) for record in records],
+                [("q_1", "incorrect_suggestion", 0), ("q_1", "neutral", 0)],
+            )
+
+    def test_current_run_sampling_checkpoint_rejects_mismatched_hash(self):
+        expected_keys = {sample_record_key_values("train", "q_1", "neutral", 0)}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / model_slug("model") / "resume_case"
+            records_path = preferred_run_artifact_path(run_dir, "sampling_records")
+            manifest_path = preferred_run_artifact_path(run_dir, "sampling_manifest")
+            records_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            records_path.write_text(
+                json.dumps(
+                    {
+                        "split": "train",
+                        "question_id": "q_1",
+                        "template_type": "neutral",
+                        "draw_idx": 0,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            manifest_path.write_text(json.dumps({"sampling_hash": "old_hash"}), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Existing sampling checkpoint is not compatible"):
+                load_current_run_sampling_checkpoint(
+                    run_dir,
+                    expected_all_keys=expected_keys,
+                    sampling_hash="new_hash",
+                )
 
     def test_enumerate_expected_keys_and_empirical_t_contract(self):
         groups = [make_group("q_1"), make_group("q_2")]

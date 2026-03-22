@@ -15,8 +15,7 @@ from llmssycoph.pipeline import (
     _format_parsed_argument_lines,
     _log_strict_mc_quality_summary,
     _should_preserve_dataset_source_splits,
-    _strict_mc_neutral_choice_distribution_collapse_summary,
-    _strict_mc_neutral_choice_distribution_collapse_warning,
+    _strict_mc_neutral_choice_concentration_summary,
     _next_record_id,
     _strict_mc_neutral_below_chance_warning,
     _strict_mc_neutral_selected_label_skew_summary,
@@ -461,7 +460,7 @@ class PipelineContractTests(unittest.TestCase):
         self.assertIn("excess=50.0%", warning)
         self.assertIn("TV=50.0%", warning)
 
-    def test_choice_distribution_collapse_warning_uses_entropy_and_confidence_checks(self):
+    def test_neutral_choice_concentration_summary_uses_entropy_and_confidence_checks(self):
         records = [
             {
                 "template_type": "neutral",
@@ -495,16 +494,13 @@ class PipelineContractTests(unittest.TestCase):
             },
         ]
 
-        summary = _strict_mc_neutral_choice_distribution_collapse_summary(records)
-        warning = _strict_mc_neutral_choice_distribution_collapse_warning(summary)
+        summary = _strict_mc_neutral_choice_concentration_summary(records)
 
-        self.assertTrue(summary["warning_triggered"])
         self.assertLess(summary["median_effective_options"], 1.2)
         self.assertAlmostEqual(summary["high_confidence_selected_rate"], 1.0)
-        self.assertIsNotNone(warning)
-        self.assertIn("choice distribution appears collapsed", warning)
-        self.assertIn("median(N_eff)=", warning)
-        self.assertIn("mean(P(selected)>=0.95)=100.0%", warning)
+        self.assertEqual(summary["selected_probability_row_count"], 3)
+        self.assertEqual(summary["reference_thresholds"]["median_effective_options_warn"], 1.2)
+        self.assertEqual(summary["reference_thresholds"]["high_confidence_selected_rate_warn"], 0.8)
 
     def test_runner_and_pipeline_import_commands(self):
         commands = [

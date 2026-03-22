@@ -54,6 +54,7 @@ from .logging_utils import (
 from .llm import (
     build_sampling_spec,
     load_llm,
+    load_current_run_sampling_checkpoint,
     load_sampling_cache_candidate,
     normalize_sample_records,
     resolve_llm_capabilities,
@@ -498,8 +499,14 @@ def _log_reuse_summary(
     split_records: Dict[str, List[Dict[str, Any]]],
     reuse_enabled: bool,
     cached_source_run: Optional[Path],
+    resumed_from_current_run: bool = False,
 ) -> None:
-    if not reuse_enabled:
+    if resumed_from_current_run and cached_source_run is not None:
+        log_status(
+            "pipeline.py",
+            f"reuse strategy: resuming from current run checkpoint at {cached_source_run}",
+        )
+    elif not reuse_enabled:
         log_status(
             "pipeline.py",
             "reuse strategy: disabled by --no_reuse_sampling_cache/--override_sampling_cache",
@@ -829,7 +836,7 @@ def _strict_mc_neutral_selected_label_skew_warning(summary: Dict[str, Any]) -> O
     )
 
 
-def _strict_mc_neutral_choice_distribution_collapse_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+def _strict_mc_neutral_choice_concentration_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     neutral_rows = _strict_mc_neutral_rows(records, require_choice_probabilities=True)
     effective_option_counts: List[float] = []
     high_confidence_rows = 0
@@ -866,16 +873,6 @@ def _strict_mc_neutral_choice_distribution_collapse_summary(records: Sequence[Di
         if selected_probability_rows > 0
         else None
     )
-    warning_triggered = bool(
-        (
-            median_effective_options is not None
-            and median_effective_options < STRICT_MC_COLLAPSE_MEDIAN_EFFECTIVE_OPTIONS_WARN
-        )
-        or (
-            high_confidence_selected_rate is not None
-            and high_confidence_selected_rate > STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_RATE_WARN
-        )
-    )
 
     return {
         "neutral_choice_probability_row_count": int(len(neutral_rows)),
@@ -884,36 +881,11 @@ def _strict_mc_neutral_choice_distribution_collapse_summary(records: Sequence[Di
         "median_effective_options": median_effective_options,
         "high_confidence_selected_rate": high_confidence_selected_rate,
         "high_confidence_selected_prob_threshold": STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_SELECTED_PROB,
-        "thresholds": {
+        "reference_thresholds": {
             "median_effective_options_warn": STRICT_MC_COLLAPSE_MEDIAN_EFFECTIVE_OPTIONS_WARN,
             "high_confidence_selected_rate_warn": STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_RATE_WARN,
         },
-        "warning_triggered": warning_triggered,
     }
-
-
-def _strict_mc_neutral_choice_distribution_collapse_warning(summary: Dict[str, Any]) -> Optional[str]:
-    if not summary or not bool(summary.get("warning_triggered", False)):
-        return None
-
-    row_count = int(summary.get("selected_probability_row_count", 0) or 0)
-    median_effective_options = summary.get("median_effective_options")
-    high_confidence_selected_rate = summary.get("high_confidence_selected_rate")
-    median_text = "n/a" if median_effective_options is None else f"{float(median_effective_options):.2f}"
-    high_confidence_text = (
-        "n/a"
-        if high_confidence_selected_rate is None
-        else f"{float(high_confidence_selected_rate):.1%}"
-    )
-    return (
-        "neutral strict-MC choice distribution appears collapsed across "
-        f"{row_count} neutral choice-probability rows: "
-        f"median(N_eff)={median_text} and "
-        f"mean(P(selected)>={STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_SELECTED_PROB:.2f})="
-        f"{high_confidence_text}. "
-        f"Thresholds: median(N_eff)<{STRICT_MC_COLLAPSE_MEDIAN_EFFECTIVE_OPTIONS_WARN:.2f} "
-        f"or high-confidence rate>{STRICT_MC_COLLAPSE_HIGH_CONFIDENCE_RATE_WARN:.0%}."
-    )
 
 
 def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -982,7 +954,7 @@ def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, A
             max_bias_gap = max(max_bias_gap, abs(neutral_rate - stats["starts_with_answer_rate"]))
 
     neutral_selected_label_skew = _strict_mc_neutral_selected_label_skew_summary(records)
-    neutral_choice_distribution = _strict_mc_neutral_choice_distribution_collapse_summary(records)
+    neutral_choice_concentration = _strict_mc_neutral_choice_concentration_summary(records)
 
     return {
         "total": total,
@@ -994,7 +966,7 @@ def _strict_mc_quality_summary(records: Sequence[Dict[str, Any]]) -> Dict[str, A
         "multiple_answer_marker_rows": multiple_answer_marker_rows,
         "max_neutral_bias_answer_gap": max_bias_gap,
         "neutral_selected_label_skew": neutral_selected_label_skew,
-        "neutral_choice_distribution_collapse": neutral_choice_distribution,
+        "neutral_choice_concentration": neutral_choice_concentration,
         "by_template": by_template,
     }
 
@@ -1038,14 +1010,14 @@ def _log_strict_mc_quality_summary(summary: Dict[str, Any], issues: Optional[Seq
             f"excess={float(selected_label_skew.get('dominant_selected_label_excess') or 0.0):.1%} "
             f"tv={float(selected_label_skew.get('selected_vs_answer_key_tv_distance') or 0.0):.1%}",
         )
-    choice_distribution = summary.get("neutral_choice_distribution_collapse", {})
-    if choice_distribution:
-        median_effective_options = choice_distribution.get("median_effective_options")
-        high_confidence_selected_rate = choice_distribution.get("high_confidence_selected_rate")
+    choice_concentration = summary.get("neutral_choice_concentration", {})
+    if choice_concentration:
+        median_effective_options = choice_concentration.get("median_effective_options")
+        high_confidence_selected_rate = choice_concentration.get("high_confidence_selected_rate")
         log_status(
             "pipeline.py",
-            "strict MC neutral choice distribution: "
-            f"rows={int(choice_distribution.get('selected_probability_row_count', 0) or 0)} "
+            "strict MC neutral within-question choice concentration: "
+            f"rows={int(choice_concentration.get('selected_probability_row_count', 0) or 0)} "
             f"median_effective_options="
             f"{'n/a' if median_effective_options is None else f'{float(median_effective_options):.2f}'} "
             f"high_confidence_selected_rate="
@@ -1500,7 +1472,19 @@ def run_pipeline(args) -> None:
 
         begin_stage(4, "sampling cache reuse strategy")
         cached_source_run: Optional[Path] = None
-        cached_records: List[Dict[str, Any]] = []
+        cached_records = load_current_run_sampling_checkpoint(
+            run_dir,
+            expected_all_keys=expected_all_keys,
+            sampling_hash=sampling_hash,
+        )
+        resumed_from_current_run = bool(cached_records)
+        if resumed_from_current_run:
+            cached_source_run = run_dir
+            log_status(
+                "pipeline.py",
+                f"loaded resumable sampling checkpoint from current run: "
+                f"records={len(cached_records)}/{expected_total_records}",
+            )
         if not args.no_reuse_sampling_cache:
             candidate = load_sampling_cache_candidate(
                 out_dir=args.out_dir,
@@ -1511,12 +1495,22 @@ def run_pipeline(args) -> None:
             if candidate is not None:
                 cached_source_run = candidate["run_dir"]
                 cached_records_raw = read_jsonl(str(candidate["records_path"]))
-                cached_records = normalize_sample_records(cached_records_raw, expected_all_keys)
-                log_status(
-                    "pipeline.py",
-                    f"loaded reusable sampling cache from {cached_source_run}: "
-                    f"records={len(cached_records)}/{expected_total_records}",
-                )
+                candidate_records = normalize_sample_records(cached_records_raw, expected_all_keys)
+                if len(candidate_records) > len(cached_records):
+                    cached_records = candidate_records
+                    resumed_from_current_run = False
+                    log_status(
+                        "pipeline.py",
+                        f"loaded reusable sampling cache from {cached_source_run}: "
+                        f"records={len(cached_records)}/{expected_total_records}",
+                    )
+                elif resumed_from_current_run:
+                    log_status(
+                        "pipeline.py",
+                        f"keeping current run checkpoint over external cache from {candidate['run_dir']}: "
+                        f"current_records={len(cached_records)}/{expected_total_records} "
+                        f"external_records={len(candidate_records)}/{expected_total_records}",
+                    )
         split_groups_map = {
             "train": train_groups,
             "val": val_groups,
@@ -1547,6 +1541,7 @@ def run_pipeline(args) -> None:
             split_records,
             reuse_enabled=not args.no_reuse_sampling_cache,
             cached_source_run=cached_source_run,
+            resumed_from_current_run=resumed_from_current_run,
         )
 
         persist_sampling_state(
@@ -1686,16 +1681,6 @@ def run_pipeline(args) -> None:
                 {
                     "code": "dominant_selected_label_skew",
                     "message": dominant_selected_label_skew_warning,
-                }
-            )
-        choice_distribution_collapse_warning = _strict_mc_neutral_choice_distribution_collapse_warning(
-            strict_mc_quality_report.get("neutral_choice_distribution_collapse", {})
-        )
-        if choice_distribution_collapse_warning is not None:
-            strict_mc_behavior_warnings.append(
-                {
-                    "code": "choice_distribution_collapse",
-                    "message": choice_distribution_collapse_warning,
                 }
             )
         for issue in strict_mc_quality_failures:

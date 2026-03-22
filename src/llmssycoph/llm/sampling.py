@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 from tqdm.auto import tqdm
 
 from ..constants import SAMPLING_SPEC_VERSION
-from ..data import as_prompt_text, dataset_name as _dataset_name, prompt_id_for
+from ..data import as_prompt_text, dataset_name as _dataset_name, prompt_id_for, read_jsonl
 from ..grading import extract_gold_answers_from_base as _extract_gold_answers_from_base
 from ..grading import grade_response_from_base as _grade_response_from_base
 from ..logging_utils import log_status, tqdm_desc
@@ -386,6 +386,45 @@ def load_sampling_cache_candidate(
         "manifest": manifest,
         "n_records": n_records,
     }
+
+
+def load_current_run_sampling_checkpoint(
+    run_dir: Path | str,
+    *,
+    expected_all_keys: Set[Tuple[str, str, str, int]],
+    sampling_hash: str,
+) -> List[Dict[str, Any]]:
+    run_dir = Path(run_dir)
+    records_path = resolve_run_artifact_path(run_dir, "sampling_records")
+    manifest_path = resolve_run_artifact_path(run_dir, "sampling_manifest")
+
+    if not records_path.exists():
+        return []
+    if not manifest_path.exists():
+        raise ValueError(
+            "Existing sampling checkpoint is missing its manifest.\n"
+            f"run_dir={run_dir}\n"
+            f"sampling_records_path={records_path}\n"
+            f"sampling_manifest_path={manifest_path}\n"
+            "Remove the incomplete checkpoint or use a different --run_name."
+        )
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Failed reading sampling manifest at {manifest_path}: {exc}") from exc
+
+    manifest_hash = str(manifest.get("sampling_hash", "") or "").strip()
+    if manifest_hash and manifest_hash != sampling_hash:
+        raise ValueError(
+            "Existing sampling checkpoint is not compatible with current args.\n"
+            f"run_dir={run_dir}\n"
+            f"sampling_hash: {manifest_hash!r} -> {sampling_hash!r}\n"
+            "Use a different --run_name or remove the stale checkpoint files."
+        )
+
+    records_raw = read_jsonl(str(records_path))
+    return normalize_sample_records(records_raw, expected_all_keys)
 
 
 def sample_records_for_groups(

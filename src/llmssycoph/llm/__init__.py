@@ -27,6 +27,7 @@ from .scoring import audit_choice_tokenization, score_choices, score_logprob_ans
 from .sampling import (
     build_sampling_spec,
     enumerate_expected_sample_keys,
+    load_current_run_sampling_checkpoint,
     load_sampling_cache_candidate,
     normalize_sample_records,
     sample_record_key,
@@ -55,6 +56,7 @@ __all__ = [
     "get_registered_llm_capabilities",
     "HuggingFaceLLM",
     "load_llm",
+    "load_current_run_sampling_checkpoint",
     "load_model_and_tokenizer",
     "load_sampling_cache_candidate",
     "normalize_sample_records",
