@@ -72,6 +72,42 @@ class ModelUtilsContractTests(unittest.TestCase):
                 [{"type": "human", "content": "Question"}],
             )
 
+    def test_encode_chat_uses_model_native_chat_template_with_generation_prompt(self):
+        class RecordingTokenizer:
+            def __init__(self):
+                self.calls = []
+
+            def apply_chat_template(self, messages, tokenize=True, add_generation_prompt=True, return_tensors="pt"):
+                self.calls.append(
+                    {
+                        "messages": messages,
+                        "tokenize": tokenize,
+                        "add_generation_prompt": add_generation_prompt,
+                        "return_tensors": return_tensors,
+                    }
+                )
+                return "encoded"
+
+        tokenizer = RecordingTokenizer()
+        encoded = encode_chat(
+            tokenizer,
+            [{"type": "human", "content": "Which option is correct?\n\nAnswer:"}],
+            add_generation_prompt=True,
+        )
+
+        self.assertEqual(encoded, "encoded")
+        self.assertEqual(
+            tokenizer.calls,
+            [
+                {
+                    "messages": [{"role": "user", "content": "Which option is correct?\n\nAnswer:"}],
+                    "tokenize": True,
+                    "add_generation_prompt": True,
+                    "return_tensors": "pt",
+                }
+            ],
+        )
+
     def test_load_llm_falls_back_to_huggingface_for_unregistered_name(self):
         with patch("llmssycoph.llm.registry.HuggingFaceLLM", autospec=True) as mock_hf_llm:
             instance = mock_hf_llm.return_value

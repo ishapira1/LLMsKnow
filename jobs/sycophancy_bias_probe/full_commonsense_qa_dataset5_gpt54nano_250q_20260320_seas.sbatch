@@ -6,6 +6,8 @@
 #SBATCH --time=05:00:00
 #SBATCH --output=jobs/sycophancy_bias_probe/logs/commonsense_qa_dataset5_250q_20260320_seas/%x.%j.out
 #SBATCH --error=jobs/sycophancy_bias_probe/logs/commonsense_qa_dataset5_250q_20260320_seas/%x.%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=itaishapira@g.harvard.edu
 
 set -euo pipefail
 

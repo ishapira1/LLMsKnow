@@ -142,6 +142,33 @@ class FakeChoiceTokenizer:
         return "".join(token_map[int(token_id)] for token_id in token_ids)
 
 
+class FakeQwenChoiceTokenizer:
+    def __call__(self, text, add_special_tokens=False):
+        token_map = {
+            "A": [9, 1],
+            " A": [9, 4],
+            "\nA": [6],
+            "B": [9, 3],
+            " B": [9, 2],
+            "\nB": [5],
+        }
+        if text not in token_map:
+            raise AssertionError(f"Unexpected tokenization request: {text!r}")
+        return SimpleNamespace(input_ids=token_map[text])
+
+    def decode(self, token_ids, skip_special_tokens=False):
+        token_map = {
+            1: "A",
+            2: " B",
+            3: "B",
+            4: " A",
+            5: "\nB",
+            6: "\nA",
+            9: "<split>",
+        }
+        return "".join(token_map[int(token_id)] for token_id in token_ids)
+
+
 class FakeChoiceLogitModel:
     device = 'cpu'
 
@@ -327,6 +354,25 @@ class FeatureUtilsContractTests(unittest.TestCase):
 
         self.assertAlmostEqual(sum(probs.values()), 1.0)
         self.assertGreater(probs['A'], probs['B'])
+
+    def test_score_choices_accepts_qwen_like_newline_only_single_token_letters(self):
+        encoded = FakeTensor([[11, 22, 33]])
+        tokenizer = FakeQwenChoiceTokenizer()
+        model = FakeNewlineChoiceLogitModel()
+
+        with patch.dict(sys.modules, {'torch': FakeTorchModule()}):
+            with patch('llmssycoph.llm.scoring._resolve_model_inputs', return_value=(encoded, None)):
+                audit = audit_choice_tokenization(
+                    model=model,
+                    tokenizer=tokenizer,
+                    messages=[{'type': 'human', 'content': 'Question\n\nAnswer:'}],
+                    choices=['A', 'B'],
+                )
+
+        self.assertAlmostEqual(sum(audit['choice_probabilities'].values()), 1.0)
+        self.assertGreater(audit['choice_probabilities']['A'], audit['choice_probabilities']['B'])
+        self.assertEqual(audit['choices']['A']['counted_token_ids'], [6])
+        self.assertEqual(audit['choices']['B']['counted_token_ids'], [5])
 
 
 if __name__ == '__main__':

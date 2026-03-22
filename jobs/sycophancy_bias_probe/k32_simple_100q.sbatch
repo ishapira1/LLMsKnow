@@ -7,6 +7,8 @@
 #SBATCH --time=12:00:00
 #SBATCH --output=syco_k32_simple_V2.%j.out
 #SBATCH --error=syco_k32_simple_V2.%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=itaishapira@g.harvard.edu
 
 set -euo pipefail
 

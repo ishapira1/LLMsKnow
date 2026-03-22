@@ -15,6 +15,7 @@ from llmssycoph.saving_manager import (
     PROBE_SUMMARY_COLUMNS,
     REPORTS_SUMMARY_COLUMNS,
     build_executive_summary_markdown,
+    build_executive_summary_report_intro_markdown,
     build_mc_probe_scores_by_prompt_df,
     build_model_summary_by_bias_df,
     build_model_summary_by_template_df,
@@ -241,6 +242,19 @@ class SavingManagerContractTests(unittest.TestCase):
                         "cap_hit_rate": 0.0,
                         "explicit_parse_failures": 0,
                         "max_neutral_bias_answer_gap": 0.0,
+                        "neutral_selected_label_skew": {
+                            "dominant_selected_label": "A",
+                            "dominant_selected_label_rate": 0.5,
+                            "dominant_selected_label_excess": 0.0,
+                            "selected_vs_answer_key_tv_distance": 0.0,
+                            "correct_label_distribution": {"A": 0.5},
+                        },
+                        "neutral_choice_concentration": {
+                            "selected_probability_row_count": 1,
+                            "median_effective_options": 1.1,
+                            "high_confidence_selected_rate": 1.0,
+                            "high_confidence_selected_prob_threshold": 0.95,
+                        },
                         "by_template": {
                             "neutral": {"total": 1},
                             "incorrect_suggestion": {"total": 1},
@@ -311,6 +325,7 @@ class SavingManagerContractTests(unittest.TestCase):
                 probe_candidate_scores_df=candidate_scores_df,
             )
             markdown = build_executive_summary_markdown(payload)
+            report_intro_markdown = build_executive_summary_report_intro_markdown(payload)
             summary_df = build_reports_summary_df(
                 samples_df=samples_df,
                 tuples_df=tuples_df,
@@ -341,8 +356,19 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertEqual(payload["strict_mc_quality"]["status"], "passed")
             self.assertEqual(markdown.splitlines()[0], "# Executive Summary")
             self.assertIn(payload["generated_at_utc"], markdown)
+            self.assertIn(report_intro_markdown.strip(), markdown)
+            self.assertIn("- Run: `run`", report_intro_markdown)
+            self.assertIn("- Model: `test/model`", report_intro_markdown)
+            self.assertIn("- Dataset: `aqua_mc`", report_intro_markdown)
+            self.assertIn("## Model Overview", report_intro_markdown)
             self.assertIn("## Summary by Bias", markdown)
             self.assertIn("## MC Option Selection", markdown)
+            self.assertIn("## Strict-MC Neutral Diagnostics", markdown)
+            self.assertIn("It is not a cross-question letter-bias metric", markdown)
+            self.assertIn("### Within-Question Choice Concentration", markdown)
+            self.assertIn("Median effective options (N_eff)", markdown)
+            self.assertIn("Rate P(selected) >= 0.95", markdown)
+            self.assertIn("### Cross-Question Selected-Label Skew", markdown)
             self.assertIn("## Runtime", markdown)
             self.assertIn("## Probe Overview", markdown)
 
@@ -451,7 +477,7 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertAlmostEqual(biased_row["avg_effective_options"], expected_biased_neff)
             markdown = build_executive_summary_markdown(payload)
             self.assertIn("## MC Option Selection", markdown)
-            self.assertIn("| mc_options_per_question | 3 |", markdown)
+            self.assertIn("| number of choices | 3 |", markdown)
 
     def test_reports_summary_payload_formats_varying_mc_option_counts_in_model_overview(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -531,7 +557,7 @@ class SavingManagerContractTests(unittest.TestCase):
 
             self.assertEqual(payload["mc_option_count_summary"]["observed_counts"], [4, 5])
             self.assertEqual(payload["mc_option_count_summary"]["display"], "4-5 (varies by question)")
-            self.assertIn("| mc_options_per_question | 4-5 (varies by question) |", markdown)
+            self.assertIn("| number of choices | 4-5 (varies by question) |", markdown)
 
     def test_reports_summary_payload_captures_mc_confusion_matrix_for_mc_runs(self):
         with tempfile.TemporaryDirectory() as tmpdir:

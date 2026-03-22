@@ -85,21 +85,30 @@ def _probe_scores_frame() -> pd.DataFrame:
     )
 
 
-def _make_run_dir(base: Path, *, task_format: str = "multiple_choice") -> Path:
+def _make_run_dir(base: Path, *, task_format: str = "multiple_choice", include_probe_rows: bool = True) -> Path:
     run_dir = base / "results" / "sycophancy_bias_probe" / "dummy_model" / "dummy_run"
     _write_json(
         run_dir / "run_config.json",
         {
             "model": "dummy/model",
             "dataset_name": "commonsense_qa",
+            "sampling_only": not include_probe_rows,
         },
     )
-    _write_json(run_dir / "run_summary.json", {"model_name": "dummy/model"})
+    _write_json(
+        run_dir / "run_summary.json",
+        {
+            "model_name": "dummy/model",
+            "dataset_name": "commonsense_qa",
+            "sampling_only": not include_probe_rows,
+        },
+    )
     samples = _mc_samples_frame()
     if task_format != "multiple_choice":
         samples["task_format"] = task_format
     _write_csv(run_dir / "sampling" / "sampled_responses.csv", samples)
-    _write_csv(run_dir / "probes" / "probe_scores_by_prompt.csv", _probe_scores_frame())
+    probe_scores = _probe_scores_frame() if include_probe_rows else _probe_scores_frame().iloc[0:0].copy()
+    _write_csv(run_dir / "probes" / "probe_scores_by_prompt.csv", probe_scores)
     return run_dir
 
 
@@ -168,6 +177,30 @@ class AnalysisContractTests(unittest.TestCase):
             self.assertIn("_ = safe_display_analysis_operation", notebook_text)
             self.assertIn("sys.path.insert", notebook_text)
             self.assertIn("src/llmssycoph", notebook_text)
+            self.assertIn("- Run: `dummy_run`", notebook_text)
+            self.assertIn("- Model: `dummy/model`", notebook_text)
+            self.assertIn("- Dataset: `commonsense_qa`", notebook_text)
+            self.assertIn("## Model Overview", notebook_text)
+            self.assertIn("## Summary by Bias", notebook_text)
+            self.assertIn("## Runtime", notebook_text)
+            self.assertIn("## Notebook Guide", notebook_text)
+            self.assertIn("## Section 1: External", notebook_text)
+            self.assertIn("### Section 1.1: Neutral Signals", notebook_text)
+            self.assertIn("## Section 2: Probe Analysis", notebook_text)
+
+    def test_safe_generate_analysis_notebook_omits_probe_section_when_probe_rows_are_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = _make_run_dir(Path(tmp), include_probe_rows=False)
+            status = safe_generate_analysis_notebook(run_dir)
+            self.assertEqual(status["status"], "completed")
+            notebook_text = (run_dir / "analysis" / "analysis_full_mc_report.ipynb").read_text(encoding="utf-8")
+            self.assertIn("## Probe Analysis Note", notebook_text)
+            self.assertIn("sampling_only", notebook_text)
+            self.assertNotIn("This section uses probe artifacts", notebook_text)
+            self.assertNotIn("plot_probe_layerwise_performance", notebook_text)
+            self.assertIn("## Section 1: External", notebook_text)
+            self.assertIn("### Section 1.1: Neutral Signals", notebook_text)
+            self.assertIn("table_external_summary_statistics", notebook_text)
 
     def test_safe_generate_analysis_notebook_catches_failures(self):
         with tempfile.TemporaryDirectory() as tmp:

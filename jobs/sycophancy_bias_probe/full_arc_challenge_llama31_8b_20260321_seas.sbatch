@@ -7,6 +7,8 @@
 #SBATCH --time=08:00:00
 #SBATCH --output=jobs/sycophancy_bias_probe/logs/%x.%j.out
 #SBATCH --error=jobs/sycophancy_bias_probe/logs/%x.%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=itaishapira@g.harvard.edu
 
 set -euo pipefail
 

@@ -117,7 +117,7 @@ PROBE_CANDIDATE_SCORE_COLUMNS = [
 RUN_SUMMARY_SCHEMA_VERSION = 2
 MODEL_SUMMARY_SCHEMA_VERSION = 1
 PROBE_SUMMARY_SCHEMA_VERSION = 1
-REPORTS_SUMMARY_SCHEMA_VERSION = 4
+REPORTS_SUMMARY_SCHEMA_VERSION = 5
 
 _MC_CONFUSION_STANDALONE_LETTER_RE = re.compile(r"^\(?([A-Za-z])\)?[\]\).,:;\-]?$")
 _MC_CONFUSION_AMBIGUOUS_LETTER_RE = re.compile(
@@ -2150,6 +2150,18 @@ def _format_summary_value(value: Any) -> str:
     return str(value)
 
 
+def _format_summary_pct(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if not np.isfinite(numeric):
+        return "n/a"
+    return f"{numeric:.1%}"
+
+
 def _markdown_table(
     df: pd.DataFrame,
     columns: Sequence[str],
@@ -2173,43 +2185,20 @@ def _markdown_table(
     return "\n".join(lines)
 
 
-def build_executive_summary_markdown(
+def build_executive_summary_report_intro_markdown(
     summary_payload: Any,
 ) -> str:
     payload_dict = summary_payload if isinstance(summary_payload, dict) else {}
     generated_at_utc = payload_dict.get("generated_at_utc")
     headline_counts = payload_dict.get("headline_counts", {})
     summary_df = pd.DataFrame(_summary_rows_from_payload(summary_payload))
-    mc_confusion_matrix = payload_dict.get("mc_confusion_matrix") if isinstance(payload_dict, dict) else None
-    mc_confusion_df = _mc_confusion_matrix_df_from_summary(mc_confusion_matrix)
-    mc_confusion_labels = [
-        str(label)
-        for label in (mc_confusion_matrix.get("choice_labels", []) if isinstance(mc_confusion_matrix, dict) else [])
-        if str(label)
-    ]
-    mc_option_selection = payload_dict.get("mc_option_selection", {}) if isinstance(payload_dict, dict) else {}
-    mc_choice_labels = [
-        str(label)
-        for label in (mc_option_selection.get("choice_labels", []) if isinstance(mc_option_selection, dict) else [])
-        if str(label)
-    ]
     mc_option_count_summary = (
         payload_dict.get("mc_option_count_summary", {}) if isinstance(payload_dict, dict) else {}
-    )
-    mc_summary_df = pd.DataFrame(
-        mc_option_selection.get("summary_rows", []) if isinstance(mc_option_selection, dict) else []
     )
     runtime_timing_raw = payload_dict.get("runtime_timing", {}) if isinstance(payload_dict, dict) else {}
     runtime_timing = runtime_timing_raw if isinstance(runtime_timing_raw, dict) else {}
     runtime_stage_df = pd.DataFrame(
         runtime_timing.get("stages", []) if isinstance(runtime_timing, dict) else []
-    )
-    probe_df = pd.DataFrame(payload_dict.get("probe_score_summaries", []))
-    best_probe_df = pd.DataFrame(
-        [payload_dict.get("selected_probe_overview", {})]
-        if isinstance(payload_dict.get("selected_probe_overview"), dict)
-        and payload_dict.get("selected_probe_overview")
-        else []
     )
 
     overall_row = {}
@@ -2218,16 +2207,19 @@ def build_executive_summary_markdown(
         if not overall_matches.empty:
             overall_row = overall_matches.iloc[0].to_dict()
 
-    overview_df = pd.DataFrame(
+    overview_rows = [
+        {"metric": "sample_rows", "value": headline_counts.get("sample_rows")},
+        {"metric": "question_count", "value": headline_counts.get("question_count")},
+        {"metric": "paired_rows", "value": headline_counts.get("paired_rows")},
+        {"metric": "probe_families", "value": headline_counts.get("probe_family_count")},
+    ]
+    mc_option_count_display = (
+        mc_option_count_summary.get("display") if isinstance(mc_option_count_summary, dict) else None
+    )
+    if mc_option_count_display:
+        overview_rows.append({"metric": "number of choices", "value": mc_option_count_display})
+    overview_rows.extend(
         [
-            {"metric": "sample_rows", "value": headline_counts.get("sample_rows")},
-            {"metric": "question_count", "value": headline_counts.get("question_count")},
-            {"metric": "paired_rows", "value": headline_counts.get("paired_rows")},
-            {"metric": "probe_families", "value": headline_counts.get("probe_family_count")},
-            {
-                "metric": "mc_options_per_question",
-                "value": mc_option_count_summary.get("display") if isinstance(mc_option_count_summary, dict) else None,
-            },
             {"metric": "overall_accuracy", "value": overall_row.get("accuracy")},
             {"metric": "overall_avg_p_correct", "value": overall_row.get("avg_p_correct")},
             {"metric": "overall_avg_p_selected", "value": overall_row.get("avg_p_selected")},
@@ -2239,6 +2231,7 @@ def build_executive_summary_markdown(
             {"metric": "helpful_flip_rate", "value": overall_row.get("helpful_flip_rate")},
         ]
     )
+    overview_df = pd.DataFrame(overview_rows)
     runtime_overview_df = pd.DataFrame(
         [
             {"metric": "status", "value": runtime_timing.get("status")},
@@ -2256,8 +2249,6 @@ def build_executive_summary_markdown(
         runtime_stage_df["duration_human"] = runtime_stage_df["duration_seconds"].apply(_format_duration_human)
 
     sections = [
-        "# Executive Summary",
-        "",
         f"- Run: `{payload_dict.get('run_name', '')}`",
         f"- Model: `{payload_dict.get('model_name', '')}`",
         f"- Dataset: `{payload_dict.get('dataset_name', '')}`",
@@ -2294,6 +2285,142 @@ def build_executive_summary_markdown(
                 "helpful_flip_rate": "Helpful flip",
             },
         ),
+        "",
+        "## Runtime",
+        (
+            _markdown_table(
+                runtime_overview_df,
+                ["metric", "value"],
+                {"metric": "Metric", "value": "Value"},
+            )
+            if runtime_timing
+            else "_No runtime timing available._"
+        ),
+        "",
+        "### Stage Timing",
+        (
+            _markdown_table(
+                runtime_stage_df,
+                ["stage_index", "stage_name", "stage_status", "duration_seconds", "duration_human"],
+                {
+                    "stage_index": "Stage",
+                    "stage_name": "Name",
+                    "stage_status": "Status",
+                    "duration_seconds": "Seconds",
+                    "duration_human": "Duration",
+                },
+            )
+            if not runtime_stage_df.empty
+            else "_No stage timing available._"
+        ),
+    ]
+    return "\n".join(sections).strip() + "\n"
+
+
+def build_executive_summary_markdown(
+    summary_payload: Any,
+) -> str:
+    payload_dict = summary_payload if isinstance(summary_payload, dict) else {}
+    report_intro_markdown = build_executive_summary_report_intro_markdown(summary_payload).rstrip()
+    mc_confusion_matrix = payload_dict.get("mc_confusion_matrix") if isinstance(payload_dict, dict) else None
+    mc_confusion_df = _mc_confusion_matrix_df_from_summary(mc_confusion_matrix)
+    mc_confusion_labels = [
+        str(label)
+        for label in (mc_confusion_matrix.get("choice_labels", []) if isinstance(mc_confusion_matrix, dict) else [])
+        if str(label)
+    ]
+    mc_option_selection = payload_dict.get("mc_option_selection", {}) if isinstance(payload_dict, dict) else {}
+    mc_choice_labels = [
+        str(label)
+        for label in (mc_option_selection.get("choice_labels", []) if isinstance(mc_option_selection, dict) else [])
+        if str(label)
+    ]
+    mc_summary_df = pd.DataFrame(
+        mc_option_selection.get("summary_rows", []) if isinstance(mc_option_selection, dict) else []
+    )
+    probe_df = pd.DataFrame(payload_dict.get("probe_score_summaries", []))
+    best_probe_df = pd.DataFrame(
+        [payload_dict.get("selected_probe_overview", {})]
+        if isinstance(payload_dict.get("selected_probe_overview"), dict)
+        and payload_dict.get("selected_probe_overview")
+        else []
+    )
+    strict_mc_quality_raw = payload_dict.get("strict_mc_quality", {}) if isinstance(payload_dict, dict) else {}
+    strict_mc_quality = strict_mc_quality_raw if isinstance(strict_mc_quality_raw, dict) else {}
+    strict_mc_quality_summary_raw = strict_mc_quality.get("summary", strict_mc_quality)
+    strict_mc_quality_summary = (
+        strict_mc_quality_summary_raw if isinstance(strict_mc_quality_summary_raw, dict) else {}
+    )
+    neutral_choice_concentration_raw = strict_mc_quality_summary.get("neutral_choice_concentration", {})
+    neutral_choice_concentration = (
+        neutral_choice_concentration_raw if isinstance(neutral_choice_concentration_raw, dict) else {}
+    )
+    neutral_selected_label_skew_raw = strict_mc_quality_summary.get("neutral_selected_label_skew", {})
+    neutral_selected_label_skew = (
+        neutral_selected_label_skew_raw if isinstance(neutral_selected_label_skew_raw, dict) else {}
+    )
+    selected_label_distribution = (
+        dict(neutral_selected_label_skew.get("correct_label_distribution", {}))
+        if isinstance(neutral_selected_label_skew.get("correct_label_distribution", {}), dict)
+        else {}
+    )
+    dominant_label = str(neutral_selected_label_skew.get("dominant_selected_label", "") or "").strip().upper()
+    concentration_threshold = neutral_choice_concentration.get("high_confidence_selected_prob_threshold")
+    concentration_rows: List[Dict[str, Any]] = []
+    if neutral_choice_concentration:
+        threshold_label = (
+            f"Rate P(selected) >= {float(concentration_threshold):.2f}"
+            if isinstance(concentration_threshold, (int, float, np.integer, np.floating))
+            and np.isfinite(float(concentration_threshold))
+            else "High-confidence selected rate"
+        )
+        concentration_rows = [
+            {
+                "metric": "Rows with neutral choice probabilities",
+                "value": neutral_choice_concentration.get("selected_probability_row_count"),
+            },
+            {
+                "metric": "Median effective options (N_eff)",
+                "value": neutral_choice_concentration.get("median_effective_options"),
+            },
+            {
+                "metric": threshold_label,
+                "value": _format_summary_pct(neutral_choice_concentration.get("high_confidence_selected_rate")),
+            },
+        ]
+    concentration_df = pd.DataFrame(concentration_rows)
+    skew_rows: List[Dict[str, Any]] = []
+    if neutral_selected_label_skew:
+        answer_key_rate = selected_label_distribution.get(dominant_label) if dominant_label else None
+        skew_rows = [
+            {
+                "metric": "Dominant selected label",
+                "value": dominant_label or "n/a",
+            },
+            {
+                "metric": "Selected-label rate q(dominant)",
+                "value": _format_summary_pct(neutral_selected_label_skew.get("dominant_selected_label_rate")),
+            },
+            {
+                "metric": "Answer-key rate r(dominant)",
+                "value": _format_summary_pct(answer_key_rate),
+            },
+            {
+                "metric": "Excess q(dominant) - r(dominant)",
+                "value": _format_summary_pct(neutral_selected_label_skew.get("dominant_selected_label_excess")),
+            },
+            {
+                "metric": "Total variation distance",
+                "value": _format_summary_pct(neutral_selected_label_skew.get("selected_vs_answer_key_tv_distance")),
+            },
+        ]
+    skew_df = pd.DataFrame(skew_rows)
+    strict_mc_diagnostics_available = bool(concentration_rows or skew_rows or strict_mc_quality)
+
+    sections = [
+        "# Executive Summary",
+        "",
+        report_intro_markdown,
         "",
         *(
             [
@@ -2336,34 +2463,42 @@ def build_executive_summary_markdown(
             else "_No strict-MC choice-probability rows._"
         ),
         "",
-        "## Runtime",
-        (
-            _markdown_table(
-                runtime_overview_df,
-                ["metric", "value"],
-                {"metric": "Metric", "value": "Value"},
-            )
-            if runtime_timing
-            else "_No runtime timing available._"
+        *(
+            [
+                "## Strict-MC Neutral Diagnostics",
+                (
+                    "Within-question choice concentration summarizes how sharply each neutral question's "
+                    "allowed-choice probabilities concentrate on one option. It is not a cross-question "
+                    "letter-bias metric; cross-question preference for a fixed label such as `A` is tracked "
+                    "separately by the selected-label skew table below."
+                ),
+                "",
+                "### Within-Question Choice Concentration",
+                (
+                    _markdown_table(
+                        concentration_df,
+                        ["metric", "value"],
+                        {"metric": "Metric", "value": "Value"},
+                    )
+                    if not concentration_df.empty
+                    else "_No neutral strict-MC concentration metrics available._"
+                ),
+                "",
+                "### Cross-Question Selected-Label Skew",
+                (
+                    _markdown_table(
+                        skew_df,
+                        ["metric", "value"],
+                        {"metric": "Metric", "value": "Value"},
+                    )
+                    if not skew_df.empty
+                    else "_No neutral strict-MC selected-label skew metrics available._"
+                ),
+                "",
+            ]
+            if strict_mc_diagnostics_available
+            else []
         ),
-        "",
-        "### Stage Timing",
-        (
-            _markdown_table(
-                runtime_stage_df,
-                ["stage_index", "stage_name", "stage_status", "duration_seconds", "duration_human"],
-                {
-                    "stage_index": "Stage",
-                    "stage_name": "Name",
-                    "stage_status": "Status",
-                    "duration_seconds": "Seconds",
-                    "duration_human": "Duration",
-                },
-            )
-            if not runtime_stage_df.empty
-            else "_No stage timing available._"
-        ),
-        "",
         "## Best Probe",
         _markdown_table(
             best_probe_df,
@@ -2699,6 +2834,7 @@ __all__ = [
     "SAMPLED_RESPONSE_COLUMNS",
     "build_mc_probe_scores_by_prompt_df",
     "build_executive_summary_markdown",
+    "build_executive_summary_report_intro_markdown",
     "build_model_summary_by_bias_df",
     "build_model_summary_by_template_df",
     "build_model_summary_payload",

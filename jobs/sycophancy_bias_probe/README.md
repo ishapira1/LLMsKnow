@@ -26,8 +26,12 @@ Partition defaults in this directory:
 - `submit_commonsense_qa_dataset5_250q_20260320_seas.sh`: submits the dated `dataset5` 250-question SEAS batch of four `commonsense_qa` jobs.
 - `full_commonsense_qa_llama31_8b_20260321_seas.sbatch`: dated SEAS batch job for `meta-llama/Llama-3.1-8B-Instruct` on the full `commonsense_qa` slice, using all available question groups, `split_seed=5`, `seed=5`, `probe_seed=5`, and the full model probe depth (the job passes a high layer ceiling and the pipeline clamps it to the model's actual number of layers). This is the overnight all-questions LLAMA job.
 - `submit_commonsense_qa_full_llama31_8b_20260321_seas.sh`: submits the full-dataset LLAMA `commonsense_qa` overnight job.
+- `full_commonsense_qa_qwen25_7b_20260322_seas.sbatch`: dated SEAS batch job for `Qwen/Qwen2.5-7B-Instruct` on the full `commonsense_qa` slice, intentionally matched to the latest full-dataset LLAMA job: same partition, GPU count, wall time, `mem=60G`, `split_seed=5`, `seed=5`, `probe_seed=5`, and full probe depth via `probe_layer_max=999`.
+- `submit_commonsense_qa_full_qwen25_7b_20260322_seas.sh`: submits the full-dataset Qwen2.5 `commonsense_qa` overnight job.
 - `full_arc_challenge_llama31_8b_20260321_seas.sbatch`: dated SEAS batch job for `meta-llama/Llama-3.1-8B-Instruct` on the full `arc_challenge` slice, using the ARC-native splits, `split_seed=5`, `seed=5`, `probe_seed=5`, and the full model probe depth (the job passes a high layer ceiling and the pipeline clamps it to the model's actual number of layers). This is the overnight all-questions LLAMA job for ARC-Challenge.
 - `submit_arc_challenge_full_llama31_8b_20260321_seas.sh`: submits the full-dataset LLAMA `arc_challenge` overnight job.
+- `full_arc_challenge_qwen25_7b_20260322_seas.sbatch`: dated SEAS batch job for `Qwen/Qwen2.5-7B-Instruct` on the full `arc_challenge` slice, intentionally matched to the latest full-dataset LLAMA ARC job: same partition, GPU count, wall time, `mem=20G`, `split_seed=5`, `seed=5`, `probe_seed=5`, and full probe depth via `probe_layer_max=999`.
+- `submit_arc_challenge_full_qwen25_7b_20260322_seas.sh`: submits the full-dataset Qwen2.5 `arc_challenge` overnight job.
 - `fast_dirty.sbatch`: very quick sanity run.
 - `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
 - `fast_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
@@ -46,6 +50,7 @@ All jobs:
 - prepend `$REPO_DIR/src` to `PYTHONPATH` so `llmssycoph` resolves without an install step
 - enforce `HUGGINGFACE_HUB_CACHE` is set and not under `/home`
 - set HF cache env vars so model/tokenizer/dataset cache uses lab storage
+- set `#SBATCH --mail-type=END,FAIL` and `#SBATCH --mail-user=itaishapira@g.harvard.edu`
 
 Submit examples:
 
@@ -64,8 +69,12 @@ sbatch jobs/sycophancy_bias_probe/full_commonsense_qa_dataset5_qwen3_4b_250q_202
 bash jobs/sycophancy_bias_probe/submit_commonsense_qa_dataset5_250q_20260320_seas.sh
 sbatch jobs/sycophancy_bias_probe/full_commonsense_qa_llama31_8b_20260321_seas.sbatch
 bash jobs/sycophancy_bias_probe/submit_commonsense_qa_full_llama31_8b_20260321_seas.sh
+sbatch jobs/sycophancy_bias_probe/full_commonsense_qa_qwen25_7b_20260322_seas.sbatch
+bash jobs/sycophancy_bias_probe/submit_commonsense_qa_full_qwen25_7b_20260322_seas.sh
 sbatch jobs/sycophancy_bias_probe/full_arc_challenge_llama31_8b_20260321_seas.sbatch
 bash jobs/sycophancy_bias_probe/submit_arc_challenge_full_llama31_8b_20260321_seas.sh
+sbatch jobs/sycophancy_bias_probe/full_arc_challenge_qwen25_7b_20260322_seas.sbatch
+bash jobs/sycophancy_bias_probe/submit_arc_challenge_full_qwen25_7b_20260322_seas.sh
 sbatch jobs/sycophancy_bias_probe/fast_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/medium_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_seas.sbatch

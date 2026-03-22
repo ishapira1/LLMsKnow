@@ -1016,7 +1016,7 @@ def _log_strict_mc_quality_summary(summary: Dict[str, Any], issues: Optional[Seq
         high_confidence_selected_rate = choice_concentration.get("high_confidence_selected_rate")
         log_status(
             "pipeline.py",
-            "strict MC neutral within-question choice concentration: "
+            "strict MC neutral within-question choice concentration (not cross-question label bias): "
             f"rows={int(choice_concentration.get('selected_probability_row_count', 0) or 0)} "
             f"median_effective_options="
             f"{'n/a' if median_effective_options is None else f'{float(median_effective_options):.2f}'} "
