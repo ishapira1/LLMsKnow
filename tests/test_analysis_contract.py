@@ -86,7 +86,7 @@ def _probe_scores_frame() -> pd.DataFrame:
 
 
 def _make_run_dir(base: Path, *, task_format: str = "multiple_choice", include_probe_rows: bool = True) -> Path:
-    run_dir = base / "results" / "sycophancy_bias_probe" / "dummy_model" / "dummy_run"
+    run_dir = base / "results" / "sycophancy_bias_probe" / "dummy_model" / "commonsense_qa" / "dummy_run"
     _write_json(
         run_dir / "run_config.json",
         {

@@ -124,9 +124,84 @@ def utc_now_iso() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _slugify_path_token(value: Any, *, empty_fallback: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() else "_" for ch in str(value or "")).strip("_")
+    return cleaned or empty_fallback
+
+
+def _list_like_strings(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(part).strip() for part in value if str(part).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
 def model_slug(model_name: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() else "_" for ch in model_name).strip("_")
-    return cleaned or "model"
+    return _slugify_path_token(model_name, empty_fallback="model")
+
+
+def dataset_slug(
+    dataset_name: Any,
+    ays_mc_datasets: Any = None,
+    *,
+    fallback: str = "all",
+) -> str:
+    dataset_value = str(dataset_name or "").strip()
+    if dataset_value:
+        if dataset_value.lower() == "all":
+            return "all"
+        return _slugify_path_token(dataset_value, empty_fallback="dataset")
+
+    datasets = _list_like_strings(ays_mc_datasets)
+    if len(datasets) == 1:
+        return _slugify_path_token(datasets[0], empty_fallback="dataset")
+    if len(datasets) > 1:
+        return "all"
+
+    fallback_value = str(fallback or "").strip() or "all"
+    if fallback_value.lower() == "all":
+        return "all"
+    return _slugify_path_token(fallback_value, empty_fallback="dataset")
+
+
+def run_parent_dir(
+    base_out_dir: str,
+    model_name: str,
+    *,
+    dataset_name: Any = "all",
+    ays_mc_datasets: Any = None,
+    fallback_dataset_dir: str = "all",
+) -> Path:
+    base = Path(base_out_dir)
+    model_dir = base / model_slug(model_name)
+    dataset_dir = model_dir / dataset_slug(
+        dataset_name,
+        ays_mc_datasets,
+        fallback=fallback_dataset_dir,
+    )
+    return dataset_dir
+
+
+def build_run_dir_path(
+    base_out_dir: str,
+    model_name: str,
+    run_name: str,
+    *,
+    dataset_name: Any = "all",
+    ays_mc_datasets: Any = None,
+    fallback_dataset_dir: str = "all",
+) -> Path:
+    return run_parent_dir(
+        base_out_dir,
+        model_name,
+        dataset_name=dataset_name,
+        ays_mc_datasets=ays_mc_datasets,
+        fallback_dataset_dir=fallback_dataset_dir,
+    ) / run_name
 
 
 def build_default_run_name() -> str:
@@ -152,16 +227,28 @@ def resolve_run_artifact_path(run_dir: Path, artifact_key: str) -> Path:
     return preferred_path
 
 
-def make_run_dir(base_out_dir: str, model_name: str, run_name: Optional[str]) -> Path:
-    base = Path(base_out_dir)
-    model_dir = base / model_slug(model_name)
-    model_dir.mkdir(parents=True, exist_ok=True)
-
+def make_run_dir(
+    base_out_dir: str,
+    model_name: str,
+    run_name: Optional[str],
+    *,
+    dataset_name: Any = "all",
+    ays_mc_datasets: Any = None,
+    fallback_dataset_dir: str = "all",
+) -> Path:
+    parent_dir = run_parent_dir(
+        base_out_dir,
+        model_name,
+        dataset_name=dataset_name,
+        ays_mc_datasets=ays_mc_datasets,
+        fallback_dataset_dir=fallback_dataset_dir,
+    )
+    parent_dir.mkdir(parents=True, exist_ok=True)
     name = run_name or build_default_run_name()
     if "/" in name or name in {".", ".."}:
         raise ValueError(f"Invalid run_name={name!r}. Use a single directory-safe token.")
 
-    run_dir = model_dir / name
+    run_dir = parent_dir / name
     if run_name:
         if run_dir.exists() and not run_dir.is_dir():
             raise ValueError(f"run_name path exists but is not a directory: {run_dir}")
@@ -408,8 +495,13 @@ def write_run_status(
     payload["updated_at_utc"] = now
     payload.setdefault("created_at_utc", now)
     payload["model"] = args.model
+    payload["model_slug"] = model_slug(args.model)
     payload["run_name"] = run_dir.name
     payload["run_dir"] = str(run_dir)
+    payload["dataset_dir"] = dataset_slug(
+        getattr(args, "dataset_name", "all"),
+        getattr(args, "ays_mc_datasets", None),
+    )
     payload["pid"] = os.getpid()
     payload["hostname"] = socket.gethostname()
     if lock_path is not None:

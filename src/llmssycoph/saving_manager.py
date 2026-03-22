@@ -13,8 +13,9 @@ import pandas as pd
 from .data import prompt_id_for
 from .grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from .llm.sampling import normalize_sample_records
-from .logging_utils import log_status
+from .logging_utils import build_warning_summary_payload, log_status
 from .runtime import (
+    dataset_slug,
     model_slug,
     preferred_run_artifact_path,
     utc_now_iso,
@@ -1837,6 +1838,90 @@ def _records_from_df(df: pd.DataFrame) -> List[Dict[str, Any]]:
     return [_json_ready(row) for row in df.to_dict(orient="records")]
 
 
+_PROBE_NON_FINITE_WARNING_STAGE_LABELS = {
+    "probe_layer_selection_non_finite_features": "layer_selection",
+    "probe_training_non_finite_features": "training",
+    "probe_scoring_non_finite_features": "scoring",
+    "probe_eval_non_finite_features": "evaluation",
+}
+
+
+def _extract_probe_non_finite_warning_counts(message: Any) -> tuple[int, int]:
+    text = str(message or "")
+    dropped_total = 0
+    rows_total = 0
+    for pattern in (
+        r"train_dropped=(\d+)/(\d+)",
+        r"val_dropped=(\d+)/(\d+)",
+        r"(?<![A-Za-z_])dropped=(\d+)/(\d+)",
+    ):
+        for match in re.finditer(pattern, text):
+            dropped_total += int(match.group(1))
+            rows_total += int(match.group(2))
+    return dropped_total, rows_total
+
+
+def _build_probe_non_finite_feature_summary(
+    warning_summary_payload: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    payload = warning_summary_payload if isinstance(warning_summary_payload, dict) else {}
+    warnings = payload.get("warnings", [])
+    if not isinstance(warnings, list):
+        return None
+
+    by_stage: Dict[str, Dict[str, Any]] = {}
+    total_warning_events = 0
+    total_dropped_rows = 0
+    total_rows_considered = 0
+
+    for warning in warnings:
+        if not isinstance(warning, dict):
+            continue
+        warning_code = str(warning.get("warning_code", "") or "")
+        stage_name = _PROBE_NON_FINITE_WARNING_STAGE_LABELS.get(warning_code)
+        if not stage_name:
+            continue
+        dropped_rows, rows_considered = _extract_probe_non_finite_warning_counts(warning.get("message"))
+        stage_row = by_stage.setdefault(
+            stage_name,
+            {
+                "stage": stage_name,
+                "warning_events": 0,
+                "dropped_rows": 0,
+                "rows_considered": 0,
+                "drop_rate": None,
+            },
+        )
+        stage_row["warning_events"] += 1
+        stage_row["dropped_rows"] += int(dropped_rows)
+        stage_row["rows_considered"] += int(rows_considered)
+        total_warning_events += 1
+        total_dropped_rows += int(dropped_rows)
+        total_rows_considered += int(rows_considered)
+
+    if not by_stage:
+        return None
+
+    summary_rows: List[Dict[str, Any]] = []
+    for stage_name in ("layer_selection", "training", "scoring", "evaluation"):
+        row = by_stage.get(stage_name)
+        if row is None:
+            continue
+        rows_considered = int(row["rows_considered"])
+        row["drop_rate"] = None if rows_considered <= 0 else float(row["dropped_rows"]) / float(rows_considered)
+        summary_rows.append(row)
+
+    return {
+        "warning_events": int(total_warning_events),
+        "dropped_rows": int(total_dropped_rows),
+        "rows_considered": int(total_rows_considered),
+        "drop_rate": None
+        if total_rows_considered <= 0
+        else float(total_dropped_rows) / float(total_rows_considered),
+        "summary_rows": summary_rows,
+    }
+
+
 def build_reports_summary_payload(
     *,
     args: Any,
@@ -1848,6 +1933,7 @@ def build_reports_summary_payload(
     probes_meta: Dict[str, Any],
     probe_candidate_scores_df: pd.DataFrame,
     run_timing: Optional[Dict[str, Any]] = None,
+    warning_summary_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     model_summary_payload = build_model_summary_payload(
         args=args,
@@ -1900,6 +1986,7 @@ def build_reports_summary_payload(
         samples_df,
         sample_records=sample_records,
     )
+    probe_non_finite_feature_summary = _build_probe_non_finite_feature_summary(warning_summary_payload)
 
     return _json_ready(
         {
@@ -1944,6 +2031,7 @@ def build_reports_summary_payload(
             "selected_probe_overview": _json_ready(selected_probe_overview),
             "probe_training_status": probes_meta.get("probe_training_status", "completed"),
             "strict_mc_quality": probes_meta.get("strict_mc_quality"),
+            "probe_non_finite_feature_summary": probe_non_finite_feature_summary,
             "runtime_timing": _json_ready(run_timing) if run_timing else None,
             "definitions": model_summary_payload.get("definitions", {}),
         }
@@ -2416,6 +2504,30 @@ def build_executive_summary_markdown(
         ]
     skew_df = pd.DataFrame(skew_rows)
     strict_mc_diagnostics_available = bool(concentration_rows or skew_rows or strict_mc_quality)
+    probe_non_finite_feature_summary_raw = (
+        payload_dict.get("probe_non_finite_feature_summary", {}) if isinstance(payload_dict, dict) else {}
+    )
+    probe_non_finite_feature_summary = (
+        probe_non_finite_feature_summary_raw
+        if isinstance(probe_non_finite_feature_summary_raw, dict)
+        else {}
+    )
+    probe_non_finite_feature_df = pd.DataFrame(
+        probe_non_finite_feature_summary.get("summary_rows", [])
+        if isinstance(probe_non_finite_feature_summary.get("summary_rows", []), list)
+        else []
+    )
+    probe_non_finite_overview_df = pd.DataFrame(
+        [
+            {"metric": "warning_events", "value": probe_non_finite_feature_summary.get("warning_events")},
+            {"metric": "dropped_rows", "value": probe_non_finite_feature_summary.get("dropped_rows")},
+            {"metric": "rows_considered", "value": probe_non_finite_feature_summary.get("rows_considered")},
+            {"metric": "drop_rate", "value": probe_non_finite_feature_summary.get("drop_rate")},
+        ]
+    )
+    probe_non_finite_available = bool(
+        probe_non_finite_feature_summary and not probe_non_finite_feature_df.empty
+    )
 
     sections = [
         "# Executive Summary",
@@ -2497,6 +2609,38 @@ def build_executive_summary_markdown(
                 "",
             ]
             if strict_mc_diagnostics_available
+            else []
+        ),
+        *(
+            [
+                "## Probe Non-Finite Feature Warnings",
+                (
+                    "Some probe hidden-state vectors were non-finite (`NaN`/`inf`) and were dropped during "
+                    "selection, training, scoring, or evaluation rather than crashing the run."
+                ),
+                "",
+                "### Overall",
+                _markdown_table(
+                    probe_non_finite_overview_df,
+                    ["metric", "value"],
+                    {"metric": "Metric", "value": "Value"},
+                ),
+                "",
+                "### By Stage",
+                _markdown_table(
+                    probe_non_finite_feature_df,
+                    ["stage", "warning_events", "dropped_rows", "rows_considered", "drop_rate"],
+                    {
+                        "stage": "Stage",
+                        "warning_events": "Warning events",
+                        "dropped_rows": "Dropped rows",
+                        "rows_considered": "Rows considered",
+                        "drop_rate": "Drop rate",
+                    },
+                ),
+                "",
+            ]
+            if probe_non_finite_available
             else []
         ),
         "## Best Probe",
@@ -2722,6 +2866,7 @@ def save_run_results(
         model_name=args.model,
     )
     probe_scores_by_prompt_df = build_mc_probe_scores_by_prompt_df(probe_candidate_scores_df)
+    warning_summary_payload = build_warning_summary_payload()
     reports_summary_payload = build_reports_summary_payload(
         args=args,
         run_dir=run_dir,
@@ -2732,6 +2877,7 @@ def save_run_results(
         probes_meta=probes_meta,
         probe_candidate_scores_df=probe_candidate_scores_df,
         run_timing=run_timing,
+        warning_summary_payload=warning_summary_payload,
     )
     reports_summary_df = pd.DataFrame(
         reports_summary_payload.get("summary_rows", []),
@@ -2777,6 +2923,10 @@ def save_run_results(
     run_cfg["run_dir"] = str(run_dir)
     run_cfg["run_name"] = run_dir.name
     run_cfg["model_slug"] = model_slug(args.model)
+    run_cfg["dataset_dir"] = dataset_slug(
+        getattr(args, "dataset_name", "all"),
+        getattr(args, "ays_mc_datasets", None),
+    )
     run_cfg["lock_path"] = str(lock_path)
     run_cfg["sampling_hash"] = sampling_hash
     run_cfg["sampling_records_path"] = str(sampling_records_path)

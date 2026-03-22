@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 
 from ..grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from ..logging_utils import log_status, tqdm_desc, warn_status
+from .finite import filter_non_finite_feature_rows
 from .features import get_hidden_feature_all_layers_for_completion
 from .records import _probe_completion_text, maybe_subsample
 
@@ -114,6 +115,9 @@ def select_best_layer_by_auc(
             )
         )
 
+    train_feature_tensor = np.stack(train_features)
+    val_feature_tensor = np.stack(val_features)
+
     auc_per_layer: Dict[int, Optional[float]] = {}
     clf_per_layer: Dict[int, Optional[LogisticRegression]] = {}
     best_layer = None
@@ -122,13 +126,34 @@ def select_best_layer_by_auc(
     for li, layer in enumerate(
         tqdm(layer_grid, desc=tqdm_desc(_LOG_SOURCE, f'{desc} layer selection'), unit='layer')
     ):
-        X_train = np.stack([mat[li] for mat in train_features])
-        X_val = np.stack([mat[li] for mat in val_features])
+        X_train, train_keep_mask, y_train_layer, sample_weight_train_layer = filter_non_finite_feature_rows(
+            train_feature_tensor[:, li, :],
+            y_train,
+            sample_weight_train,
+        )
+        X_val, val_keep_mask, y_val_layer = filter_non_finite_feature_rows(
+            val_feature_tensor[:, li, :],
+            y_val,
+        )
+        dropped_train = int((~train_keep_mask).sum())
+        dropped_val = int((~val_keep_mask).sum())
+        if dropped_train or dropped_val:
+            warn_status(
+                _LOG_SOURCE,
+                "probe_layer_selection_non_finite_features",
+                f"layer selection for {desc} dropped non-finite feature rows at layer={layer}: "
+                f"train_dropped={dropped_train}/{len(train_keep_mask)} "
+                f"val_dropped={dropped_val}/{len(val_keep_mask)}",
+            )
         try:
+            if len(X_train) < 2 or len(X_val) < 2:
+                raise ValueError("too few finite rows after filtering")
+            if len(np.unique(y_train_layer)) < 2 or len(np.unique(y_val_layer)) < 2:
+                raise ValueError("single class after filtering non-finite rows")
             clf = LogisticRegression(max_iter=1000, n_jobs=1, random_state=seed, solver='liblinear')
-            clf.fit(X_train, y_train, sample_weight=sample_weight_train)
+            clf.fit(X_train, y_train_layer, sample_weight=sample_weight_train_layer)
             probs = clf.predict_proba(X_val)[:, 1]
-            auc = roc_auc_score(y_val, probs)
+            auc = roc_auc_score(y_val_layer, probs)
             clf_per_layer[layer] = clf
         except Exception:
             auc = None

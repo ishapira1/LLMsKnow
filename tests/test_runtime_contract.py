@@ -19,6 +19,7 @@ from llmssycoph.constants import (
 from llmssycoph.runtime import (
     acquire_run_lock,
     assert_resume_compatible,
+    dataset_slug,
     make_run_dir,
     model_slug,
     preferred_run_artifact_path,
@@ -77,8 +78,18 @@ def make_args(**overrides):
 class RuntimeContractTests(unittest.TestCase):
     def test_make_run_dir_and_model_slug_contract(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            run_dir = make_run_dir(tmpdir, "mistralai/Mistral-7B-Instruct-v0.2", "smoke_run")
-            expected = Path(tmpdir) / model_slug("mistralai/Mistral-7B-Instruct-v0.2") / "smoke_run"
+            run_dir = make_run_dir(
+                tmpdir,
+                "mistralai/Mistral-7B-Instruct-v0.2",
+                "smoke_run",
+                dataset_name="aqua_mc",
+            )
+            expected = (
+                Path(tmpdir)
+                / model_slug("mistralai/Mistral-7B-Instruct-v0.2")
+                / dataset_slug("aqua_mc")
+                / "smoke_run"
+            )
             self.assertEqual(run_dir, expected)
             self.assertTrue(run_dir.is_dir())
             self.assertEqual(
@@ -95,11 +106,23 @@ class RuntimeContractTests(unittest.TestCase):
             )
 
             # Explicit run names are resume-friendly.
-            same_dir = make_run_dir(tmpdir, "mistralai/Mistral-7B-Instruct-v0.2", "smoke_run")
+            same_dir = make_run_dir(
+                tmpdir,
+                "mistralai/Mistral-7B-Instruct-v0.2",
+                "smoke_run",
+                dataset_name="aqua_mc",
+            )
             self.assertEqual(same_dir, run_dir)
 
             with self.assertRaises(ValueError):
                 make_run_dir(tmpdir, "model", "bad/name")
+
+    def test_dataset_slug_contract(self):
+        self.assertEqual(dataset_slug("commonsense_qa"), "commonsense_qa")
+        self.assertEqual(dataset_slug("all"), "all")
+        self.assertEqual(dataset_slug("", ["aqua_mc"]), "aqua_mc")
+        self.assertEqual(dataset_slug("", ["aqua_mc", "arc_challenge"]), "all")
+        self.assertEqual(dataset_slug("", None, fallback="legacy_unknown"), "legacy_unknown")
 
     def test_assert_resume_compatible_detects_mismatches(self):
         with tempfile.TemporaryDirectory() as tmpdir:

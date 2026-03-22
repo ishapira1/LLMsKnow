@@ -9,7 +9,7 @@ import pandas as pd
 
 from .data import prompt_id_for
 from .logging_utils import warn_status
-from .runtime import model_slug, resolve_run_artifact_path
+from .runtime import build_run_dir_path, resolve_run_artifact_path
 from .saving_manager import (
     P_CORRECT_COLUMN,
     P_SELECTED_COLUMN,
@@ -232,10 +232,24 @@ def _reconstruct_pairs_from_samples(samples: pd.DataFrame, bias_types: Sequence[
     return pd.DataFrame(rows)
 
 
-def _resolve_run_dir(run_dir: str | None, out_dir: str, model: str, run_name: str) -> Path:
+def _resolve_run_dir(
+    run_dir: str | None,
+    out_dir: str,
+    model: str,
+    run_name: str,
+    *,
+    dataset_name: str = "all",
+    ays_mc_datasets: Any = None,
+) -> Path:
     if run_dir:
         return Path(run_dir)
-    return Path(out_dir) / model_slug(model) / run_name
+    return build_run_dir_path(
+        out_dir,
+        model,
+        run_name,
+        dataset_name=dataset_name,
+        ays_mc_datasets=ays_mc_datasets,
+    )
 
 
 def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
@@ -805,6 +819,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run_dir", type=str, default=None, help="Explicit run directory to validate.")
     parser.add_argument("--out_dir", type=str, default="results/sycophancy_bias_probe")
     parser.add_argument("--model", type=str, required=False, default="mistralai/Mistral-7B-Instruct-v0.2")
+    parser.add_argument("--dataset_name", type=str, required=False, default="aqua_mc")
+    parser.add_argument("--ays_mc_datasets", type=str, required=False, default=None)
     parser.add_argument("--run_name", type=str, required=False, default="smoke_aqua_mc_mistral7b_auto_q12_l4")
     parser.add_argument(
         "--strict",
@@ -818,6 +834,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         out_dir=args.out_dir,
         model=args.model,
         run_name=args.run_name,
+        dataset_name=args.dataset_name,
+        ays_mc_datasets=args.ays_mc_datasets,
     )
     try:
         report = check_run_integrity(run_dir)

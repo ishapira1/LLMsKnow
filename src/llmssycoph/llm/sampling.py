@@ -14,7 +14,7 @@ from ..data import as_prompt_text, dataset_name as _dataset_name, prompt_id_for,
 from ..grading import extract_gold_answers_from_base as _extract_gold_answers_from_base
 from ..grading import grade_response_from_base as _grade_response_from_base
 from ..logging_utils import log_status, tqdm_desc
-from ..runtime import model_slug, resolve_run_artifact_path
+from ..runtime import resolve_run_artifact_path, run_parent_dir
 from .base import GenerationResult
 
 
@@ -347,14 +347,21 @@ def load_sampling_cache_candidate(
     out_dir: str,
     model_name: str,
     sampling_hash: str,
+    dataset_name: Any = "all",
+    ays_mc_datasets: Any = None,
     exclude_run_dir: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
-    model_dir = Path(out_dir) / model_slug(model_name)
-    if not model_dir.exists():
+    dataset_dir = run_parent_dir(
+        out_dir,
+        model_name,
+        dataset_name=dataset_name,
+        ays_mc_datasets=ays_mc_datasets,
+    )
+    if not dataset_dir.exists():
         return None
 
     candidates: List[Tuple[int, int, float, Path, Path, Dict[str, Any]]] = []
-    for run_subdir in model_dir.iterdir():
+    for run_subdir in dataset_dir.iterdir():
         if not run_subdir.is_dir():
             continue
         if exclude_run_dir is not None and run_subdir.resolve() == exclude_run_dir.resolve():

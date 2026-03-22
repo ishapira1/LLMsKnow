@@ -9,6 +9,7 @@ from tqdm.auto import tqdm
 
 from ..grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from ..logging_utils import log_status, tqdm_desc, warn_status
+from .finite import filter_non_finite_feature_rows
 from .features import get_hidden_feature_for_completion as _get_hidden_feature_for_completion
 from .records import _probe_completion_text, maybe_subsample
 
@@ -75,6 +76,29 @@ def train_probe_for_layer(
             )
         )
     X = np.stack(X)
+    X, keep_mask, y, sample_weight = filter_non_finite_feature_rows(X, y, sample_weight)
+    dropped = int((~keep_mask).sum())
+    if dropped:
+        warn_status(
+            _LOG_SOURCE,
+            "probe_training_non_finite_features",
+            f"training for {desc} dropped non-finite feature rows at layer={layer}: "
+            f"dropped={dropped}/{len(keep_mask)}",
+        )
+    if len(X) < 2:
+        warn_status(
+            _LOG_SOURCE,
+            "probe_training_too_few_finite_samples",
+            f'skipping training for {desc}: too few finite train samples={len(X)} after filtering',
+        )
+        return None
+    if len(np.unique(y)) < 2:
+        warn_status(
+            _LOG_SOURCE,
+            "probe_training_single_class_after_filtering",
+            f'skipping training for {desc}: only one class remains after filtering non-finite rows',
+        )
+        return None
 
     clf = LogisticRegression(max_iter=1000, n_jobs=1, random_state=seed, solver='liblinear')
     clf.fit(X, y, sample_weight=sample_weight)

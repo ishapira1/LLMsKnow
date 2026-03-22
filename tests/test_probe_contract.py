@@ -156,6 +156,55 @@ class ProbeContractTests(unittest.TestCase):
         negative_scores = [record['probe_score'] for record in records if record['correctness'] == 0]
         self.assertGreater(min(positive_scores), max(negative_scores))
 
+    def test_train_probe_and_score_records_ignore_non_finite_features(self):
+        records = make_records(8)
+
+        def fake_single_layer_feature(model, tokenizer, messages, answer, layer):
+            idx = int(answer.split()[-1])
+            if idx == 3:
+                return np.array([np.nan, 0.0])
+            label = idx % 2
+            return np.array([float(label), float(1 - label)])
+
+        with patch(
+            'llmssycoph.probes.train._get_hidden_feature_for_completion',
+            side_effect=fake_single_layer_feature,
+        ), patch(
+            'llmssycoph.probes.score._get_hidden_feature_for_completion',
+            side_effect=fake_single_layer_feature,
+        ), patch(
+            'llmssycoph.probes.train.LogisticRegression',
+            FakeLogisticRegression,
+        ):
+            clf = train_probe_for_layer(
+                model=None,
+                tokenizer=None,
+                records=records,
+                layer=3,
+                seed=0,
+                max_train_samples=None,
+                desc='test',
+            )
+            self.assertIsNotNone(clf)
+
+            score_records_with_probe(
+                model=None,
+                tokenizer=None,
+                records=records,
+                clf=clf,
+                layer=3,
+                score_key='probe_score',
+                desc='test',
+            )
+
+        self.assertTrue(math.isnan(records[3]['probe_score']))
+        finite_scores = [
+            record['probe_score']
+            for record in records
+            if record['record_id'] != 3
+        ]
+        self.assertTrue(all(np.isfinite(score) for score in finite_scores))
+
     def test_build_probe_record_sets_uses_choice_candidates_for_strict_mc(self):
         sampled_records = [
             {
@@ -291,6 +340,40 @@ class ProbeContractTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["splits"]["train"]["true_label_accuracy"], 1.0)
         self.assertAlmostEqual(metrics["splits"]["train"]["false_label_accuracy"], 1.0)
         self.assertAlmostEqual(metrics["splits"]["train"]["auc"], 1.0)
+
+    def test_evaluate_probe_from_cache_drops_non_finite_rows(self):
+        labels = np.array([0, 1, 1], dtype=int)
+        train_features = np.stack(
+            [
+                np.array([[0.0, 2.0], [2.0, 0.0], [2.5, 0.0]], dtype=float),
+                np.ones((3, 2), dtype=float),
+            ],
+            axis=1,
+        )
+        test_features = np.stack(
+            [
+                np.array([[0.0, 3.0], [np.nan, np.nan], [3.0, 0.0]], dtype=float),
+                np.ones((3, 2), dtype=float),
+            ],
+            axis=1,
+        )
+
+        clf = FakeLogisticRegression().fit(train_features[:, 0, :], labels)
+        metrics = evaluate_probe_from_cache(
+            {
+                "layer_grid": [1, 2],
+                "splits": {
+                    "train": {"labels": labels, "features": train_features},
+                    "val": {"labels": labels[:2], "features": train_features[:2]},
+                    "test": {"labels": labels, "features": test_features},
+                },
+            },
+            clf,
+            1,
+        )
+
+        self.assertEqual(metrics["splits"]["test"]["n_total"], 2)
+        self.assertAlmostEqual(metrics["splits"]["test"]["accuracy"], 1.0)
 
     def test_save_probe_family_artifacts_writes_all_and_chosen_layout(self):
         train_records = [

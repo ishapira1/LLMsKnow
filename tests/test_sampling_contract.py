@@ -16,7 +16,7 @@ from llmssycoph.constants import (
     SAMPLING_SPEC_VERSION,
 )
 from llmssycoph.grading import add_empirical_t, refresh_sample_records_for_groups
-from llmssycoph.runtime import model_slug, preferred_run_artifact_path
+from llmssycoph.runtime import dataset_slug, model_slug, preferred_run_artifact_path
 from llmssycoph.llm.sampling import (
     build_sampling_spec,
     enumerate_expected_sample_keys,
@@ -239,26 +239,33 @@ class SamplingContractTests(unittest.TestCase):
         )))
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            model_dir = Path(tmpdir) / model_slug(args.model)
+            model_dir = Path(tmpdir) / model_slug(args.model) / dataset_slug(args.dataset_name, args.ays_mc_datasets)
             run_incomplete = model_dir / "run_incomplete"
             run_complete = model_dir / "run_complete"
+            other_dataset_run = Path(tmpdir) / model_slug(args.model) / "truthful_qa" / "other_dataset_run"
             run_incomplete.mkdir(parents=True)
             run_complete.mkdir(parents=True)
+            other_dataset_run.mkdir(parents=True)
 
             run_incomplete_records = preferred_run_artifact_path(run_incomplete, "sampling_records")
             run_complete_records = preferred_run_artifact_path(run_complete, "sampling_records")
             run_incomplete_manifest = preferred_run_artifact_path(run_incomplete, "sampling_manifest")
             run_complete_manifest = preferred_run_artifact_path(run_complete, "sampling_manifest")
+            other_dataset_records = preferred_run_artifact_path(other_dataset_run, "sampling_records")
+            other_dataset_manifest = preferred_run_artifact_path(other_dataset_run, "sampling_manifest")
             for path in (
                 run_incomplete_records,
                 run_complete_records,
                 run_incomplete_manifest,
                 run_complete_manifest,
+                other_dataset_records,
+                other_dataset_manifest,
             ):
                 path.parent.mkdir(parents=True, exist_ok=True)
 
             run_incomplete_records.write_text("{}", encoding="utf-8")
             run_complete_records.write_text("{}", encoding="utf-8")
+            other_dataset_records.write_text("{}", encoding="utf-8")
             run_incomplete_manifest.write_text(
                 json.dumps({"sampling_hash": digest, "is_complete": False, "n_records": 99}),
                 encoding="utf-8",
@@ -268,15 +275,87 @@ class SamplingContractTests(unittest.TestCase):
                 json.dumps({"sampling_hash": digest, "is_complete": True, "n_records": 3}),
                 encoding="utf-8",
             )
+            other_dataset_manifest.write_text(
+                json.dumps({"sampling_hash": digest, "is_complete": True, "n_records": 1000}),
+                encoding="utf-8",
+            )
 
-            candidate = load_sampling_cache_candidate(tmpdir, args.model, digest)
+            candidate = load_sampling_cache_candidate(
+                tmpdir,
+                args.model,
+                dataset_name=args.dataset_name,
+                ays_mc_datasets=args.ays_mc_datasets,
+                sampling_hash=digest,
+            )
             self.assertIsNotNone(candidate)
             self.assertEqual(candidate["run_dir"], run_complete)
             self.assertEqual(candidate["n_records"], 3)
 
-            fallback = load_sampling_cache_candidate(tmpdir, args.model, digest, exclude_run_dir=run_complete)
+            fallback = load_sampling_cache_candidate(
+                tmpdir,
+                args.model,
+                dataset_name=args.dataset_name,
+                ays_mc_datasets=args.ays_mc_datasets,
+                sampling_hash=digest,
+                exclude_run_dir=run_complete,
+            )
             self.assertIsNotNone(fallback)
             self.assertEqual(fallback["run_dir"], run_incomplete)
+
+    def test_sampling_cache_candidate_prefers_more_records_then_newer_run_within_same_dataset(self):
+        args = make_args(dataset_name="aqua_mc", ays_mc_datasets=None)
+        digest = "same_hash"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / model_slug(args.model) / dataset_slug(args.dataset_name, args.ays_mc_datasets)
+            run_more_records = model_dir / "run_more_records"
+            run_newer_fewer_records = model_dir / "run_newer_fewer_records"
+            run_newer_same_records = model_dir / "run_newer_same_records"
+
+            for run_dir in (run_more_records, run_newer_fewer_records, run_newer_same_records):
+                records_path = preferred_run_artifact_path(run_dir, "sampling_records")
+                manifest_path = preferred_run_artifact_path(run_dir, "sampling_manifest")
+                records_path.parent.mkdir(parents=True, exist_ok=True)
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                records_path.write_text("{}", encoding="utf-8")
+
+            preferred_run_artifact_path(run_more_records, "sampling_manifest").write_text(
+                json.dumps({"sampling_hash": digest, "is_complete": True, "n_records": 12}),
+                encoding="utf-8",
+            )
+            time.sleep(0.01)
+            preferred_run_artifact_path(run_newer_fewer_records, "sampling_manifest").write_text(
+                json.dumps({"sampling_hash": digest, "is_complete": True, "n_records": 10}),
+                encoding="utf-8",
+            )
+
+            candidate = load_sampling_cache_candidate(
+                tmpdir,
+                args.model,
+                dataset_name=args.dataset_name,
+                ays_mc_datasets=args.ays_mc_datasets,
+                sampling_hash=digest,
+            )
+            self.assertIsNotNone(candidate)
+            self.assertEqual(candidate["run_dir"], run_more_records)
+            self.assertEqual(candidate["n_records"], 12)
+
+            time.sleep(0.01)
+            preferred_run_artifact_path(run_newer_same_records, "sampling_manifest").write_text(
+                json.dumps({"sampling_hash": digest, "is_complete": True, "n_records": 12}),
+                encoding="utf-8",
+            )
+
+            candidate = load_sampling_cache_candidate(
+                tmpdir,
+                args.model,
+                dataset_name=args.dataset_name,
+                ays_mc_datasets=args.ays_mc_datasets,
+                sampling_hash=digest,
+            )
+            self.assertIsNotNone(candidate)
+            self.assertEqual(candidate["run_dir"], run_newer_same_records)
+            self.assertEqual(candidate["n_records"], 12)
 
     def test_current_run_sampling_checkpoint_reuses_matching_records(self):
         expected_keys = {
@@ -285,7 +364,7 @@ class SamplingContractTests(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            run_dir = Path(tmpdir) / model_slug("model") / "resume_case"
+            run_dir = Path(tmpdir) / model_slug("model") / "all" / "resume_case"
             records_path = preferred_run_artifact_path(run_dir, "sampling_records")
             manifest_path = preferred_run_artifact_path(run_dir, "sampling_manifest")
             records_path.parent.mkdir(parents=True, exist_ok=True)
@@ -342,7 +421,7 @@ class SamplingContractTests(unittest.TestCase):
         expected_keys = {sample_record_key_values("train", "q_1", "neutral", 0)}
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            run_dir = Path(tmpdir) / model_slug("model") / "resume_case"
+            run_dir = Path(tmpdir) / model_slug("model") / "all" / "resume_case"
             records_path = preferred_run_artifact_path(run_dir, "sampling_records")
             manifest_path = preferred_run_artifact_path(run_dir, "sampling_manifest")
             records_path.parent.mkdir(parents=True, exist_ok=True)

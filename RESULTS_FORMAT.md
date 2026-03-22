@@ -13,7 +13,7 @@ python run_sycophancy_bias_probe.py ...
 Each run writes to:
 
 ```text
-results/sycophancy_bias_probe/<model_slug>/<run_name>/
+results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/
 ```
 
 Typical contents:
@@ -463,7 +463,7 @@ from pathlib import Path
 
 import pandas as pd
 
-run_dir = Path("results/sycophancy_bias_probe/<model_slug>/<run_name>")
+run_dir = Path("results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>")
 
 sampled = pd.read_csv(run_dir / "sampling" / "sampled_responses.csv")
 tuples = pd.read_csv(run_dir / "analysis" / "final_tuples.csv")

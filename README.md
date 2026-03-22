@@ -199,7 +199,7 @@ Important flags:
 
 Each run writes to:
 
-`results/sycophancy_bias_probe/<model_slug>/<run_name>/`
+`results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/`
 
 Main artifacts:
 

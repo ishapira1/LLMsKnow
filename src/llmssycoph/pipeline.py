@@ -1146,7 +1146,13 @@ def run_pipeline(args) -> None:
     if args.smoke_test and args.max_questions is None:
         args.max_questions = args.smoke_questions
 
-    run_dir = make_run_dir(args.out_dir, args.model, args.run_name)
+    run_dir = make_run_dir(
+        args.out_dir,
+        args.model,
+        args.run_name,
+        dataset_name=getattr(args, "dataset_name", "all"),
+        ays_mc_datasets=getattr(args, "ays_mc_datasets", None),
+    )
     run_log_path = preferred_run_artifact_path(run_dir, "run_log")
     warning_log_path = preferred_run_artifact_path(run_dir, "warnings_log")
     configure_run_logging(run_log_path, warning_log_path=warning_log_path)
@@ -1489,6 +1495,8 @@ def run_pipeline(args) -> None:
             candidate = load_sampling_cache_candidate(
                 out_dir=args.out_dir,
                 model_name=args.model,
+                dataset_name=getattr(args, "dataset_name", "all"),
+                ays_mc_datasets=getattr(args, "ays_mc_datasets", None),
                 sampling_hash=sampling_hash,
                 exclude_run_dir=run_dir,
             )

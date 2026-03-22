@@ -8,7 +8,8 @@ from sklearn.metrics import roc_auc_score
 from tqdm.auto import tqdm
 
 from ..grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
-from ..logging_utils import log_status, tqdm_desc
+from ..logging_utils import log_status, tqdm_desc, warn_status
+from .finite import filter_non_finite_feature_rows
 from .features import get_hidden_feature_all_layers_for_completion
 from .records import _probe_completion_text
 
@@ -269,8 +270,23 @@ def evaluate_probe_from_cache(
             continue
 
         layer_idx = layer_to_index[int(layer)]
-        probs = clf.predict_proba(features[:, layer_idx, :])[:, 1]
-        metrics["splits"][split_name] = compute_binary_probe_metrics(labels, probs, threshold=threshold)
+        split_features, keep_mask, split_labels = filter_non_finite_feature_rows(
+            features[:, layer_idx, :],
+            labels,
+        )
+        dropped = int((~keep_mask).sum())
+        if dropped:
+            warn_status(
+                _LOG_SOURCE,
+                "probe_eval_non_finite_features",
+                f"probe evaluation for layer={layer} split={split_name} dropped non-finite feature rows: "
+                f"dropped={dropped}/{len(keep_mask)}",
+            )
+        if split_labels.size == 0:
+            metrics["splits"][split_name] = _empty_metric_block()
+            continue
+        probs = clf.predict_proba(split_features)[:, 1]
+        metrics["splits"][split_name] = compute_binary_probe_metrics(split_labels, probs, threshold=threshold)
 
     return metrics
 

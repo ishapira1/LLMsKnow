@@ -314,6 +314,18 @@ class SavingManagerContractTests(unittest.TestCase):
                 bias_types=["incorrect_suggestion"],
             )
             probe_scores_by_prompt_df = build_mc_probe_scores_by_prompt_df(candidate_scores_df)
+            warning_summary_payload = {
+                "warnings": [
+                    {
+                        "warning_code": "probe_training_non_finite_features",
+                        "message": "training for bias:incorrect_suggestion dropped non-finite feature rows at layer=2: dropped=3/30",
+                    },
+                    {
+                        "warning_code": "probe_layer_selection_non_finite_features",
+                        "message": "layer selection for bias:incorrect_suggestion dropped non-finite feature rows at layer=2: train_dropped=4/20 val_dropped=1/10",
+                    },
+                ]
+            }
 
             payload = build_reports_summary_payload(
                 args=args,
@@ -323,6 +335,7 @@ class SavingManagerContractTests(unittest.TestCase):
                 probe_scores_by_prompt_df=probe_scores_by_prompt_df,
                 probes_meta=probes_meta,
                 probe_candidate_scores_df=candidate_scores_df,
+                warning_summary_payload=warning_summary_payload,
             )
             markdown = build_executive_summary_markdown(payload)
             report_intro_markdown = build_executive_summary_report_intro_markdown(payload)
@@ -354,6 +367,9 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertEqual(payload["selected_probe_overview"]["probe_name"], "probe_bias_incorrect_suggestion")
             self.assertAlmostEqual(payload["selected_probe_overview"]["test_auc"], 0.78)
             self.assertEqual(payload["strict_mc_quality"]["status"], "passed")
+            self.assertEqual(payload["probe_non_finite_feature_summary"]["warning_events"], 2)
+            self.assertEqual(payload["probe_non_finite_feature_summary"]["dropped_rows"], 8)
+            self.assertEqual(payload["probe_non_finite_feature_summary"]["rows_considered"], 60)
             self.assertEqual(markdown.splitlines()[0], "# Executive Summary")
             self.assertIn(payload["generated_at_utc"], markdown)
             self.assertIn(report_intro_markdown.strip(), markdown)
@@ -369,6 +385,10 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertIn("Median effective options (N_eff)", markdown)
             self.assertIn("Rate P(selected) >= 0.95", markdown)
             self.assertIn("### Cross-Question Selected-Label Skew", markdown)
+            self.assertIn("## Probe Non-Finite Feature Warnings", markdown)
+            self.assertIn("Some probe hidden-state vectors were non-finite", markdown)
+            self.assertIn("| warning_events | 2.000 |", markdown)
+            self.assertIn("| layer_selection | 1 | 5 | 30 |", markdown)
             self.assertIn("## Runtime", markdown)
             self.assertIn("## Probe Overview", markdown)
 
