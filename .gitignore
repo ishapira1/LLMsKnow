@@ -33,7 +33,11 @@ pip-wheel-metadata/
 htmlcov/
 
 # Jupyter
+*.ipynb
 .ipynb_checkpoints/
+
+# CSV datasets and exports
+*.csv
 
 # Local environment and machine-specific files
 .env
