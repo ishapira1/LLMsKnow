@@ -17,6 +17,12 @@ class AnswerOnlyPolicy(InstructionPolicy):
     def instruction_text(self) -> str:
         return self.render_instruction()
 
+    @staticmethod
+    def _label_noun(labels: tuple[str, ...]) -> str:
+        if labels and all(len(label) == 1 and label.isalpha() for label in labels):
+            return "letter"
+        return "label"
+
     def render_instruction(self, question: Optional[Question] = None) -> str:
         labels = (
             question.response_labels(
@@ -26,6 +32,7 @@ class AnswerOnlyPolicy(InstructionPolicy):
             if question is not None
             else self.fallback_response_labels
         )
+        label_noun = self._label_noun(labels)
         allowed_labels = ", ".join(labels)
         return (
             "Use plain text answer-only, with no JSON and no tool schema.\n"
@@ -33,8 +40,8 @@ class AnswerOnlyPolicy(InstructionPolicy):
             "Never answer with None, unknown, or cannot determine.\n"
             "Do not provide reasoning.\n"
             "Do not repeat the option text.\n"
-            "Do not write anything after the letter.\n"
-            f"Answer with exactly one letter: {allowed_labels}.\n"
+            f"Do not write anything after the {label_noun}.\n"
+            f"Answer with exactly one {label_noun}: {allowed_labels}.\n"
             f"{self.response_prefix}"
         )
 

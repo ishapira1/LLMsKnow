@@ -20,6 +20,39 @@ def _cached_frame(ctx: AnalysisContext, key: str, builder: Callable[[], pd.DataF
     return cached.copy(deep=True)
 
 
+def _probe_training_template_type_from_name(probe_name: object) -> str:
+    text = str(probe_name or "").strip()
+    if not text:
+        return ""
+    if text == "probe_no_bias":
+        return "neutral"
+    if text.startswith("probe_bias_"):
+        return text[len("probe_bias_") :]
+    return ""
+
+
+def _classify_probe_pairing_semantics(
+    probe_name_x: object,
+    probe_name_xprime: object,
+    training_template_x: object,
+    training_template_xprime: object,
+    bias_type: object,
+) -> str:
+    probe_name_x = str(probe_name_x or "").strip()
+    probe_name_xprime = str(probe_name_xprime or "").strip()
+    training_template_x = str(training_template_x or "").strip()
+    training_template_xprime = str(training_template_xprime or "").strip()
+    bias_type = str(bias_type or "").strip()
+
+    if probe_name_x and probe_name_x == probe_name_xprime:
+        return "same_probe_family"
+    if training_template_x == "neutral" and training_template_xprime == bias_type and bias_type:
+        return "neutral_on_x__matched_template_on_xprime"
+    if training_template_x == "neutral" and training_template_xprime:
+        return "neutral_on_x__other_probe_on_xprime"
+    return "cross_family_other"
+
+
 def build_sampled_responses_df(ctx: AnalysisContext) -> pd.DataFrame:
     def _builder() -> pd.DataFrame:
         df = ctx.sampled_responses.copy()
@@ -149,6 +182,21 @@ def build_probe_scores_df(ctx: AnalysisContext) -> pd.DataFrame:
         ]
         for column in score_columns:
             df[column] = pd.to_numeric(df[column], errors="coerce")
+        if "probe_training_template_type" not in df.columns:
+            df["probe_training_template_type"] = df.get("probe_name", pd.Series(dtype=str)).map(
+                _probe_training_template_type_from_name
+            )
+        if "probe_evaluated_on_template_type" not in df.columns:
+            df["probe_evaluated_on_template_type"] = (
+                df.get("template_type", pd.Series(dtype=str)).fillna("").astype(str)
+            )
+        if "probe_is_neutral_family" not in df.columns:
+            df["probe_is_neutral_family"] = df["probe_training_template_type"].astype(str).eq("neutral")
+        if "probe_matches_evaluated_template" not in df.columns:
+            df["probe_matches_evaluated_template"] = (
+                df["probe_training_template_type"].astype(str)
+                == df["probe_evaluated_on_template_type"].astype(str)
+            ) & df["probe_training_template_type"].astype(str).ne("")
         if "selected_choice" in df.columns:
             df["selected_choice"] = df["selected_choice"].astype(str).str.strip().str.upper()
         return df
@@ -176,6 +224,10 @@ def build_probe_option_long_df(ctx: AnalysisContext) -> pd.DataFrame:
                 "prompt_id",
                 "dataset",
                 "template_type",
+                "probe_training_template_type",
+                "probe_evaluated_on_template_type",
+                "probe_is_neutral_family",
+                "probe_matches_evaluated_template",
                 "draw_idx",
                 "source_record_id",
                 "correct_letter",
@@ -302,6 +354,10 @@ def build_paired_probe_df(ctx: AnalysisContext) -> pd.DataFrame:
         neutral_df = neutral_df.rename(
             columns={
                 "probe_name": "probe_name_x",
+                "probe_training_template_type": "probe_training_template_type_x",
+                "probe_evaluated_on_template_type": "probe_evaluated_on_template_type_x",
+                "probe_is_neutral_family": "probe_is_neutral_family_x",
+                "probe_matches_evaluated_template": "probe_matches_evaluated_template_x",
                 "selected_choice": "selected_choice_x",
                 "probe_score_correct_choice": "probe_score_correct_choice_x",
                 "probe_score_selected_choice": "probe_score_selected_choice_x",
@@ -334,6 +390,10 @@ def build_paired_probe_df(ctx: AnalysisContext) -> pd.DataFrame:
             bias_df = bias_df.rename(
                 columns={
                     "probe_name": "probe_name_xprime",
+                    "probe_training_template_type": "probe_training_template_type_xprime",
+                    "probe_evaluated_on_template_type": "probe_evaluated_on_template_type_xprime",
+                    "probe_is_neutral_family": "probe_is_neutral_family_xprime",
+                    "probe_matches_evaluated_template": "probe_matches_evaluated_template_xprime",
                     "selected_choice": "selected_choice_xprime",
                     "probe_score_correct_choice": "probe_score_correct_choice_xprime",
                     "probe_score_selected_choice": "probe_score_selected_choice_xprime",
@@ -357,6 +417,20 @@ def build_paired_probe_df(ctx: AnalysisContext) -> pd.DataFrame:
                 suffixes=("", "_bias"),
             )
             merged["bias_type"] = bias_type
+            merged["same_probe_name_across_conditions"] = merged["probe_name_x"].eq(merged["probe_name_xprime"])
+            merged["same_probe_training_template_across_conditions"] = merged[
+                "probe_training_template_type_x"
+            ].eq(merged["probe_training_template_type_xprime"])
+            merged["probe_pairing_semantics"] = merged.apply(
+                lambda row: _classify_probe_pairing_semantics(
+                    probe_name_x=row.get("probe_name_x"),
+                    probe_name_xprime=row.get("probe_name_xprime"),
+                    training_template_x=row.get("probe_training_template_type_x"),
+                    training_template_xprime=row.get("probe_training_template_type_xprime"),
+                    bias_type=row.get("bias_type"),
+                ),
+                axis=1,
+            )
             paired_frames.append(merged)
 
         if not paired_frames:

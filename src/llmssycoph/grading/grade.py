@@ -19,6 +19,7 @@ _LEADING_FILLER_RE = re.compile(
 )
 _MULTI_CANDIDATE_SPLIT_RE = re.compile(r"\s+(?:or|/)\s+", flags=re.IGNORECASE)
 _APPOSITIVE_SPLIT_RE = re.compile(r",\s+(?:the|a|an)\s+", flags=re.IGNORECASE)
+_MC_SINGLE_LABEL_CLASS = r"[A-Za-z0-9]"
 _MC_ANSWER_PREFIX_RE = re.compile(
     r"^(?:(?:the\s+)?(?:final\s+)?answer|(?:the\s+)?correct\s+answer|"
     r"(?:the\s+)?correct\s+(?:option|choice)|option|choice)\s*(?:is|:)?\s*",
@@ -35,18 +36,26 @@ _MC_INLINE_ANSWER_RE = re.compile(
     r"(?:the\s+)?correct\s+(?:option|choice)|answer)\s*(?:is|:)\s*(.+)$",
     flags=re.IGNORECASE,
 )
-_MC_INLINE_CHOICE_RE = re.compile(r"\b(?:choice|option)\s*\(?([A-Za-z])\)?\b", flags=re.IGNORECASE)
-_MC_STANDALONE_LETTER_SEGMENT_RE = re.compile(r"^\(?([A-Za-z])\)?[\]\).,:;-]?$")
+_MC_INLINE_CHOICE_RE = re.compile(
+    rf"\b(?:choice|option)\s*\(?({_MC_SINGLE_LABEL_CLASS})\)?\b",
+    flags=re.IGNORECASE,
+)
+_MC_STANDALONE_LETTER_SEGMENT_RE = re.compile(
+    rf"^\(?({_MC_SINGLE_LABEL_CLASS})\)?[\]\).,:;-]?$"
+)
 _STRICT_MC_EXPLICIT_PREFIX_RE = re.compile(
     r"^(?:(?:the\s+)?(?:final\s+)?answer|(?:the\s+)?correct\s+answer|"
     r"(?:the\s+)?correct\s+(?:option|choice)|answer|option|choice)\s*(?:is|:)?\s*(.+)$",
     flags=re.IGNORECASE,
 )
 _STRICT_MC_ANSWER_LINE_RE = re.compile(r"^\s*answer\s*:\s*(.+?)\s*$", flags=re.IGNORECASE)
-_STRICT_MC_EXACT_LINE_RE = re.compile(r"^\s*answer\s*:\s*([A-Za-z])\s*$", flags=re.IGNORECASE)
+_STRICT_MC_EXACT_LINE_RE = re.compile(
+    rf"^\s*answer\s*:\s*({_MC_SINGLE_LABEL_CLASS})\s*$",
+    flags=re.IGNORECASE,
+)
 _STRICT_MC_NONCANONICAL_EXPLICIT_RE = re.compile(
     r"\b(?:the\s+answer\s+is|so\s+the\s+answer\s+is|final\s+answer\s*[:]?|correct\s+answer\s*[:]?|"
-    r"option\s+\(?[A-Za-z]\)?|choice\s+\(?[A-Za-z]\)?)\b",
+    rf"option\s+\(?{_MC_SINGLE_LABEL_CLASS}\)?|choice\s+\(?{_MC_SINGLE_LABEL_CLASS}\)?)\b",
     flags=re.IGNORECASE,
 )
 _ANSWER_MARKER_RE = re.compile(r"\banswer\s*:", flags=re.IGNORECASE)
@@ -317,8 +326,8 @@ def _extract_multiple_choice_letter(parsed_answer: str, letters: str) -> str:
         return ""
 
     patterns = [
-        r"^\(?([A-Za-z])\)?$",
-        r"^\(?([A-Za-z])\)?[\s\]\).,:;-].*$",
+        rf"^\(?({_MC_SINGLE_LABEL_CLASS})\)?$",
+        rf"^\(?({_MC_SINGLE_LABEL_CLASS})\)?[\s\]\).,:;-].*$",
     ]
     for pattern in patterns:
         match = re.match(pattern, text)
@@ -357,7 +366,11 @@ def _is_ambiguous_multiple_choice_letter_sequence(text: str, letters: str) -> bo
     candidate = candidate.rstrip(".,;:!-")
     if not candidate:
         return False
-    if not re.fullmatch(r"\(?[A-Za-z]\)?(?:\s*(?:or|/)\s*\(?[A-Za-z]\)?)+", candidate, flags=re.IGNORECASE):
+    if not re.fullmatch(
+        rf"\(?{_MC_SINGLE_LABEL_CLASS}\)?(?:\s*(?:or|/)\s*\(?{_MC_SINGLE_LABEL_CLASS}\)?)+",
+        candidate,
+        flags=re.IGNORECASE,
+    ):
         return False
 
     parts = [part.strip().strip("()").upper() for part in re.split(r"\s*(?:or|/)\s*", candidate, flags=re.IGNORECASE)]
@@ -511,7 +524,7 @@ def _extract_strict_mc_letter_candidates(text: str, letters: str) -> List[str]:
     if not candidate:
         return []
     if not re.fullmatch(
-        r"\(?[A-Za-z]\)?(?:\s*(?:or|/|,)\s*\(?[A-Za-z]\)?)*",
+        rf"\(?{_MC_SINGLE_LABEL_CLASS}\)?(?:\s*(?:or|/|,)\s*\(?{_MC_SINGLE_LABEL_CLASS}\)?)*",
         candidate,
         flags=re.IGNORECASE,
     ):
@@ -585,7 +598,7 @@ def _extract_strict_mc_answer_payload_candidates(text: str, letters: str) -> Lis
 
     allowed = set(str(letters or "").strip().upper())
     match = re.match(
-        r"^\(?([A-Za-z])(?:\)|\])?(?=$|[\s\]\).,:;\-]).*",
+        rf"^\(?({_MC_SINGLE_LABEL_CLASS})(?:\)|\])?(?=$|[\s\]\).,:;\-]).*",
         candidate,
         flags=re.IGNORECASE,
     )

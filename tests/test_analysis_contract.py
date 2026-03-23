@@ -17,6 +17,7 @@ from llmssycoph.analysis import (
     safe_run_analysis_operation,
 )
 from llmssycoph.analysis.core import AnalysisNotSupportedError
+from llmssycoph.analysis.dataframes import build_paired_probe_df, build_probe_scores_df
 
 
 matplotlib.use("Agg")
@@ -148,6 +149,71 @@ class AnalysisContractTests(unittest.TestCase):
             long_df = build_candidate_probability_long_df(ctx)
             self.assertIn("candidate_option", long_df.columns)
             self.assertIn("p_option", long_df.columns)
+
+    def test_build_probe_scores_df_backfills_probe_semantics_for_legacy_probe_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = _make_run_dir(Path(tmp))
+            ctx = load_analysis_context(run_dir)
+            probe_df = build_probe_scores_df(ctx)
+            self.assertIn("probe_training_template_type", probe_df.columns)
+            self.assertIn("probe_evaluated_on_template_type", probe_df.columns)
+            self.assertIn("probe_is_neutral_family", probe_df.columns)
+            self.assertIn("probe_matches_evaluated_template", probe_df.columns)
+            row = probe_df.iloc[0]
+            self.assertEqual(row["probe_training_template_type"], "neutral")
+            self.assertEqual(row["probe_evaluated_on_template_type"], "neutral")
+            self.assertTrue(bool(row["probe_is_neutral_family"]))
+            self.assertTrue(bool(row["probe_matches_evaluated_template"]))
+
+    def test_build_paired_probe_df_labels_cross_family_semantics_explicitly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = _make_run_dir(Path(tmp))
+            probe_scores = pd.DataFrame(
+                [
+                    {
+                        "probe_name": "probe_no_bias",
+                        "question_id": "q1",
+                        "prompt_id": "q1__neutral",
+                        "template_type": "neutral",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "correct_letter": "A",
+                        "incorrect_letter": "B",
+                        "selected_choice": "A",
+                        "probe_score_correct_choice": 0.9,
+                        "probe_score_selected_choice": 0.9,
+                        "probe_argmax_choice": "A",
+                        "score_A": 0.9,
+                        "score_B": 0.1,
+                    },
+                    {
+                        "probe_name": "probe_bias_incorrect_suggestion",
+                        "question_id": "q1",
+                        "prompt_id": "q1__incorrect_suggestion",
+                        "template_type": "incorrect_suggestion",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "correct_letter": "A",
+                        "incorrect_letter": "B",
+                        "selected_choice": "B",
+                        "probe_score_correct_choice": 0.4,
+                        "probe_score_selected_choice": 0.8,
+                        "probe_argmax_choice": "B",
+                        "score_A": 0.4,
+                        "score_B": 0.8,
+                    },
+                ]
+            )
+            _write_csv(run_dir / "probes" / "probe_scores_by_prompt.csv", probe_scores)
+            ctx = load_analysis_context(run_dir)
+            paired_df = build_paired_probe_df(ctx)
+            self.assertEqual(len(paired_df), 1)
+            row = paired_df.iloc[0]
+            self.assertFalse(bool(row["same_probe_name_across_conditions"]))
+            self.assertFalse(bool(row["same_probe_training_template_across_conditions"]))
+            self.assertEqual(row["probe_training_template_type_x"], "neutral")
+            self.assertEqual(row["probe_training_template_type_xprime"], "incorrect_suggestion")
+            self.assertEqual(row["probe_pairing_semantics"], "neutral_on_x__matched_template_on_xprime")
 
     def test_safe_run_analysis_operation_records_cell_failures_in_tables_dir(self):
         with tempfile.TemporaryDirectory() as tmp:

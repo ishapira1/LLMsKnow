@@ -48,6 +48,31 @@ def make_strict_aqua_base() -> dict:
     return base
 
 
+def make_numeric_strict_arc_base() -> dict:
+    return {
+        "dataset": "arc_challenge",
+        "task_format": "multiple_choice",
+        "mc_mode": MC_MODE_STRICT,
+        "answer_channel": "letter",
+        "response_prefix": "Answer:",
+        "letters": "1234",
+        "correct_letter": "2",
+        "answers": (
+            "(1) decrease\n"
+            "(2) increase\n"
+            "(3) remain the same\n"
+            "(4) stop moving"
+        ),
+        "answers_list": [
+            "decrease",
+            "increase",
+            "remain the same",
+            "stop moving",
+        ],
+        "correct_answer": "increase",
+    }
+
+
 class AnswerUtilsContractTests(unittest.TestCase):
     def test_extract_short_answer_trims_common_wrappers(self):
         self.assertEqual(
@@ -225,6 +250,24 @@ class AnswerUtilsContractTests(unittest.TestCase):
         self.assertTrue(correct["starts_with_answer_prefix"])
         self.assertTrue(correct["strict_format_exact"])
         self.assertEqual(correct["commitment_line"], "B")
+
+    def test_strict_multiple_choice_accepts_numeric_option_labels(self):
+        strict_base = make_numeric_strict_arc_base()
+
+        correct = grade_multiple_choice_response("Answer: 2", strict_base)
+        self.assertEqual(correct["status"], "correct")
+        self.assertEqual(correct["correctness"], 1)
+        self.assertEqual(correct["committed_answer"], "2")
+        self.assertEqual(correct["commitment_kind"], "letter")
+        self.assertEqual(correct["commitment_source"], "explicit_answer_line")
+        self.assertTrue(correct["starts_with_answer_prefix"])
+        self.assertTrue(correct["strict_format_exact"])
+
+        standalone = grade_multiple_choice_response("3", strict_base)
+        self.assertEqual(standalone["status"], "incorrect")
+        self.assertEqual(standalone["correctness"], 0)
+        self.assertEqual(standalone["committed_answer"], "3")
+        self.assertEqual(standalone["commitment_source"], "standalone_answer_line")
 
     def test_strict_multiple_choice_grades_late_committed_answers_and_conflicts(self):
         strict_base = make_strict_aqua_base()

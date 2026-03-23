@@ -502,6 +502,44 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(summary["reference_thresholds"]["median_effective_options_warn"], 1.2)
         self.assertEqual(summary["reference_thresholds"]["high_confidence_selected_rate_warn"], 0.8)
 
+    def test_strict_mc_numeric_labels_are_counted_in_diagnostics(self):
+        records = [
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "response": "1",
+                "correct_letter": "2",
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "usable_for_metrics": True,
+                "response": "1",
+                "correct_letter": "1",
+            },
+            {
+                "template_type": "neutral",
+                "task_format": "multiple_choice",
+                "mc_mode": "strict_mc",
+                "sampling_mode": "choice_probabilities",
+                "usable_for_metrics": True,
+                "response": "2",
+                "choice_probability_selected": 0.8,
+                "choice_probabilities": {"1": 0.1, "2": 0.8, "3": 0.1},
+            },
+        ]
+
+        skew = _strict_mc_neutral_selected_label_skew_summary(records)
+        concentration = _strict_mc_neutral_choice_concentration_summary(records)
+
+        self.assertEqual(skew["dominant_selected_label"], "1")
+        self.assertAlmostEqual(skew["selected_label_distribution"]["1"], 2.0 / 3.0)
+        self.assertEqual(concentration["neutral_choice_probability_row_count"], 1)
+        self.assertEqual(concentration["selected_probability_row_count"], 1)
+
     def test_runner_and_pipeline_import_commands(self):
         commands = [
             "import run_sycophancy_bias_probe; print(callable(run_sycophancy_bias_probe.main))",

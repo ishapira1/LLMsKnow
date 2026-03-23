@@ -686,9 +686,9 @@ def _strict_mc_neutral_rows(
 
 def _strict_mc_letter(value: Any) -> str:
     text = str(value or "").strip().upper()
-    if len(text) == 1 and text.isalpha():
+    if len(text) == 1 and text.isalnum():
         return text
-    if len(text) == 3 and text[0] == "(" and text[2] == ")" and text[1].isalpha():
+    if len(text) == 3 and text[0] == "(" and text[2] == ")" and text[1].isalnum():
         return text[1]
     return ""
 

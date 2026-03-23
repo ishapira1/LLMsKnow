@@ -32,12 +32,15 @@ class ModelUtilsContractTests(unittest.TestCase):
         self.assertTrue(_strict_mc_generated_answer_complete("D", "ABCDE"))
         self.assertTrue(_strict_mc_generated_answer_complete("(C)", "ABCDE"))
         self.assertTrue(_strict_mc_generated_answer_complete("Answer:B", "ABCDE"))
+        self.assertTrue(_strict_mc_generated_answer_complete("Answer: 2", "1234"))
+        self.assertTrue(_strict_mc_generated_answer_complete("(3)", "1234"))
 
         self.assertFalse(_strict_mc_generated_answer_complete("Because the ratio is 3:2", "ABCDE"))
         self.assertFalse(_strict_mc_generated_answer_complete("Answer: B because", "ABCDE"))
         self.assertFalse(_strict_mc_generated_answer_complete("Answer: None", "ABCDE"))
         self.assertFalse(_strict_mc_generated_answer_complete("Let's think step by step.", "ABCDE"))
         self.assertFalse(_strict_mc_generated_answer_complete("", "ABCDE"))
+        self.assertFalse(_strict_mc_generated_answer_complete("Answer: 9", "1234"))
 
     def test_resolve_model_inputs_accepts_batch_encoding_like_objects(self):
         class FakeBatchEncoding(SimpleNamespace):

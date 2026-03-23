@@ -25,7 +25,7 @@ def _normalize_response_labels(
             return ()
         if "," in text:
             labels = [part.strip() for part in text.split(",") if part.strip()]
-        elif len(text) > 1 and all(ch.isalpha() for ch in text):
+        elif len(text) > 1 and all(ch.isalnum() for ch in text):
             labels = [ch for ch in text]
         else:
             labels = [text]

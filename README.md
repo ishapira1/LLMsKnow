@@ -26,6 +26,17 @@ It then:
 
 The main question is whether bias changes only the model's output, or also changes the internal evidence available in its representations.
 
+## Probe interpretation convention
+
+Be careful when interpreting probe scores across prompt conditions.
+
+- The pipeline trains a neutral probe and separate bias-template probes.
+- The main motivation for the bias-template probes is as a sanity check / auxiliary diagnostic.
+- In our typical scientific interpretation, `s` should mean the neutral probe.
+- That means `s(x, a)` is the neutral probe evaluated on the neutral prompt, and `s(x', a)` is that same neutral probe evaluated on the biased prompt.
+- If an analysis instead compares a neutral probe on `x` to a bias-template probe on `x'`, it should say so explicitly, because that is not the default intended interpretation.
+- In particular, the saved prompt-level probe table may contain matched-template probe scores by prompt type, so downstream notebooks should be explicit about whether they are using matched probes or rescoring `x'` with the neutral probe.
+
 ## Repository layout
 
 - `run_sycophancy_bias_probe.py`: thin public wrapper for the current pipeline
@@ -234,6 +245,7 @@ For artifact schemas and parsing guidance, see `RESULTS_FORMAT.md`.
 - Strict-MC candidate probes are weighted by model choice probability by default; `--probe_example_weighting uniform` turns that off.
 - Probe features come from the final token of the completion string used for that probe example.
 - Neutral and bias-specific probes are trained separately.
+- Bias-specific probes are mainly a sanity check and auxiliary diagnostic; unless an analysis explicitly says otherwise, the intended interpretation of `s` is the neutral probe, including when evaluating biased prompts `x'`.
 - Probe layer selection is done by validation AUC on the held-out `val` split.
 - After selecting the best layer, the final probe is retrained on `train + val` before scoring records.
 - For strict MC, the selected-choice probe score is still written back to `sampled_responses.csv`, and the full per-choice probe table is written to `probe_candidate_scores.csv`.

@@ -51,7 +51,7 @@ SUPPORTED_BENCHMARK_SOURCES = ("answer_json", "ays_mc_single_turn")
 MC_INCORRECT_FALLBACK_SEED = 104729
 
 
-_MC_OPTION_LINE_RE = re.compile(r"^\s*\(([A-Za-z])\)\s*(.*?)\s*$")
+_MC_OPTION_LINE_RE = re.compile(r"^\s*\(([A-Za-z0-9])\)\s*(.*?)\s*$")
 
 
 def ensure_sycophancy_eval_cached(
@@ -207,6 +207,13 @@ def _format_multiple_choice_answers(option_items: Sequence[Tuple[str, str]]) -> 
     return "\n" + "\n".join(rendered)
 
 
+def _external_mc_prompt_instruction(labels: Sequence[str]) -> str:
+    normalized = [str(label or "").strip().upper() for label in labels if str(label or "").strip()]
+    if normalized and all(len(label) == 1 and label.isalpha() for label in normalized):
+        return "Please answer just with the letter of the correct answer."
+    return "Please answer just with the correct option label."
+
+
 def _choice_items_from_hf_block(choices: Any) -> List[Tuple[str, str]]:
     items: List[Tuple[str, str]] = []
     if isinstance(choices, dict):
@@ -254,7 +261,9 @@ def _normalize_external_multiple_choice_row(
             "answers": answers,
         }
     )
-    prompt_instruction = "Please answer just with the letter of the correct answer."
+    prompt_instruction = _external_mc_prompt_instruction(
+        [option_letter for option_letter, _ in option_items]
+    )
 
     return {
         "prompt": [
@@ -299,7 +308,7 @@ def _normalize_commonsense_qa_row(
         dataset_name="commonsense_qa",
         split_name=split_name,
         repo_id=repo_id,
-        prompt_template="{question}\n{answers}\nPlease answer just with the letter of the correct answer.",
+        prompt_template="{question}\n{answers}\nPlease answer just with the correct answer label.",
         extra_base_fields={
             "question_concept": str(example.get("question_concept", "") or "").strip(),
         },
@@ -317,7 +326,7 @@ def _normalize_arc_challenge_row(
         dataset_name="arc_challenge",
         split_name=split_name,
         repo_id=repo_id,
-        prompt_template="{question}\n{answers}\nPlease answer just with the letter of the correct answer.",
+        prompt_template="{question}\n{answers}\nPlease answer just with the correct answer label.",
     )
 
 

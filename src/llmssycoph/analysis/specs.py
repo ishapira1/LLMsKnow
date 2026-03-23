@@ -164,6 +164,7 @@ FULL_MC_NOTEBOOK_SPEC = AnalysisNotebookSpec(
                                     "- `m_probe^truth(x) = s(x, c) - max_{i != c} s(x, i)`",
                                     "",
                                     "Important artifact note: the saved prompt-level probe table contains matched-template chosen probes. So cross-condition score comparisons are between the neutral chosen probe on `x` and the matched bias-template chosen probe on `x'`, not a single neutral probe re-scored on both prompts.",
+                                    "The saved probe rows also carry `probe_training_template_type` and `probe_matches_evaluated_template` so downstream analyses can label this explicitly.",
                                 ]
                             ),
                         ),

@@ -702,6 +702,112 @@ class SavingManagerContractTests(unittest.TestCase):
             self.assertIn("## MC Confusion Matrix", markdown)
             self.assertIn("Predicted \\ True", markdown)
 
+    def test_reports_summary_payload_captures_numeric_mc_confusion_matrix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            sample_records = [
+                {
+                    "record_id": 1,
+                    "split": "test",
+                    "question_id": "q_1",
+                    "prompt_id": "q_1__neutral",
+                    "dataset": "arc_challenge",
+                    "template_type": "neutral",
+                    "draw_idx": 0,
+                    "task_format": "multiple_choice",
+                    "mc_mode": "strict_mc",
+                    "answer_channel": "letter",
+                    "question": "Question 1",
+                    "correct_answer": "increase",
+                    "incorrect_answer": "decrease",
+                    "correct_letter": "2",
+                    "incorrect_letter": "1",
+                    "letters": "123",
+                    "prompt_template": "{question}",
+                    "prompt_text": "Prompt 1",
+                    "response_raw": "Answer: 2",
+                    "response": "Answer: 2",
+                    "committed_answer": "2",
+                    "correctness": 1,
+                    "grading_status": "correct",
+                    "grading_reason": "single_letter_match",
+                    "usable_for_metrics": True,
+                    "completion_token_count": 1,
+                    "hit_max_new_tokens": False,
+                    "stopped_on_eos": False,
+                    "finish_reason": "generation",
+                    "sampling_mode": "generation",
+                    "T_prompt": 1.0,
+                    "probe_x": None,
+                    "probe_xprime": None,
+                },
+                {
+                    "record_id": 2,
+                    "split": "test",
+                    "question_id": "q_2",
+                    "prompt_id": "q_2__neutral",
+                    "dataset": "arc_challenge",
+                    "template_type": "neutral",
+                    "draw_idx": 0,
+                    "task_format": "multiple_choice",
+                    "mc_mode": "strict_mc",
+                    "answer_channel": "letter",
+                    "question": "Question 2",
+                    "correct_answer": "increase",
+                    "incorrect_answer": "decrease",
+                    "correct_letter": "2",
+                    "incorrect_letter": "1",
+                    "letters": "123",
+                    "prompt_template": "{question}",
+                    "prompt_text": "Prompt 2",
+                    "response_raw": "Answer: 1",
+                    "response": "Answer: 1",
+                    "committed_answer": "1",
+                    "correctness": 0,
+                    "grading_status": "incorrect",
+                    "grading_reason": "single_letter_non_match",
+                    "usable_for_metrics": True,
+                    "completion_token_count": 1,
+                    "hit_max_new_tokens": False,
+                    "stopped_on_eos": False,
+                    "finish_reason": "generation",
+                    "sampling_mode": "generation",
+                    "T_prompt": 1.0,
+                    "probe_x": None,
+                    "probe_xprime": None,
+                },
+            ]
+            samples_df = to_samples_df(sample_records, model_name="test/model")
+            args = SimpleNamespace(
+                model="test/model",
+                dataset_name="arc_challenge",
+                bias_types=[],
+            )
+
+            payload = build_reports_summary_payload(
+                args=args,
+                run_dir=run_dir,
+                samples_df=samples_df,
+                sample_records=sample_records,
+                tuples_df=pd.DataFrame(),
+                probe_scores_by_prompt_df=pd.DataFrame(),
+                probes_meta={},
+                probe_candidate_scores_df=pd.DataFrame(),
+            )
+
+            confusion = payload["mc_confusion_matrix"]
+            self.assertEqual(confusion["choice_labels"], ["1", "2", "3"])
+            self.assertEqual(
+                confusion["summary_rows"],
+                [
+                    {"predicted_letter": "1", "1": 0, "2": 1, "3": 0},
+                    {"predicted_letter": "2", "1": 0, "2": 1, "3": 0},
+                    {"predicted_letter": "3", "1": 0, "2": 0, "3": 0},
+                ],
+            )
+
     def test_model_and_probe_summary_artifacts_capture_global_metrics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir) / "run"

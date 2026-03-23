@@ -61,6 +61,13 @@ Current examples:
 - `build_probe_scores_df(ctx)`
 - `build_paired_probe_df(ctx)`
 
+Probe interpretation note:
+
+- The saved probe artifacts may use a matched probe family for each prompt template.
+- That is useful as a sanity check, but it is not always the default scientific interpretation.
+- Unless an analysis explicitly says otherwise, interpret `s(x, a)` / `s(x', a)` as one neutral-trained probe evaluated on both prompt conditions.
+- If a notebook or dataframe compares neutral-template probe scores on `x` against bias-template probe scores on `x'`, it should label that choice explicitly.
+
 Rules:
 
 - builders should return dataframes only

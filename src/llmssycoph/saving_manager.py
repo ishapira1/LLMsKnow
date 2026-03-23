@@ -120,13 +120,13 @@ MODEL_SUMMARY_SCHEMA_VERSION = 1
 PROBE_SUMMARY_SCHEMA_VERSION = 1
 REPORTS_SUMMARY_SCHEMA_VERSION = 5
 
-_MC_CONFUSION_STANDALONE_LETTER_RE = re.compile(r"^\(?([A-Za-z])\)?[\]\).,:;\-]?$")
+_MC_CONFUSION_STANDALONE_LETTER_RE = re.compile(r"^\(?([A-Za-z0-9])\)?[\]\).,:;\-]?$")
 _MC_CONFUSION_AMBIGUOUS_LETTER_RE = re.compile(
-    r"^\(?[A-Za-z]\)?(?:\s*(?:or|/|,)\s*\(?[A-Za-z]\)?)+$",
+    r"^\(?[A-Za-z0-9]\)?(?:\s*(?:or|/|,)\s*\(?[A-Za-z0-9]\)?)+$",
     flags=re.IGNORECASE,
 )
 _MC_CONFUSION_EXPLICIT_LETTER_RE = re.compile(
-    r"\b(?:final\s+answer|correct\s+answer|answer|option|choice)\s*(?:is|:)?\s*\(?([A-Za-z])\)?\b",
+    r"\b(?:final\s+answer|correct\s+answer|answer|option|choice)\s*(?:is|:)?\s*\(?([A-Za-z0-9])\)?\b",
     flags=re.IGNORECASE,
 )
 
@@ -242,6 +242,10 @@ MC_PROBE_SCORE_BY_PROMPT_BASE_COLUMNS = [
     "prompt_id",
     "dataset",
     "template_type",
+    "probe_training_template_type",
+    "probe_evaluated_on_template_type",
+    "probe_is_neutral_family",
+    "probe_matches_evaluated_template",
     "draw_idx",
     "source_record_id",
     "correct_letter",
@@ -845,14 +849,14 @@ def _mc_confusion_choice_labels_from_record(record: Dict[str, Any]) -> List[str]
 
     letters = str(record.get("letters", "") or "").strip().upper()
     for letter in letters:
-        if len(letter) == 1 and letter.isalpha():
+        if len(letter) == 1 and letter.isalnum():
             labels.add(letter)
 
     probabilities_raw = record.get("choice_probabilities", {})
     if isinstance(probabilities_raw, dict):
         for raw_choice in probabilities_raw:
             label = str(raw_choice or "").strip().upper()
-            if len(label) == 1 and label.isalpha():
+            if len(label) == 1 and label.isalnum():
                 labels.add(label)
 
     for column_name in record:
@@ -861,12 +865,12 @@ def _mc_confusion_choice_labels_from_record(record: Dict[str, Any]) -> List[str]
         if column_name in {P_CORRECT_COLUMN, P_SELECTED_COLUMN}:
             continue
         label = str(column_name[2:-1]).strip().upper()
-        if len(label) == 1 and label.isalpha():
+        if len(label) == 1 and label.isalnum():
             labels.add(label)
 
     for field_name in ("correct_letter", "incorrect_letter"):
         label = str(record.get(field_name, "") or "").strip().upper()
-        if len(label) == 1 and label.isalpha():
+        if len(label) == 1 and label.isalnum():
             labels.add(label)
 
     return sorted(labels, key=lambda label: (len(label), label))
@@ -1518,14 +1522,25 @@ def build_mc_probe_scores_by_prompt_df(probe_candidate_scores_df: pd.DataFrame) 
         argmax_score = _float_or_none(ordered.iloc[0].get("probe_score")) if not ordered.empty else None
         score_correct = score_lookup.get(correct_letter)
         score_selected = score_lookup.get(selected_choice)
+        probe_name = str(first_row.get("probe_name", "") or "")
+        evaluated_template_type = str(first_row.get("template_type", "") or "")
+        training_template_type = _template_type_for_probe(probe_name, {})
         row = {
             "model_name": str(first_row.get("model_name", "") or ""),
-            "probe_name": str(first_row.get("probe_name", "") or ""),
+            "probe_name": probe_name,
             "split": str(first_row.get("split", "") or ""),
             "question_id": str(first_row.get("question_id", "") or ""),
             "prompt_id": str(first_row.get("prompt_id", "") or ""),
             "dataset": str(first_row.get("dataset", "") or ""),
-            "template_type": str(first_row.get("template_type", "") or ""),
+            "template_type": evaluated_template_type,
+            "probe_training_template_type": training_template_type,
+            "probe_evaluated_on_template_type": evaluated_template_type,
+            "probe_is_neutral_family": bool(training_template_type == "neutral"),
+            "probe_matches_evaluated_template": bool(
+                bool(training_template_type)
+                and bool(evaluated_template_type)
+                and training_template_type == evaluated_template_type
+            ),
             "draw_idx": int(first_row.get("draw_idx", 0) or 0),
             "source_record_id": first_row.get("source_record_id", np.nan),
             "correct_letter": correct_letter,

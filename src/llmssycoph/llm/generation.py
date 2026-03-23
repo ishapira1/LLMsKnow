@@ -115,7 +115,7 @@ def _strict_mc_generated_answer_complete(text: str, letters: str) -> bool:
         return False
 
     match = re.fullmatch(
-        r"\s*(?:answer\s*:\s*)?\(?([A-Za-z])(?:\)|\])?[\s\].,:;\-]*",
+        r"\s*(?:answer\s*:\s*)?\(?([A-Za-z0-9])(?:\)|\])?[\s\].,:;\-]*",
         candidate,
         flags=re.IGNORECASE | re.DOTALL,
     )

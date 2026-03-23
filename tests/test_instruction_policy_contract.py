@@ -83,6 +83,20 @@ class InstructionPolicyContractTests(unittest.TestCase):
 
         self.assertIn("Answer with exactly one letter: X, Y, Z.", instruction_text)
 
+    def test_answer_only_policy_uses_label_wording_for_numeric_response_labels(self):
+        question = Question(
+            dataset="demo",
+            question_text="Which option is correct?",
+            correct_answer="9",
+            incorrect_answer="7",
+            base_metadata={"letters": "123"},
+        )
+
+        instruction_text = get_instruction_policy("answer_only").render_instruction(question)
+
+        self.assertIn("Do not write anything after the label.", instruction_text)
+        self.assertIn("Answer with exactly one label: 1, 2, 3.", instruction_text)
+
 
 if __name__ == "__main__":
     unittest.main()
