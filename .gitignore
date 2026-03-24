@@ -1,6 +1,7 @@
 # Generated experiment outputs
 output/
 wandb/
+notebooks/
 
 # Large local datasets
 data/triviaqa-unfiltered/
