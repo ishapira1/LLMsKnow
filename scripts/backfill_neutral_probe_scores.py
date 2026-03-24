@@ -43,6 +43,7 @@ DEFAULT_RUN_DIRS = [
     "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/commonsense_qa/full_commonsense_qa_qwen25_7b_20260322_allq_fulldepth_seas",
     "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun",
 ]
+RESULTS_ROOT = REPO_ROOT / "results" / "sycophancy_bias_probe"
 
 
 _MODEL_RUNTIME_CACHE: Dict[str, Any] = {
@@ -157,7 +158,27 @@ def resolve_run_dirs(cli_run_dirs: Optional[Sequence[str]]) -> List[Path]:
             path = (REPO_ROOT / path).resolve()
         else:
             path = path.resolve()
-        resolved.append(path)
+        if path.exists() and (path / "run_config.json").exists():
+            resolved.append(path)
+            continue
+
+        run_name = path.name
+        candidates = sorted(
+            candidate.parent
+            for candidate in RESULTS_ROOT.glob(f"**/{run_name}/run_config.json")
+        )
+        if len(candidates) == 1:
+            resolved.append(candidates[0].resolve())
+            continue
+        if len(candidates) > 1:
+            raise ValueError(
+                f"Run name {run_name!r} matched multiple directories under {RESULTS_ROOT}: "
+                + ", ".join(str(candidate) for candidate in candidates)
+            )
+        raise FileNotFoundError(
+            f"Could not resolve run_dir={run_dir!r}. "
+            f"Tried exact path {path} and no unique run named {run_name!r} was found under {RESULTS_ROOT}."
+        )
     return resolved
 
 
