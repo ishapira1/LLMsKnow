@@ -9,7 +9,9 @@ import matplotlib
 import pandas as pd
 
 from llmssycoph.analysis import (
+    build_backfill_probe_scores_df,
     build_candidate_probability_long_df,
+    build_probe_readout_matrix_df,
     get_analysis_function_spec,
     load_analysis_context,
     run_analysis_operation,
@@ -214,6 +216,183 @@ class AnalysisContractTests(unittest.TestCase):
             self.assertEqual(row["probe_training_template_type_x"], "neutral")
             self.assertEqual(row["probe_training_template_type_xprime"], "incorrect_suggestion")
             self.assertEqual(row["probe_pairing_semantics"], "neutral_on_x__matched_template_on_xprime")
+
+    def test_build_probe_readout_matrix_df_merges_standard_and_backfills_into_full_2x2_panel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = _make_run_dir(Path(tmp))
+            sampled = pd.DataFrame(
+                [
+                    {
+                        "question_id": "q1",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "template_type": "neutral",
+                        "prompt_id": "q1__neutral",
+                        "question": "Question?",
+                        "correct_answer": "alpha",
+                        "incorrect_answer": "beta",
+                        "correct_letter": "A",
+                        "incorrect_letter": "B",
+                        "prompt_template": "{question}",
+                        "prompt_text": "neutral prompt",
+                        "response": "A",
+                        "P(selected)": 0.8,
+                        "P(correct)": 0.8,
+                        "task_format": "multiple_choice",
+                        "dataset": "commonsense_qa",
+                        "P(A)": 0.8,
+                        "P(B)": 0.1,
+                        "P(C)": 0.05,
+                        "P(D)": 0.03,
+                        "P(E)": 0.02,
+                    },
+                    {
+                        "question_id": "q1",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "template_type": "incorrect_suggestion",
+                        "prompt_id": "q1__incorrect_suggestion",
+                        "question": "Question?",
+                        "correct_answer": "alpha",
+                        "incorrect_answer": "beta",
+                        "correct_letter": "A",
+                        "incorrect_letter": "B",
+                        "prompt_template": "{question} biased",
+                        "prompt_text": "biased prompt",
+                        "response": "B",
+                        "P(selected)": 0.6,
+                        "P(correct)": 0.2,
+                        "task_format": "multiple_choice",
+                        "dataset": "commonsense_qa",
+                        "P(A)": 0.2,
+                        "P(B)": 0.6,
+                        "P(C)": 0.08,
+                        "P(D)": 0.07,
+                        "P(E)": 0.05,
+                    },
+                ]
+            )
+            standard_probe_scores = pd.DataFrame(
+                [
+                    {
+                        "probe_name": "probe_no_bias",
+                        "question_id": "q1",
+                        "prompt_id": "q1__neutral",
+                        "template_type": "neutral",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "correct_letter": "A",
+                        "selected_choice": "A",
+                        "probe_score_correct_choice": 0.9,
+                        "probe_score_selected_choice": 0.9,
+                        "probe_argmax_choice": "A",
+                        "score_A": 0.9,
+                        "score_B": 0.2,
+                    },
+                    {
+                        "probe_name": "probe_bias_incorrect_suggestion",
+                        "question_id": "q1",
+                        "prompt_id": "q1__incorrect_suggestion",
+                        "template_type": "incorrect_suggestion",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "correct_letter": "A",
+                        "selected_choice": "B",
+                        "probe_score_correct_choice": 0.85,
+                        "probe_score_selected_choice": 0.8,
+                        "probe_argmax_choice": "A",
+                        "score_A": 0.85,
+                        "score_B": 0.8,
+                    },
+                ]
+            )
+            neutral_backfill = pd.DataFrame(
+                [
+                    {
+                        "probe_name": "probe_no_bias",
+                        "question_id": "q1",
+                        "prompt_id": "q1__neutral",
+                        "template_type": "neutral",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "correct_letter": "A",
+                        "selected_choice": "A",
+                        "probe_score_correct_choice": 0.95,
+                        "probe_score_selected_choice": 0.95,
+                        "probe_argmax_choice": "A",
+                        "score_A": 0.95,
+                        "score_B": 0.1,
+                    },
+                    {
+                        "probe_name": "probe_no_bias",
+                        "question_id": "q1",
+                        "prompt_id": "q1__incorrect_suggestion",
+                        "template_type": "incorrect_suggestion",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "correct_letter": "A",
+                        "selected_choice": "B",
+                        "probe_score_correct_choice": 0.4,
+                        "probe_score_selected_choice": 0.7,
+                        "probe_argmax_choice": "B",
+                        "score_A": 0.4,
+                        "score_B": 0.7,
+                    },
+                ]
+            )
+            bias_backfill = pd.DataFrame(
+                [
+                    {
+                        "probe_name": "probe_bias_incorrect_suggestion",
+                        "question_id": "q1",
+                        "prompt_id": "q1__neutral",
+                        "template_type": "neutral",
+                        "split": "test",
+                        "draw_idx": 0,
+                        "correct_letter": "A",
+                        "selected_choice": "A",
+                        "probe_score_correct_choice": 0.65,
+                        "probe_score_selected_choice": 0.65,
+                        "probe_argmax_choice": "A",
+                        "score_A": 0.65,
+                        "score_B": 0.6,
+                    }
+                ]
+            )
+
+            _write_csv(run_dir / "sampling" / "sampled_responses.csv", sampled)
+            _write_csv(run_dir / "probes" / "probe_scores_by_prompt.csv", standard_probe_scores)
+            _write_csv(
+                run_dir / "probes" / "backfills" / "probe_no_bias_all_templates" / "probe_scores_by_prompt.csv",
+                neutral_backfill,
+            )
+            _write_csv(
+                run_dir / "probes" / "backfills" / "probe_bias_incorrect_suggestion_all_templates" / "probe_scores_by_prompt.csv",
+                bias_backfill,
+            )
+
+            ctx = load_analysis_context(run_dir)
+            backfill_df = build_backfill_probe_scores_df(ctx)
+            self.assertEqual(set(backfill_df["probe_score_source_kind"]), {"backfill"})
+
+            matrix_df = build_probe_readout_matrix_df(ctx)
+            self.assertEqual(len(matrix_df), 1)
+            row = matrix_df.iloc[0]
+            self.assertTrue(bool(row["full_probe_matrix_available"]))
+            self.assertEqual(row["prompt_id_x"], "q1__neutral")
+            self.assertEqual(row["prompt_id_xprime"], "q1__incorrect_suggestion")
+            self.assertEqual(row["neutral_probe_on_neutral_probe_score_source_kind"], "standard")
+            self.assertAlmostEqual(row["neutral_probe_on_neutral_score_A"], 0.9)
+            self.assertAlmostEqual(row["neutral_probe_on_biased_score_A"], 0.4)
+            self.assertAlmostEqual(row["biased_probe_on_neutral_score_A"], 0.65)
+            self.assertAlmostEqual(row["biased_probe_on_biased_score_A"], 0.85)
+
+            table_df = run_analysis_operation(ctx, "table_probe_readout_matrix", output_stem="probe_readout_matrix")
+            self.assertTrue((ctx.tables_dir / "probe_readout_matrix.csv").exists())
+            table_row = table_df.iloc[0]
+            self.assertFalse(bool(table_row["neutral_probe_truth_survives_pressure_rank1"]))
+            self.assertTrue(bool(table_row["biased_probe_truth_reencoded_under_pressure_rank1"]))
+            self.assertTrue(bool(table_row["truth_recovered_only_in_biased_readout_rank1"]))
 
     def test_safe_run_analysis_operation_records_cell_failures_in_tables_dir(self):
         with tempfile.TemporaryDirectory() as tmp:

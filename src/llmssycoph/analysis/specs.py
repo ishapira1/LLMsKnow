@@ -165,6 +165,7 @@ FULL_MC_NOTEBOOK_SPEC = AnalysisNotebookSpec(
                                     "",
                                     "Important artifact note: the saved prompt-level probe table contains matched-template chosen probes. So cross-condition score comparisons are between the neutral chosen probe on `x` and the matched bias-template chosen probe on `x'`, not a single neutral probe re-scored on both prompts.",
                                     "The saved probe rows also carry `probe_training_template_type` and `probe_matches_evaluated_template` so downstream analyses can label this explicitly.",
+                                    "When `probes/backfills/*/probe_scores_by_prompt.csv` exists, `table_probe_readout_matrix` expands this into the full item-level 2x2 matrix: neutral probe on neutral/biased and bias-trained probe on neutral/biased.",
                                 ]
                             ),
                         ),
@@ -186,6 +187,7 @@ FULL_MC_NOTEBOOK_SPEC = AnalysisNotebookSpec(
                     title="Hidden Knowledge Under Pressure",
                     intro="The core question here is whether bias changes what the model says more than what the probe internally supports.",
                     cells=[
+                        AnalysisCellSpec(kind="table", function_name="table_probe_readout_matrix", output_stem="02_06b_probe_readout_matrix"),
                         AnalysisCellSpec(kind="plot", function_name="plot_internal_margin_shift_under_bias", output_stem="02_07_internal_margin_shift_under_bias", text="`Δm_probe^bias = m_probe^bias(x') - m_probe^bias(x)` measures how much internal support moves toward or away from the bias target. Negative values mean the internal correct-vs-target gap shrank under bias."),
                         AnalysisCellSpec(kind="plot", function_name="plot_hidden_knowledge_rate_biased_wrong", output_stem="02_08_hidden_knowledge_rate_biased_wrong", text="`HK` means the biased response is wrong but the probe still scores the correct answer above the biased chosen answer. `HK_strict` means the correct answer is probe-rank 1 under the biased prompt."),
                         AnalysisCellSpec(kind="plot", function_name="plot_susceptibility_vs_neutral_probe_margin", output_stem="02_09_susceptibility_vs_neutral_probe_margin", text="These curves use 5 quantiles of the neutral probe margin. For `incorrect_suggestion`, the target is the suggested wrong answer `b`; for `suggest_correct`, the target is the correct answer `c`."),

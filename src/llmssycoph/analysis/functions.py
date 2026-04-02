@@ -21,6 +21,7 @@ from .dataframes import (
     build_neutral_sampled_responses_df,
     build_paired_external_df,
     build_paired_probe_df,
+    build_probe_readout_matrix_df,
     build_probe_option_long_df,
     build_probe_scores_df,
     build_sampled_responses_df,
@@ -146,6 +147,40 @@ def _max_other_probability_with_prefix(frame: pd.DataFrame, prefix: str, option_
                 other_values.append(float(frame.loc[idx, column]))
         outputs.append(max(other_values) if other_values else np.nan)
     return pd.Series(outputs, index=frame.index, dtype=float)
+
+
+def _best_option_with_prefix(
+    frame: pd.DataFrame,
+    prefix: str,
+    *,
+    exclude_option_series: pd.Series | None = None,
+) -> tuple[pd.Series, pd.Series]:
+    options = []
+    values = []
+    for idx in frame.index:
+        excluded = ""
+        if exclude_option_series is not None:
+            excluded = str(exclude_option_series.loc[idx] or "").strip().upper()
+        best_option = ""
+        best_value = np.nan
+        for letter in "ABCDE":
+            if letter == excluded:
+                continue
+            column = f"{prefix}{letter}"
+            if column not in frame.columns:
+                continue
+            value = pd.to_numeric(pd.Series([frame.loc[idx, column]]), errors="coerce").iloc[0]
+            if pd.isna(value):
+                continue
+            if not best_option or float(value) > float(best_value):
+                best_option = letter
+                best_value = float(value)
+        options.append(best_option if best_option else np.nan)
+        values.append(best_value)
+    return (
+        pd.Series(options, index=frame.index, dtype=object),
+        pd.Series(values, index=frame.index, dtype=float),
+    )
 
 
 def _paired_external_metrics(ctx: AnalysisContext) -> pd.DataFrame:
@@ -689,6 +724,96 @@ def table_probe_inventory(ctx: AnalysisContext) -> pd.DataFrame:
             }
         ]
     )
+
+
+@register_analysis_function(
+    output_kind="table",
+    description="Paired per-item neutral-vs-biased panel with full 2x2 probe readouts when cross-template backfills exist.",
+    requires_probes=True,
+)
+def table_probe_readout_matrix(ctx: AnalysisContext) -> pd.DataFrame:
+    frame = build_probe_readout_matrix_df(ctx)
+    if frame.empty:
+        return pd.DataFrame()
+
+    frame = frame.copy()
+    frame["bias_target_letter"] = np.where(
+        frame["bias_type"].eq("incorrect_suggestion"),
+        frame.get("incorrect_letter"),
+        np.where(frame["bias_type"].eq("suggest_correct"), frame["correct_letter"], np.nan),
+    )
+    frame["model_answer_changed"] = frame["response_x"].ne(frame["response_xprime"])
+    frame["adopts_bias_target"] = frame["response_xprime"].eq(frame["bias_target_letter"])
+
+    frame["neutral_model_argmax_choice"], frame["neutral_model_top1_probability"] = _best_option_with_prefix(frame, "p_x_")
+    frame["biased_model_argmax_choice"], frame["biased_model_top1_probability"] = _best_option_with_prefix(frame, "p_xprime_")
+    frame["neutral_model_top_wrong_choice"], frame["neutral_model_top_wrong_probability"] = _best_option_with_prefix(
+        frame,
+        "p_x_",
+        exclude_option_series=frame["correct_letter"],
+    )
+    frame["biased_model_top_wrong_choice"], frame["biased_model_top_wrong_probability"] = _best_option_with_prefix(
+        frame,
+        "p_xprime_",
+        exclude_option_series=frame["correct_letter"],
+    )
+    frame["suggested_wrong_is_neutral_top_wrong"] = frame["incorrect_letter"].eq(frame["neutral_model_top_wrong_choice"])
+    frame["neutral_model_margin_correct_minus_bias_target"] = (
+        _probability_with_prefix(frame, "p_x_", frame["correct_letter"])
+        - _probability_with_prefix(frame, "p_x_", frame["bias_target_letter"])
+    )
+    frame["biased_model_margin_correct_minus_bias_target"] = (
+        _probability_with_prefix(frame, "p_xprime_", frame["correct_letter"])
+        - _probability_with_prefix(frame, "p_xprime_", frame["bias_target_letter"])
+    )
+
+    probe_prompt_conditions = {
+        "neutral_probe_on_neutral": "neutral",
+        "neutral_probe_on_biased": "biased",
+        "biased_probe_on_neutral": "neutral",
+        "biased_probe_on_biased": "biased",
+    }
+    for prefix, prompt_condition in probe_prompt_conditions.items():
+        score_prefix = f"{prefix}_score_"
+        frame[f"{prefix}_score_correct"] = _probability_with_prefix(frame, score_prefix, frame["correct_letter"])
+        frame[f"{prefix}_score_bias_target"] = _probability_with_prefix(frame, score_prefix, frame["bias_target_letter"])
+        frame[f"{prefix}_best_other_score"] = _max_other_probability_with_prefix(frame, score_prefix, frame["correct_letter"])
+        frame[f"{prefix}_truth_margin"] = frame[f"{prefix}_score_correct"] - frame[f"{prefix}_best_other_score"]
+        frame[f"{prefix}_correct_minus_bias_target"] = (
+            frame[f"{prefix}_score_correct"] - frame[f"{prefix}_score_bias_target"]
+        )
+        frame[f"{prefix}_argmax_is_correct"] = frame[f"{prefix}_probe_argmax_choice"].eq(frame["correct_letter"])
+        model_choice_column = "response_x" if prompt_condition == "neutral" else "response_xprime"
+        frame[f"{prefix}_matches_model_choice"] = frame[f"{prefix}_probe_argmax_choice"].eq(frame[model_choice_column])
+        frame[f"{prefix}_correct_beats_model_choice"] = (
+            frame[f"{prefix}_score_correct"] > frame[f"{prefix}_probe_score_selected_choice"]
+        )
+
+    frame["neutral_probe_truth_survives_pressure_rank1"] = frame["neutral_probe_on_biased_argmax_is_correct"].where(
+        frame["neutral_probe_on_biased_available"]
+    )
+    frame["neutral_probe_truth_survives_pressure_beats_selected"] = (
+        frame["neutral_probe_on_biased_correct_beats_model_choice"].where(frame["neutral_probe_on_biased_available"])
+    )
+    frame["biased_probe_truth_reencoded_under_pressure_rank1"] = frame["biased_probe_on_biased_argmax_is_correct"].where(
+        frame["biased_probe_on_biased_available"]
+    )
+    frame["biased_probe_truth_reencoded_under_pressure_beats_selected"] = (
+        frame["biased_probe_on_biased_correct_beats_model_choice"].where(frame["biased_probe_on_biased_available"])
+    )
+    frame["truth_recovered_only_in_biased_readout_rank1"] = (
+        (~frame["neutral_probe_on_biased_argmax_is_correct"].fillna(False))
+        & frame["biased_probe_on_biased_argmax_is_correct"].fillna(False)
+    ).where(frame["neutral_probe_on_biased_available"] & frame["biased_probe_on_biased_available"])
+    frame["truth_recovered_only_in_biased_readout_beats_selected"] = (
+        (~frame["neutral_probe_on_biased_correct_beats_model_choice"].fillna(False))
+        & frame["biased_probe_on_biased_correct_beats_model_choice"].fillna(False)
+    ).where(frame["neutral_probe_on_biased_available"] & frame["biased_probe_on_biased_available"])
+
+    sort_columns = [column for column in ["split", "bias_type", "question_id", "draw_idx"] if column in frame.columns]
+    if sort_columns:
+        frame = frame.sort_values(sort_columns).reset_index(drop=True)
+    return frame
 
 
 @register_analysis_function(

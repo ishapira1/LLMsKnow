@@ -60,7 +60,7 @@ def utc_now_iso() -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Backfill prompt-level probe scores by evaluating the saved neutral chosen probe "
+            "Backfill prompt-level probe scores by evaluating a saved chosen probe "
             "on all prompt templates for completed strict-MC runs."
         ),
     )
@@ -71,6 +71,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Absolute or repo-relative run directory. Repeat this flag to process multiple runs. "
             "If omitted, the script uses the four default 20260321-20260322 Llama/Qwen runs."
+        ),
+    )
+    parser.add_argument(
+        "--probe_name",
+        default="probe_no_bias",
+        help=(
+            "Chosen probe family to rescore, such as probe_no_bias or "
+            "probe_bias_incorrect_suggestion. Defaults to probe_no_bias."
         ),
     )
     parser.add_argument(
@@ -104,10 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output_subdir",
-        default="probes/backfills/probe_no_bias_all_templates",
+        default=None,
         help=(
             "Repo-relative subdirectory inside each run where the backfilled artifacts should be written. "
-            "Defaults to probes/backfills/probe_no_bias_all_templates."
+            "Defaults to probes/backfills/<probe_name>_all_templates."
         ),
     )
     parser.add_argument(
@@ -186,10 +194,15 @@ def load_run_config(run_dir: Path) -> Dict[str, Any]:
     return json.loads((run_dir / "run_config.json").read_text(encoding="utf-8"))
 
 
-def load_neutral_probe_bundle(run_dir: Path) -> tuple[Any, int, Dict[str, Any]]:
-    probe_dir = run_dir / "probes" / "chosen_probe" / "probe_no_bias"
+def load_chosen_probe_bundle(run_dir: Path, probe_name: str) -> tuple[Any, int, Dict[str, Any]]:
+    probe_dir = run_dir / "probes" / "chosen_probe" / probe_name
     metadata_path = probe_dir / "metadata.json"
     model_path = probe_dir / "model.pkl"
+    if not metadata_path.exists() or not model_path.exists():
+        raise FileNotFoundError(
+            f"Chosen probe artifacts are missing for {probe_name!r} in {run_dir}. "
+            f"Expected {metadata_path} and {model_path}."
+        )
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     with model_path.open("rb") as handle:
         clf = pickle.load(handle)
@@ -273,8 +286,14 @@ def filter_records(
     return filtered
 
 
-def build_output_paths(run_dir: Path, output_subdir: str) -> Dict[str, Path]:
-    backfill_dir = run_dir / output_subdir
+def default_output_subdir_for_probe(probe_name: str) -> str:
+    safe_probe_name = str(probe_name or "").strip() or "probe"
+    return f"probes/backfills/{safe_probe_name}_all_templates"
+
+
+def build_output_paths(run_dir: Path, output_subdir: Optional[str], probe_name: str) -> Dict[str, Path]:
+    resolved_output_subdir = str(output_subdir or default_output_subdir_for_probe(probe_name)).strip()
+    backfill_dir = run_dir / resolved_output_subdir
     return {
         "backfill_dir": backfill_dir,
         "candidate_scores_csv": backfill_dir / "probe_candidate_scores.csv",
@@ -286,9 +305,10 @@ def build_output_paths(run_dir: Path, output_subdir: str) -> Dict[str, Path]:
 def process_run(
     run_dir: Path,
     *,
+    probe_name: str,
     requested_template_types: Optional[set[str]],
     requested_splits: Optional[set[str]],
-    output_subdir: str,
+    output_subdir: Optional[str],
     hf_cache_dir: Optional[str],
     device_override: Optional[str],
     force: bool,
@@ -297,7 +317,7 @@ def process_run(
         raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
 
     run_cfg = load_run_config(run_dir)
-    output_paths = build_output_paths(run_dir, output_subdir)
+    output_paths = build_output_paths(run_dir, output_subdir, probe_name)
     if (
         not force
         and output_paths["candidate_scores_csv"].exists()
@@ -308,6 +328,7 @@ def process_run(
         return {
             "run_dir": str(run_dir),
             "status": "skipped_existing",
+            "probe_name": probe_name,
             "model_name": run_cfg.get("model"),
             "dataset_name": run_cfg.get("dataset_name"),
             "n_source_records": metadata.get("n_source_records"),
@@ -327,7 +348,7 @@ def process_run(
 
     candidate_records = build_choice_candidate_records(
         filtered_records,
-        probe_name="probe_no_bias",
+        probe_name=probe_name,
         example_weighting=str(run_cfg.get("probe_example_weighting", "model_probability") or "model_probability"),
     )
     if not candidate_records:
@@ -341,7 +362,7 @@ def process_run(
         hf_cache_dir=hf_cache_dir,
         device_override=device_override,
     )
-    clf, layer, probe_metadata = load_neutral_probe_bundle(run_dir)
+    clf, layer, probe_metadata = load_chosen_probe_bundle(run_dir, probe_name)
     score_records_with_probe(
         model=model,
         tokenizer=tokenizer,
@@ -349,7 +370,7 @@ def process_run(
         clf=clf,
         layer=layer,
         score_key="probe_score",
-        desc=f"{run_dir.name} neutral_probe_all_templates",
+        desc=f"{run_dir.name} {probe_name}_all_templates",
     )
 
     candidate_scores_df = to_probe_candidate_scores_df(
@@ -364,15 +385,15 @@ def process_run(
 
     metadata = {
         "artifact_schema_version": 1,
-        "artifact_kind": "neutral_probe_cross_template_backfill",
+        "artifact_kind": "chosen_probe_cross_template_backfill",
         "created_at_utc": utc_now_iso(),
         "source_run_dir": str(run_dir),
         "model_name": str(run_cfg.get("model", "") or ""),
         "dataset_name": str(run_cfg.get("dataset_name", "") or ""),
-        "probe_name": "probe_no_bias",
-        "probe_training_template_type": "neutral",
-        "probe_model_path": str(run_dir / "probes" / "chosen_probe" / "probe_no_bias" / "model.pkl"),
-        "probe_metadata_path": str(run_dir / "probes" / "chosen_probe" / "probe_no_bias" / "metadata.json"),
+        "probe_name": probe_name,
+        "probe_training_template_type": str(probe_metadata.get("template_type", "") or ""),
+        "probe_model_path": str(run_dir / "probes" / "chosen_probe" / probe_name / "model.pkl"),
+        "probe_metadata_path": str(run_dir / "probes" / "chosen_probe" / probe_name / "metadata.json"),
         "probe_layer": int(layer),
         "probe_template_type": str(probe_metadata.get("template_type", "") or "neutral"),
         "probe_construction": str(probe_metadata.get("training", {}).get("probe_construction", "") or ""),
@@ -394,6 +415,7 @@ def process_run(
     return {
         "run_dir": str(run_dir),
         "status": "rescored",
+        "probe_name": probe_name,
         "model_name": run_cfg.get("model"),
         "dataset_name": run_cfg.get("dataset_name"),
         "n_source_records": len(filtered_records),
@@ -405,6 +427,7 @@ def process_run(
 
 def main() -> None:
     args = build_parser().parse_args()
+    probe_name = str(args.probe_name or "").strip() or "probe_no_bias"
     requested_template_types = normalize_requested_values(args.template_type)
     requested_splits = normalize_requested_values(args.split) or {"train", "val", "test"}
     run_dirs = resolve_run_dirs(args.run_dir)
@@ -426,9 +449,10 @@ def main() -> None:
 
     try:
         for run_dir in ordered_run_dirs:
-            print(f"[neutral-probe-backfill] processing run_dir={run_dir}")
+            print(f"[probe-backfill] processing run_dir={run_dir} probe_name={probe_name}")
             row = process_run(
                 run_dir,
+                probe_name=probe_name,
                 requested_template_types=requested_template_types,
                 requested_splits=requested_splits,
                 output_subdir=args.output_subdir,
@@ -438,8 +462,9 @@ def main() -> None:
             )
             summary_rows.append(row)
             print(
-                "[neutral-probe-backfill] completed "
-                f"status={row['status']} model={row['model_name']} dataset={row['dataset_name']} "
+                "[probe-backfill] completed "
+                f"status={row['status']} probe={row['probe_name']} "
+                f"model={row['model_name']} dataset={row['dataset_name']} "
                 f"source_records={row['n_source_records']} candidate_rows={row['n_candidate_rows']} "
                 f"prompt_rows={row['n_prompt_rows']}"
             )

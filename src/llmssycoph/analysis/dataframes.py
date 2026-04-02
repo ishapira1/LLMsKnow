@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 
 from .core import AnalysisContext
@@ -10,6 +11,28 @@ from .core import AnalysisContext
 
 MC_OPTION_COLUMNS = [f"P({letter})" for letter in "ABCDE"]
 PROBE_SCORE_COLUMNS_PREFIX = "score_"
+PROBE_PROMPT_METADATA_COLUMNS = [
+    "probe_name",
+    "probe_training_template_type",
+    "probe_evaluated_on_template_type",
+    "probe_score_source_kind",
+    "probe_score_source_name",
+    "probe_score_source_path",
+    "prompt_id",
+    "source_record_id",
+    "selected_choice",
+    "selected_choice_is_correct",
+    "probe_score_correct_choice",
+    "probe_score_selected_choice",
+    "correct_choice_probability",
+    "selected_choice_probability",
+    "probe_argmax_choice",
+    "probe_argmax_score",
+    "probe_prefers_correct",
+    "probe_prefers_selected",
+    "probe_score_gap_correct_minus_selected",
+    "probe_matches_evaluated_template",
+]
 
 
 def _cached_frame(ctx: AnalysisContext, key: str, builder: Callable[[], pd.DataFrame]) -> pd.DataFrame:
@@ -29,6 +52,62 @@ def _probe_training_template_type_from_name(probe_name: object) -> str:
     if text.startswith("probe_bias_"):
         return text[len("probe_bias_") :]
     return ""
+
+
+def _normalize_probe_scores_df(
+    df: pd.DataFrame,
+    *,
+    default_source_kind: str,
+    default_source_name: str,
+    default_source_path: str,
+) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    working = df.copy()
+    score_columns = [
+        column
+        for column in working.columns
+        if column.startswith(PROBE_SCORE_COLUMNS_PREFIX) or column.startswith("probe_score_")
+    ]
+    for column in score_columns:
+        working[column] = pd.to_numeric(working[column], errors="coerce")
+    if "probe_training_template_type" not in working.columns:
+        working["probe_training_template_type"] = working.get("probe_name", pd.Series(dtype=str)).map(
+            _probe_training_template_type_from_name
+        )
+    if "probe_evaluated_on_template_type" not in working.columns:
+        working["probe_evaluated_on_template_type"] = (
+            working.get("template_type", pd.Series(dtype=str)).fillna("").astype(str)
+        )
+    if "probe_is_neutral_family" not in working.columns:
+        working["probe_is_neutral_family"] = working["probe_training_template_type"].astype(str).eq("neutral")
+    if "probe_matches_evaluated_template" not in working.columns:
+        working["probe_matches_evaluated_template"] = (
+            working["probe_training_template_type"].astype(str)
+            == working["probe_evaluated_on_template_type"].astype(str)
+        ) & working["probe_training_template_type"].astype(str).ne("")
+    if "selected_choice" in working.columns:
+        working["selected_choice"] = working["selected_choice"].astype(str).str.strip().str.upper()
+    if "probe_score_source_kind" not in working.columns:
+        working["probe_score_source_kind"] = default_source_kind
+    else:
+        working["probe_score_source_kind"] = (
+            working["probe_score_source_kind"].fillna("").astype(str).replace("", default_source_kind)
+        )
+    if "probe_score_source_name" not in working.columns:
+        working["probe_score_source_name"] = default_source_name
+    else:
+        working["probe_score_source_name"] = (
+            working["probe_score_source_name"].fillna("").astype(str).replace("", default_source_name)
+        )
+    if "probe_score_source_path" not in working.columns:
+        working["probe_score_source_path"] = default_source_path
+    else:
+        working["probe_score_source_path"] = (
+            working["probe_score_source_path"].fillna("").astype(str).replace("", default_source_path)
+        )
+    return working
 
 
 def _classify_probe_pairing_semantics(
@@ -115,6 +194,12 @@ def build_paired_external_df(ctx: AnalysisContext) -> pd.DataFrame:
         df = build_sampled_responses_df(ctx)
         neutral_df = df.loc[df["template_type"].astype(str).eq("neutral")].copy()
         neutral_columns = {
+            "prompt_id": "prompt_id_x",
+            "question": "question",
+            "correct_answer": "correct_answer",
+            "incorrect_answer": "incorrect_answer",
+            "prompt_template": "prompt_template_x",
+            "prompt_text": "prompt_x",
             "response": "response_x",
             "P(selected)": "p_selected_x",
             "P(correct)": "p_correct_x",
@@ -126,8 +211,22 @@ def build_paired_external_df(ctx: AnalysisContext) -> pd.DataFrame:
 
         paired_frames = []
         join_keys = [column for column in ["question_id", "split", "draw_idx"] if column in df.columns]
-        meta_columns = [column for column in ["dataset", "correct_letter", "incorrect_letter"] if column in neutral_df.columns]
-        neutral_keep = join_keys + meta_columns + list(neutral_columns.values())
+        meta_columns = [
+            column
+            for column in [
+                "dataset",
+                "correct_letter",
+                "incorrect_letter",
+                "question",
+                "correct_answer",
+                "incorrect_answer",
+                "prompt_id_x",
+                "prompt_template_x",
+                "prompt_x",
+            ]
+            if column in neutral_df.columns
+        ]
+        neutral_keep = list(dict.fromkeys(join_keys + meta_columns + list(neutral_columns.values())))
         neutral_keep = [column for column in neutral_keep if column in neutral_df.columns]
         neutral_df = neutral_df[neutral_keep].drop_duplicates(subset=join_keys)
 
@@ -140,6 +239,9 @@ def build_paired_external_df(ctx: AnalysisContext) -> pd.DataFrame:
         ):
             bias_df = df.loc[df["template_type"].astype(str).eq(bias_type)].copy()
             bias_columns = {
+                "prompt_id": "prompt_id_xprime",
+                "prompt_template": "prompt_template_xprime",
+                "prompt_text": "prompt_with_bias",
                 "response": "response_xprime",
                 "P(selected)": "p_selected_xprime",
                 "P(correct)": "p_correct_xprime",
@@ -148,12 +250,12 @@ def build_paired_external_df(ctx: AnalysisContext) -> pd.DataFrame:
             for letter in "ABCDE":
                 bias_columns[f"P({letter})"] = f"p_xprime_{letter}"
             bias_df = bias_df.rename(columns=bias_columns)
-            bias_keep = join_keys + list(bias_columns.values())
+            bias_keep = list(dict.fromkeys(join_keys + list(bias_columns.values())))
             if "incorrect_letter" in bias_df.columns:
                 bias_keep.append("incorrect_letter")
             if "correct_letter" in bias_df.columns:
                 bias_keep.append("correct_letter")
-            bias_keep = [column for column in bias_keep if column in bias_df.columns]
+            bias_keep = [column for column in list(dict.fromkeys(bias_keep)) if column in bias_df.columns]
             merged = neutral_df.merge(
                 bias_df[bias_keep].drop_duplicates(subset=join_keys),
                 on=join_keys,
@@ -172,36 +274,56 @@ def build_paired_external_df(ctx: AnalysisContext) -> pd.DataFrame:
 
 def build_probe_scores_df(ctx: AnalysisContext) -> pd.DataFrame:
     def _builder() -> pd.DataFrame:
-        df = ctx.probe_scores_by_prompt.copy()
-        if df.empty:
-            return df
-        score_columns = [
-            column
-            for column in df.columns
-            if column.startswith(PROBE_SCORE_COLUMNS_PREFIX) or column.startswith("probe_score_")
-        ]
-        for column in score_columns:
-            df[column] = pd.to_numeric(df[column], errors="coerce")
-        if "probe_training_template_type" not in df.columns:
-            df["probe_training_template_type"] = df.get("probe_name", pd.Series(dtype=str)).map(
-                _probe_training_template_type_from_name
-            )
-        if "probe_evaluated_on_template_type" not in df.columns:
-            df["probe_evaluated_on_template_type"] = (
-                df.get("template_type", pd.Series(dtype=str)).fillna("").astype(str)
-            )
-        if "probe_is_neutral_family" not in df.columns:
-            df["probe_is_neutral_family"] = df["probe_training_template_type"].astype(str).eq("neutral")
-        if "probe_matches_evaluated_template" not in df.columns:
-            df["probe_matches_evaluated_template"] = (
-                df["probe_training_template_type"].astype(str)
-                == df["probe_evaluated_on_template_type"].astype(str)
-            ) & df["probe_training_template_type"].astype(str).ne("")
-        if "selected_choice" in df.columns:
-            df["selected_choice"] = df["selected_choice"].astype(str).str.strip().str.upper()
-        return df
+        return _normalize_probe_scores_df(
+            ctx.probe_scores_by_prompt.copy(),
+            default_source_kind="standard",
+            default_source_name="probe_scores_by_prompt",
+            default_source_path=str((ctx.run_dir / "probes" / "probe_scores_by_prompt.csv").resolve()),
+        )
 
     return _cached_frame(ctx, "probe_scores_df", _builder)
+
+
+def build_backfill_probe_scores_df(ctx: AnalysisContext) -> pd.DataFrame:
+    def _builder() -> pd.DataFrame:
+        backfills_root = ctx.run_dir / "probes" / "backfills"
+        if not backfills_root.exists():
+            return pd.DataFrame()
+
+        frames: list[pd.DataFrame] = []
+        for path in sorted(backfills_root.glob("**/probe_scores_by_prompt.csv")):
+            raw_df = pd.read_csv(path)
+            raw_df["probe_score_source_kind"] = "backfill"
+            raw_df["probe_score_source_name"] = path.parent.name
+            raw_df["probe_score_source_path"] = str(path.resolve())
+            metadata_path = path.parent / "metadata.json"
+            if metadata_path.exists():
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                raw_df["probe_backfill_artifact_kind"] = str(metadata.get("artifact_kind", "") or "")
+                raw_df["probe_backfill_created_at_utc"] = str(metadata.get("created_at_utc", "") or "")
+            frames.append(raw_df)
+
+        if not frames:
+            return pd.DataFrame()
+        combined = pd.concat(frames, ignore_index=True)
+        return _normalize_probe_scores_df(
+            combined,
+            default_source_kind="backfill",
+            default_source_name="backfill",
+            default_source_path="",
+        )
+
+    return _cached_frame(ctx, "backfill_probe_scores_df", _builder)
+
+
+def build_all_available_probe_scores_df(ctx: AnalysisContext) -> pd.DataFrame:
+    def _builder() -> pd.DataFrame:
+        frames = [frame for frame in [build_probe_scores_df(ctx), build_backfill_probe_scores_df(ctx)] if not frame.empty]
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
+    return _cached_frame(ctx, "all_available_probe_scores_df", _builder)
 
 
 def build_probe_option_long_df(ctx: AnalysisContext) -> pd.DataFrame:
@@ -342,6 +464,174 @@ def build_all_probe_layer_metrics_df(ctx: AnalysisContext) -> pd.DataFrame:
         return pd.DataFrame(rows)
 
     return _cached_frame(ctx, "all_probe_layer_metrics_df", _builder)
+
+
+def _probe_prompt_dedup_priority(df: pd.DataFrame) -> pd.Series:
+    source_kind = df.get("probe_score_source_kind", pd.Series("", index=df.index)).fillna("").astype(str)
+    matched = pd.to_numeric(df.get("probe_matches_evaluated_template", False), errors="coerce").fillna(0).astype(bool)
+    return pd.Series(
+        np.select(
+            [
+                source_kind.eq("standard") & matched,
+                source_kind.eq("standard"),
+                source_kind.eq("backfill"),
+            ],
+            [0, 1, 2],
+            default=3,
+        ),
+        index=df.index,
+        dtype=int,
+    )
+
+
+def _prepare_probe_prompt_subset(
+    df: pd.DataFrame,
+    *,
+    prefix: str,
+    join_keys: list[str],
+    score_columns: list[str],
+    rename_for_bias_type_from: str | None = None,
+) -> pd.DataFrame:
+    keep_columns = [
+        column
+        for column in list(dict.fromkeys([*join_keys, *PROBE_PROMPT_METADATA_COLUMNS, *score_columns, rename_for_bias_type_from]))
+        if column in df.columns
+    ]
+    subset = df[keep_columns].copy()
+    if rename_for_bias_type_from is not None and rename_for_bias_type_from in subset.columns:
+        subset = subset.rename(columns={rename_for_bias_type_from: "bias_type"})
+    rename_map = {
+        column: f"{prefix}_{column}"
+        for column in subset.columns
+        if column not in join_keys and column != "bias_type"
+    }
+    return subset.rename(columns=rename_map)
+
+
+def build_probe_readout_matrix_df(ctx: AnalysisContext) -> pd.DataFrame:
+    def _builder() -> pd.DataFrame:
+        paired = build_paired_external_df(ctx)
+        if paired.empty:
+            return pd.DataFrame()
+
+        probe_scores = build_all_available_probe_scores_df(ctx)
+        if probe_scores.empty:
+            merged = paired.copy()
+            for prefix in (
+                "neutral_probe_on_neutral",
+                "neutral_probe_on_biased",
+                "biased_probe_on_neutral",
+                "biased_probe_on_biased",
+            ):
+                merged[f"{prefix}_available"] = False
+            merged["full_probe_matrix_available"] = False
+            return merged
+
+        join_keys = [column for column in ["split", "question_id", "draw_idx"] if column in paired.columns]
+        score_columns = sorted(
+            {
+                column
+                for column in probe_scores.columns
+                if column.startswith(PROBE_SCORE_COLUMNS_PREFIX)
+            }
+        )
+        dedup_keys = [
+            column
+            for column in ["probe_name", "split", "question_id", "draw_idx", "template_type"]
+            if column in probe_scores.columns
+        ]
+        probe_scores = probe_scores.copy()
+        probe_scores["_dedup_priority"] = _probe_prompt_dedup_priority(probe_scores)
+        probe_scores = probe_scores.sort_values(
+            by=[*dedup_keys, "_dedup_priority", "probe_score_source_name", "probe_score_source_path"],
+            kind="stable",
+        ).drop_duplicates(subset=dedup_keys, keep="first")
+
+        merged = paired.copy()
+
+        neutral_on_neutral = probe_scores.loc[
+            probe_scores["probe_name"].astype(str).eq("probe_no_bias")
+            & probe_scores["template_type"].astype(str).eq("neutral")
+        ].copy()
+        merged = merged.merge(
+            _prepare_probe_prompt_subset(
+                neutral_on_neutral,
+                prefix="neutral_probe_on_neutral",
+                join_keys=join_keys,
+                score_columns=score_columns,
+            ),
+            on=join_keys,
+            how="left",
+        )
+
+        neutral_on_biased = probe_scores.loc[
+            probe_scores["probe_name"].astype(str).eq("probe_no_bias")
+            & probe_scores["template_type"].astype(str).ne("neutral")
+        ].copy()
+        merged = merged.merge(
+            _prepare_probe_prompt_subset(
+                neutral_on_biased,
+                prefix="neutral_probe_on_biased",
+                join_keys=join_keys,
+                score_columns=score_columns,
+                rename_for_bias_type_from="template_type",
+            ),
+            on=[*join_keys, "bias_type"],
+            how="left",
+        )
+
+        biased_on_neutral = probe_scores.loc[
+            probe_scores["probe_training_template_type"].astype(str).ne("neutral")
+            & probe_scores["template_type"].astype(str).eq("neutral")
+        ].copy()
+        merged = merged.merge(
+            _prepare_probe_prompt_subset(
+                biased_on_neutral,
+                prefix="biased_probe_on_neutral",
+                join_keys=join_keys,
+                score_columns=score_columns,
+                rename_for_bias_type_from="probe_training_template_type",
+            ),
+            on=[*join_keys, "bias_type"],
+            how="left",
+        )
+
+        biased_on_biased = probe_scores.loc[
+            probe_scores["probe_training_template_type"].astype(str).ne("neutral")
+            & probe_scores["template_type"].astype(str).eq(
+                probe_scores["probe_training_template_type"].astype(str)
+            )
+        ].copy()
+        merged = merged.merge(
+            _prepare_probe_prompt_subset(
+                biased_on_biased,
+                prefix="biased_probe_on_biased",
+                join_keys=join_keys,
+                score_columns=score_columns,
+                rename_for_bias_type_from="probe_training_template_type",
+            ),
+            on=[*join_keys, "bias_type"],
+            how="left",
+        )
+
+        for prefix in (
+            "neutral_probe_on_neutral",
+            "neutral_probe_on_biased",
+            "biased_probe_on_neutral",
+            "biased_probe_on_biased",
+        ):
+            merged[f"{prefix}_available"] = (
+                merged.get(f"{prefix}_probe_name", pd.Series(index=merged.index, dtype=object)).notna()
+            )
+        merged["full_probe_matrix_available"] = (
+            merged["neutral_probe_on_neutral_available"]
+            & merged["neutral_probe_on_biased_available"]
+            & merged["biased_probe_on_neutral_available"]
+            & merged["biased_probe_on_biased_available"]
+        )
+        return merged
+
+    return _cached_frame(ctx, "probe_readout_matrix_df", _builder)
 
 
 def build_paired_probe_df(ctx: AnalysisContext) -> pd.DataFrame:
