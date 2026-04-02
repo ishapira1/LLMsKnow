@@ -186,11 +186,30 @@ def resolve_run_dir(run_dir: str) -> Path:
         path = (REPO_ROOT / path).resolve()
     else:
         path = path.resolve()
+    if path.exists() and (path / "run_config.json").exists():
+        return path
+
+    run_name = path.name
+    candidates = sorted(
+        candidate.parent
+        for candidate in (REPO_ROOT / "results" / "sycophancy_bias_probe").glob(f"**/{run_name}/run_config.json")
+    )
+    if len(candidates) == 1:
+        return candidates[0].resolve()
+    if len(candidates) > 1:
+        raise ValueError(
+            f"Run name {run_name!r} matched multiple directories under "
+            f"{REPO_ROOT / 'results' / 'sycophancy_bias_probe'}: "
+            + ", ".join(str(candidate) for candidate in candidates)
+        )
+
     if not path.exists():
-        raise FileNotFoundError(f"Run directory does not exist: {path}")
-    if not (path / "run_config.json").exists():
-        raise FileNotFoundError(f"Missing run_config.json under run directory: {path}")
-    return path
+        raise FileNotFoundError(
+            f"Run directory does not exist: {path}\n"
+            f"No unique run named {run_name!r} was found under "
+            f"{REPO_ROOT / 'results' / 'sycophancy_bias_probe'} either."
+        )
+    raise FileNotFoundError(f"Missing run_config.json under run directory: {path}")
 
 
 def load_jsonl_records(path: Path) -> List[Dict[str, Any]]:

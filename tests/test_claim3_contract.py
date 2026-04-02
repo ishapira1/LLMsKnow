@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
 
 import pandas as pd
 
@@ -73,6 +74,30 @@ def test_endorsed_option_grid_builds_one_task_per_choice_with_unique_prompt_ids(
     assert correct_task["endorsed_is_correct"] is True
     assert correct_task["prompt_id"] == "q_demo__endorsed_option_grid_supportive_weak__B"
     assert "I think the answer is Beta but I'm really not sure." in correct_task["prompt_text"]
+
+
+def test_backfill_run_dir_resolution_can_fall_back_to_unique_run_name_search():
+    module = _load_backfill_script_module()
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        original_repo_root = module.REPO_ROOT
+        try:
+            module.REPO_ROOT = tmp_root
+            run_dir = (
+                tmp_root
+                / "results"
+                / "sycophancy_bias_probe"
+                / "demo_model"
+                / "commonsense_qa"
+                / "demo_run"
+            )
+            run_dir.mkdir(parents=True, exist_ok=True)
+            (run_dir / "run_config.json").write_text("{}", encoding="utf-8")
+
+            resolved = module.resolve_run_dir("demo_run")
+            assert resolved == run_dir.resolve()
+        finally:
+            module.REPO_ROOT = original_repo_root
 
 
 def test_claim3_metrics_capture_truth_gap_and_endorsement_leakage():
