@@ -581,6 +581,849 @@ def _preservation_source() -> str:
     ).strip()
 
 
+def _simplex_source() -> str:
+    return dedent(
+        r"""
+        from matplotlib.collections import LineCollection
+        from matplotlib.colors import Normalize
+        from matplotlib.lines import Line2D
+
+        SQRT3_OVER_2 = np.sqrt(3) / 2
+        SIMPLEX_VERTICES = {
+            "other": np.array([0.0, 0.0]),
+            "bias": np.array([1.0, 0.0]),
+            "correct": np.array([0.5, SQRT3_OVER_2]),
+        }
+
+
+        def simplex_to_xy(p_correct: object, p_bias: object) -> tuple[object, object]:
+            p_correct = pd.to_numeric(p_correct, errors="coerce")
+            p_bias = pd.to_numeric(p_bias, errors="coerce")
+            return p_bias + 0.5 * p_correct, SQRT3_OVER_2 * p_correct
+
+
+        def barycentric_to_xy(p_correct: float, p_bias: float, p_other: float) -> np.ndarray:
+            return np.array([p_bias + 0.5 * p_correct, SQRT3_OVER_2 * p_correct], dtype=float)
+
+
+        def simplex_xy_mask(x: np.ndarray, y: np.ndarray, tol: float = 1e-9) -> np.ndarray:
+            return (
+                (x >= -tol)
+                & (x <= 1.0 + tol)
+                & (y >= -tol)
+                & (y <= SQRT3_OVER_2 + tol)
+                & (y <= np.sqrt(3) * x + tol)
+                & (y <= np.sqrt(3) * (1.0 - x) + tol)
+            )
+
+
+        def simplex_segment_for_constant(component: str, value: float) -> np.ndarray:
+            value = float(value)
+            if component == "correct":
+                return np.vstack(
+                    [
+                        barycentric_to_xy(value, 0.0, 1.0 - value),
+                        barycentric_to_xy(value, 1.0 - value, 0.0),
+                    ]
+                )
+            if component == "bias":
+                return np.vstack(
+                    [
+                        barycentric_to_xy(0.0, value, 1.0 - value),
+                        barycentric_to_xy(1.0 - value, value, 0.0),
+                    ]
+                )
+            return np.vstack(
+                [
+                    barycentric_to_xy(0.0, 1.0 - value, value),
+                    barycentric_to_xy(1.0 - value, 0.0, value),
+                ]
+            )
+
+
+        def draw_simplex_frame(ax: plt.Axes, grid_values: tuple[float, ...] = (0.25, 0.5, 0.75)) -> None:
+            boundary = np.vstack(
+                [
+                    SIMPLEX_VERTICES["other"],
+                    SIMPLEX_VERTICES["bias"],
+                    SIMPLEX_VERTICES["correct"],
+                    SIMPLEX_VERTICES["other"],
+                ]
+            )
+            ax.plot(boundary[:, 0], boundary[:, 1], color=SUPPORT_COLOR, linewidth=1.6, zorder=0)
+
+            for value in grid_values:
+                for component in ("correct", "bias", "other"):
+                    segment = simplex_segment_for_constant(component, value)
+                    ax.plot(
+                        segment[:, 0],
+                        segment[:, 1],
+                        color="#d8d8d8",
+                        linewidth=0.8,
+                        alpha=0.8,
+                        zorder=0,
+                    )
+
+            ax.text(
+                SIMPLEX_VERTICES["correct"][0],
+                SIMPLEX_VERTICES["correct"][1] + 0.05,
+                "P(correct)",
+                ha="center",
+                va="bottom",
+                fontsize=15,
+            )
+            ax.text(
+                SIMPLEX_VERTICES["other"][0] - 0.03,
+                SIMPLEX_VERTICES["other"][1] - 0.05,
+                "P(other)",
+                ha="right",
+                va="top",
+                fontsize=15,
+            )
+            ax.text(
+                SIMPLEX_VERTICES["bias"][0] + 0.03,
+                SIMPLEX_VERTICES["bias"][1] - 0.05,
+                "P(biased wrong)",
+                ha="left",
+                va="top",
+                fontsize=15,
+            )
+            ax.set_xlim(-0.14, 1.14)
+            ax.set_ylim(-0.14, SQRT3_OVER_2 + 0.14)
+            ax.set_aspect("equal")
+            ax.axis("off")
+
+
+        def build_simplex_shift_df(df: pd.DataFrame) -> pd.DataFrame:
+            working = df.copy()
+            working["p_c_before"] = pd.to_numeric(working["p_correct_x"], errors="coerce")
+            working["p_c_after"] = pd.to_numeric(working["p_correct_xprime"], errors="coerce")
+            working["p_b_before"] = working.apply(
+                lambda row: score_value(row, "p_x_", row["incorrect_letter"]),
+                axis=1,
+            )
+            working["p_b_after"] = working.apply(
+                lambda row: score_value(row, "p_xprime_", row["incorrect_letter"]),
+                axis=1,
+            )
+            working["p_other_before"] = 1.0 - working["p_c_before"] - working["p_b_before"]
+            working["p_other_after"] = 1.0 - working["p_c_after"] - working["p_b_after"]
+
+            probability_columns = [
+                "p_c_before",
+                "p_b_before",
+                "p_other_before",
+                "p_c_after",
+                "p_b_after",
+                "p_other_after",
+            ]
+            for column in probability_columns:
+                working[column] = pd.to_numeric(working[column], errors="coerce").clip(lower=0.0, upper=1.0)
+
+            working = working.dropna(subset=probability_columns).copy()
+            before_total = working[["p_c_before", "p_b_before", "p_other_before"]].sum(axis=1)
+            after_total = working[["p_c_after", "p_b_after", "p_other_after"]].sum(axis=1)
+            working = working.loc[before_total.gt(0) & after_total.gt(0)].copy()
+
+            working[["p_c_before", "p_b_before", "p_other_before"]] = working[
+                ["p_c_before", "p_b_before", "p_other_before"]
+            ].div(before_total.loc[working.index], axis=0)
+            working[["p_c_after", "p_b_after", "p_other_after"]] = working[
+                ["p_c_after", "p_b_after", "p_other_after"]
+            ].div(after_total.loc[working.index], axis=0)
+
+            working["x_before"], working["y_before"] = simplex_to_xy(working["p_c_before"], working["p_b_before"])
+            working["x_after"], working["y_after"] = simplex_to_xy(working["p_c_after"], working["p_b_after"])
+            working["delta_p_correct"] = working["p_c_after"] - working["p_c_before"]
+            working["delta_p_bias"] = working["p_b_after"] - working["p_b_before"]
+            working["delta_p_other"] = working["p_other_after"] - working["p_other_before"]
+            return working[
+                [
+                    "run_key",
+                    "run_label",
+                    "model_label",
+                    "dataset_label",
+                    "question_id",
+                    "draw_idx",
+                    "correct_letter",
+                    "incorrect_letter",
+                    "p_c_before",
+                    "p_b_before",
+                    "p_other_before",
+                    "p_c_after",
+                    "p_b_after",
+                    "p_other_after",
+                    "x_before",
+                    "y_before",
+                    "x_after",
+                    "y_after",
+                    "delta_p_correct",
+                    "delta_p_bias",
+                    "delta_p_other",
+                ]
+            ].reset_index(drop=True)
+
+
+        def build_smoothed_flow_df(
+            subset: pd.DataFrame,
+            *,
+            bandwidth: float = 0.075,
+            grid_nx: int = 17,
+            grid_ny: int = 15,
+        ) -> pd.DataFrame:
+            if subset.empty:
+                return pd.DataFrame()
+
+            x_before = subset["x_before"].to_numpy(dtype=float)
+            y_before = subset["y_before"].to_numpy(dtype=float)
+            dx = (subset["x_after"] - subset["x_before"]).to_numpy(dtype=float)
+            dy = (subset["y_after"] - subset["y_before"]).to_numpy(dtype=float)
+
+            x_grid = np.linspace(0.05, 0.95, grid_nx)
+            y_grid = np.linspace(0.04, SQRT3_OVER_2 - 0.04, grid_ny)
+
+            rows = []
+            for x0 in x_grid:
+                for y0 in y_grid:
+                    if not simplex_xy_mask(np.array([x0]), np.array([y0]))[0]:
+                        continue
+                    dist2 = np.square(x_before - x0) + np.square(y_before - y0)
+                    weights = np.exp(-0.5 * dist2 / (bandwidth ** 2))
+                    total_weight = float(weights.sum())
+                    if total_weight <= 1e-12:
+                        continue
+                    effective_n = float((total_weight ** 2) / np.square(weights).sum())
+                    mean_dx = float(np.dot(weights, dx) / total_weight)
+                    mean_dy = float(np.dot(weights, dy) / total_weight)
+                    rows.append(
+                        {
+                            "x": x0,
+                            "y": y0,
+                            "dx": mean_dx,
+                            "dy": mean_dy,
+                            "magnitude": float(np.hypot(mean_dx, mean_dy)),
+                            "effective_n": effective_n,
+                            "weight_mass": total_weight,
+                        }
+                    )
+
+            flow_df = pd.DataFrame(rows)
+            if flow_df.empty:
+                return flow_df
+
+            min_effective_n = max(8.0, 0.015 * len(subset))
+            magnitude_cutoff = float(flow_df["magnitude"].quantile(0.35))
+            return flow_df.loc[
+                flow_df["effective_n"].ge(min_effective_n)
+                & flow_df["magnitude"].ge(magnitude_cutoff)
+            ].reset_index(drop=True)
+
+
+        def build_smoothed_start_magnitude_df(
+            subset: pd.DataFrame,
+            *,
+            bandwidth: float = 0.08,
+            grid_nx: int = 45,
+            grid_ny: int = 38,
+        ) -> pd.DataFrame:
+            if subset.empty:
+                return pd.DataFrame()
+
+            x_before = subset["x_before"].to_numpy(dtype=float)
+            y_before = subset["y_before"].to_numpy(dtype=float)
+            magnitude_xy = np.hypot(
+                (subset["x_after"] - subset["x_before"]).to_numpy(dtype=float),
+                (subset["y_after"] - subset["y_before"]).to_numpy(dtype=float),
+            )
+            magnitude_prob = np.sqrt(
+                np.square(subset["delta_p_correct"].to_numpy(dtype=float))
+                + np.square(subset["delta_p_bias"].to_numpy(dtype=float))
+                + np.square(subset["delta_p_other"].to_numpy(dtype=float))
+            )
+
+            x_grid = np.linspace(0.0, 1.0, grid_nx)
+            y_grid = np.linspace(0.0, SQRT3_OVER_2, grid_ny)
+
+            rows = []
+            for x0 in x_grid:
+                for y0 in y_grid:
+                    if not simplex_xy_mask(np.array([x0]), np.array([y0]))[0]:
+                        continue
+                    dist2 = np.square(x_before - x0) + np.square(y_before - y0)
+                    weights = np.exp(-0.5 * dist2 / (bandwidth ** 2))
+                    total_weight = float(weights.sum())
+                    if total_weight <= 1e-12:
+                        continue
+                    effective_n = float((total_weight ** 2) / np.square(weights).sum())
+                    rows.append(
+                        {
+                            "x": x0,
+                            "y": y0,
+                            "mean_magnitude_xy": float(np.dot(weights, magnitude_xy) / total_weight),
+                            "mean_magnitude_prob": float(np.dot(weights, magnitude_prob) / total_weight),
+                            "effective_n": effective_n,
+                            "weight_mass": total_weight,
+                        }
+                    )
+            return pd.DataFrame(rows)
+
+
+        def draw_simplex_background_magnitude(
+            ax: plt.Axes,
+            magnitude_df: pd.DataFrame,
+            *,
+            value_col: str,
+            norm: Normalize,
+            cmap: str = "YlOrBr",
+        ) -> None:
+            if magnitude_df.empty:
+                return
+
+            ax.scatter(
+                magnitude_df["x"],
+                magnitude_df["y"],
+                c=magnitude_df[value_col],
+                cmap=cmap,
+                norm=norm,
+                s=58,
+                marker="s",
+                linewidths=0,
+                alpha=0.9,
+                zorder=0,
+                rasterized=True,
+            )
+
+
+        simplex_df = build_simplex_shift_df(item_df)
+        simplex_df.to_csv(TABLE_DIR / "08_simplex_probability_shift_points.csv", index=False)
+
+        model_order = list(dict.fromkeys(spec["model_label"] for spec in RUN_SPECS))
+        dataset_order = list(dict.fromkeys(spec["dataset_label"] for spec in RUN_SPECS))
+
+        fig, axes = plt.subplots(
+            len(model_order),
+            len(dataset_order),
+            figsize=(14.5, 13.5),
+            sharex=True,
+            sharey=True,
+        )
+        axes = np.atleast_2d(axes)
+
+        for row_idx, model_label in enumerate(model_order):
+            for col_idx, dataset_label in enumerate(dataset_order):
+                ax = axes[row_idx, col_idx]
+                draw_simplex_frame(ax)
+                subset = simplex_df.loc[
+                    simplex_df["model_label"].eq(model_label)
+                    & simplex_df["dataset_label"].eq(dataset_label)
+                ].copy()
+
+                if subset.empty:
+                    ax.text(0.5, 0.5, "No data", transform=ax.transAxes, ha="center", va="center", fontsize=15)
+                    continue
+
+                segments = [
+                    ((x_before, y_before), (x_after, y_after))
+                    for x_before, y_before, x_after, y_after in zip(
+                        subset["x_before"],
+                        subset["y_before"],
+                        subset["x_after"],
+                        subset["y_after"],
+                    )
+                ]
+                ax.add_collection(
+                    LineCollection(
+                        segments,
+                        colors=SUPPORT_COLOR,
+                        linewidths=0.55,
+                        alpha=0.09,
+                        zorder=1,
+                    )
+                )
+                ax.scatter(
+                    subset["x_before"],
+                    subset["y_before"],
+                    s=18,
+                    color=NEUTRAL_COLOR,
+                    alpha=0.28,
+                    edgecolors="none",
+                    zorder=2,
+                    rasterized=True,
+                )
+                ax.scatter(
+                    subset["x_after"],
+                    subset["y_after"],
+                    s=18,
+                    color=INCORRECT_COLOR,
+                    alpha=0.28,
+                    edgecolors="none",
+                    zorder=3,
+                    rasterized=True,
+                )
+                ax.text(
+                    0.03,
+                    0.97,
+                    f"n = {len(subset):,}",
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=12,
+                    color=SUPPORT_COLOR,
+                )
+                if row_idx == 0:
+                    ax.set_title(dataset_label, fontsize=20, pad=18)
+                if col_idx == 0:
+                    ax.text(
+                        -0.24,
+                        0.5,
+                        model_label,
+                        transform=ax.transAxes,
+                        rotation=90,
+                        ha="center",
+                        va="center",
+                        fontsize=18,
+                    )
+
+        legend_handles = [
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor=NEUTRAL_COLOR,
+                markeredgecolor="none",
+                markersize=8,
+                label="Before incorrect_suggestion",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor=INCORRECT_COLOR,
+                markeredgecolor="none",
+                markersize=8,
+                label="After incorrect_suggestion",
+            ),
+            Line2D(
+                [0, 1],
+                [0, 0],
+                color=SUPPORT_COLOR,
+                linewidth=1.4,
+                alpha=0.35,
+                label="Per-item shift",
+            ),
+        ]
+        fig.legend(
+            handles=legend_handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.06),
+            ncol=3,
+            frameon=True,
+            fontsize=12,
+        )
+        fig.suptitle(
+            "Incorrect-Suggestion Shift in the P(correct) / P(biased wrong) / P(other) Simplex",
+            fontsize=24,
+            y=0.965,
+        )
+        fig.text(
+            0.5,
+            0.93,
+            "Each neutral-prompt point is connected to its paired incorrect-suggestion point for the same item.",
+            ha="center",
+            va="top",
+            fontsize=14,
+        )
+        fig.subplots_adjust(left=0.14, right=0.98, top=0.89, bottom=0.13, wspace=0.08, hspace=0.12)
+        simplex_plot_path = PLOT_DIR / "04_simplex_probability_shift_2x2.pdf"
+        fig.savefig(simplex_plot_path, bbox_inches="tight")
+        plt.show()
+        plt.close(fig)
+
+        fig, axes = plt.subplots(
+            len(model_order),
+            len(dataset_order),
+            figsize=(14.5, 13.5),
+            sharex=True,
+            sharey=True,
+        )
+        axes = np.atleast_2d(axes)
+
+        for row_idx, model_label in enumerate(model_order):
+            for col_idx, dataset_label in enumerate(dataset_order):
+                ax = axes[row_idx, col_idx]
+                draw_simplex_frame(ax)
+                subset = simplex_df.loc[
+                    simplex_df["model_label"].eq(model_label)
+                    & simplex_df["dataset_label"].eq(dataset_label)
+                ].copy()
+
+                if subset.empty:
+                    ax.text(0.5, 0.5, "No data", transform=ax.transAxes, ha="center", va="center", fontsize=15)
+                    continue
+
+                flow_df = build_smoothed_flow_df(subset)
+                centroid_before = np.array([subset["x_before"].mean(), subset["y_before"].mean()], dtype=float)
+                centroid_after = np.array([subset["x_after"].mean(), subset["y_after"].mean()], dtype=float)
+
+                ax.scatter(
+                    subset["x_before"],
+                    subset["y_before"],
+                    s=8,
+                    color=NEUTRAL_COLOR,
+                    alpha=0.08,
+                    edgecolors="none",
+                    zorder=1,
+                    rasterized=True,
+                )
+                ax.scatter(
+                    subset["x_after"],
+                    subset["y_after"],
+                    s=8,
+                    color=INCORRECT_COLOR,
+                    alpha=0.08,
+                    edgecolors="none",
+                    zorder=1,
+                    rasterized=True,
+                )
+
+                if not flow_df.empty:
+                    width_scale = np.clip(flow_df["effective_n"].to_numpy(dtype=float), 8.0, 40.0)
+                    ax.quiver(
+                        flow_df["x"],
+                        flow_df["y"],
+                        flow_df["dx"],
+                        flow_df["dy"],
+                        angles="xy",
+                        scale_units="xy",
+                        scale=1.0,
+                        width=0.0045,
+                        headwidth=4.8,
+                        headlength=6.0,
+                        headaxislength=5.4,
+                        color=SUPPORT_COLOR,
+                        alpha=0.72,
+                        zorder=3,
+                    )
+                    ax.scatter(
+                        flow_df["x"],
+                        flow_df["y"],
+                        s=width_scale * 1.8,
+                        color=SUPPORT_COLOR,
+                        alpha=0.16,
+                        edgecolors="none",
+                        zorder=2,
+                    )
+
+                ax.plot(
+                    [centroid_before[0], centroid_after[0]],
+                    [centroid_before[1], centroid_after[1]],
+                    color=INCORRECT_COLOR,
+                    linewidth=2.4,
+                    alpha=0.9,
+                    zorder=4,
+                )
+                ax.scatter(
+                    [centroid_before[0]],
+                    [centroid_before[1]],
+                    s=90,
+                    color=NEUTRAL_COLOR,
+                    edgecolors="white",
+                    linewidths=0.9,
+                    zorder=5,
+                )
+                ax.scatter(
+                    [centroid_after[0]],
+                    [centroid_after[1]],
+                    s=90,
+                    color=INCORRECT_COLOR,
+                    edgecolors="white",
+                    linewidths=0.9,
+                    zorder=5,
+                )
+                ax.text(
+                    0.03,
+                    0.97,
+                    f"n = {len(subset):,}",
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=12,
+                    color=SUPPORT_COLOR,
+                )
+                if row_idx == 0:
+                    ax.set_title(dataset_label, fontsize=20, pad=18)
+                if col_idx == 0:
+                    ax.text(
+                        -0.24,
+                        0.5,
+                        model_label,
+                        transform=ax.transAxes,
+                        rotation=90,
+                        ha="center",
+                        va="center",
+                        fontsize=18,
+                    )
+
+        smooth_legend_handles = [
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor=NEUTRAL_COLOR,
+                markeredgecolor="none",
+                markersize=8,
+                label="Raw before cloud",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor=INCORRECT_COLOR,
+                markeredgecolor="none",
+                markersize=8,
+                label="Raw after cloud",
+            ),
+            Line2D(
+                [0, 1],
+                [0, 0],
+                color=SUPPORT_COLOR,
+                linewidth=2.0,
+                alpha=0.72,
+                label="Kernel-smoothed local flow",
+            ),
+            Line2D(
+                [0, 1],
+                [0, 0],
+                color=INCORRECT_COLOR,
+                linewidth=2.4,
+                alpha=0.9,
+                label="Panel mean shift",
+            ),
+        ]
+        fig.legend(
+            handles=smooth_legend_handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.06),
+            ncol=4,
+            frameon=True,
+            fontsize=12,
+        )
+        fig.suptitle(
+            "Incorrect-Suggestion Simplex: Smoothed Movement Field",
+            fontsize=24,
+            y=0.965,
+        )
+        fig.text(
+            0.5,
+            0.93,
+            "Gray arrows show locally averaged movement from the neutral cloud toward the biased cloud.",
+            ha="center",
+            va="top",
+            fontsize=14,
+        )
+        fig.subplots_adjust(left=0.14, right=0.98, top=0.89, bottom=0.13, wspace=0.08, hspace=0.12)
+        simplex_smooth_plot_path = PLOT_DIR / "05_simplex_probability_shift_smoothed_2x2.pdf"
+        fig.savefig(simplex_smooth_plot_path, bbox_inches="tight")
+        plt.show()
+        plt.close(fig)
+
+        magnitude_frames = []
+        for model_label in model_order:
+            for dataset_label in dataset_order:
+                subset = simplex_df.loc[
+                    simplex_df["model_label"].eq(model_label)
+                    & simplex_df["dataset_label"].eq(dataset_label)
+                ].copy()
+                magnitude_df = build_smoothed_start_magnitude_df(subset)
+                if magnitude_df.empty:
+                    continue
+                magnitude_df["model_label"] = model_label
+                magnitude_df["dataset_label"] = dataset_label
+                magnitude_frames.append(magnitude_df)
+
+        start_magnitude_df = pd.concat(magnitude_frames, ignore_index=True) if magnitude_frames else pd.DataFrame()
+        start_magnitude_df.to_csv(TABLE_DIR / "09_simplex_start_location_magnitude_surface.csv", index=False)
+
+        magnitude_norm = Normalize(
+            vmin=float(start_magnitude_df["mean_magnitude_xy"].min()) if not start_magnitude_df.empty else 0.0,
+            vmax=float(start_magnitude_df["mean_magnitude_xy"].max()) if not start_magnitude_df.empty else 1.0,
+        )
+
+        fig, axes = plt.subplots(
+            len(model_order),
+            len(dataset_order),
+            figsize=(14.5, 13.5),
+            sharex=True,
+            sharey=True,
+        )
+        axes = np.atleast_2d(axes)
+        cmap = plt.get_cmap("YlOrBr")
+
+        for row_idx, model_label in enumerate(model_order):
+            for col_idx, dataset_label in enumerate(dataset_order):
+                ax = axes[row_idx, col_idx]
+                subset = simplex_df.loc[
+                    simplex_df["model_label"].eq(model_label)
+                    & simplex_df["dataset_label"].eq(dataset_label)
+                ].copy()
+                magnitude_df = start_magnitude_df.loc[
+                    start_magnitude_df["model_label"].eq(model_label)
+                    & start_magnitude_df["dataset_label"].eq(dataset_label)
+                ].copy()
+
+                draw_simplex_background_magnitude(
+                    ax,
+                    magnitude_df,
+                    value_col="mean_magnitude_xy",
+                    norm=magnitude_norm,
+                    cmap="YlOrBr",
+                )
+                draw_simplex_frame(ax)
+
+                if subset.empty:
+                    ax.text(0.5, 0.5, "No data", transform=ax.transAxes, ha="center", va="center", fontsize=15)
+                    continue
+
+                flow_df = build_smoothed_flow_df(subset)
+                if not flow_df.empty:
+                    ax.quiver(
+                        flow_df["x"],
+                        flow_df["y"],
+                        flow_df["dx"],
+                        flow_df["dy"],
+                        angles="xy",
+                        scale_units="xy",
+                        scale=1.0,
+                        width=0.0042,
+                        headwidth=4.8,
+                        headlength=6.0,
+                        headaxislength=5.4,
+                        color=SUPPORT_COLOR,
+                        alpha=0.82,
+                        zorder=3,
+                    )
+
+                ax.scatter(
+                    subset["x_before"],
+                    subset["y_before"],
+                    s=7,
+                    color="white",
+                    alpha=0.14,
+                    edgecolors="none",
+                    zorder=2,
+                    rasterized=True,
+                )
+                ax.text(
+                    0.03,
+                    0.97,
+                    f"n = {len(subset):,}",
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=12,
+                    color=SUPPORT_COLOR,
+                )
+                if row_idx == 0:
+                    ax.set_title(dataset_label, fontsize=20, pad=18)
+                if col_idx == 0:
+                    ax.text(
+                        -0.24,
+                        0.5,
+                        model_label,
+                        transform=ax.transAxes,
+                        rotation=90,
+                        ha="center",
+                        va="center",
+                        fontsize=18,
+                    )
+
+            scalar_mappable = plt.cm.ScalarMappable(norm=magnitude_norm, cmap=cmap)
+            scalar_mappable.set_array([])
+
+        cbar = fig.colorbar(
+            scalar_mappable,
+            ax=axes.ravel().tolist(),
+            orientation="horizontal",
+            fraction=0.045,
+            pad=0.08,
+        )
+        cbar.set_label("Expected movement magnitude from this starting region", fontsize=15)
+        cbar.ax.tick_params(labelsize=12)
+
+        start_mag_legend_handles = [
+            Line2D(
+                [0, 1],
+                [0, 0],
+                color=SUPPORT_COLOR,
+                linewidth=2.0,
+                alpha=0.82,
+                label="Smoothed direction of movement",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor="white",
+                markeredgecolor="none",
+                markersize=7,
+                alpha=0.5,
+                label="Starting-point cloud",
+            ),
+        ]
+        fig.legend(
+            handles=start_mag_legend_handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.04),
+            ncol=2,
+            frameon=True,
+            fontsize=12,
+        )
+        fig.suptitle(
+            "Incorrect-Suggestion Simplex: How Far the Model Moves Depends on Where It Starts",
+            fontsize=24,
+            y=0.975,
+        )
+        fig.text(
+            0.5,
+            0.945,
+            "Color shows the expected size of the shift conditional on the neutral starting region; arrows show the average direction.",
+            ha="center",
+            va="top",
+            fontsize=14,
+        )
+        fig.subplots_adjust(left=0.14, right=0.98, top=0.89, bottom=0.12, wspace=0.08, hspace=0.12)
+        simplex_start_magnitude_plot_path = PLOT_DIR / "06_simplex_start_location_magnitude_2x2.pdf"
+        fig.savefig(simplex_start_magnitude_plot_path, bbox_inches="tight")
+        plt.show()
+        plt.close(fig)
+
+        display(
+            pd.DataFrame(
+                [
+                    {
+                        "artifact": "simplex_probability_shift_2x2",
+                        "path": str(simplex_plot_path),
+                    },
+                    {
+                        "artifact": "simplex_probability_shift_smoothed_2x2",
+                        "path": str(simplex_smooth_plot_path),
+                    },
+                    {
+                        "artifact": "simplex_start_location_magnitude_2x2",
+                        "path": str(simplex_start_magnitude_plot_path),
+                    },
+                ]
+            )
+        )
+        """
+    ).strip()
+
+
 def _plots_source() -> str:
     return dedent(
         r"""
@@ -763,7 +1606,11 @@ def build_notebook() -> None:
         ),
         nbformat.v4.new_code_cell(_preservation_source()),
         nbformat.v4.new_markdown_cell(
-            "## 4. Focused Plots\n\nThe plots below emphasize rank-1 correctness, within-probe margin shifts, and recovery rates. They use a fixed, high-contrast palette and place legends below the plots for easier presentation use."
+            "## 4. Probability Simplex Shift\n\nThis simplex view collapses each item into three masses: `c = P(correct)`, `b = P(biased wrong answer)`, and `other = 1 - c - b`. Teal points are the neutral prompt and orange points are the paired incorrect-suggestion prompt; faint gray segments show the movement induced by the bias."
+        ),
+        nbformat.v4.new_code_cell(_simplex_source()),
+        nbformat.v4.new_markdown_cell(
+            "## 5. Focused Plots\n\nThe plots below emphasize rank-1 correctness, within-probe margin shifts, and recovery rates. They use a fixed, high-contrast palette and place legends below the plots for easier presentation use."
         ),
         nbformat.v4.new_code_cell(_plots_source()),
     ]

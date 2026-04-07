@@ -32,6 +32,10 @@ Partition defaults in this directory:
 - `submit_arc_challenge_full_llama31_8b_20260321_seas.sh`: submits the full-dataset LLAMA `arc_challenge` overnight job.
 - `full_arc_challenge_qwen25_7b_20260322_seas.sbatch`: dated SEAS batch job for `Qwen/Qwen2.5-7B-Instruct` on the full `arc_challenge` slice, intentionally matched to the latest full-dataset LLAMA ARC job: same partition, GPU count, wall time, `mem=20G`, `split_seed=5`, `seed=5`, `probe_seed=5`, and full probe depth via `probe_layer_max=999`.
 - `submit_arc_challenge_full_qwen25_7b_20260322_seas.sh`: submits the full-dataset Qwen2.5 `arc_challenge` overnight job.
+- `backfill_bias_probes_on_neutral_20260402_seas.sbatch`: array backfill job for the four main Llama/Qwen runs that rescored saved chosen bias probes on `neutral` prompts only.
+- `submit_backfill_bias_probes_on_neutral_20260402_seas.sh`: submits the neutral-only chosen-probe backfill array job.
+- `backfill_incorrect_suggestion_cross_family_20260407_seas.sbatch`: array backfill job that auto-discovers every saved run with `probe_bias_incorrect_suggestion` and rescored that chosen probe on the non-training prompt families by default: `neutral`, `doubt_correct`, `suggest_correct`, and `model_congruent_suggestion` when present. It excludes smoke runs by default, includes backup runs by default, and overwrites the canonical `probe_bias_incorrect_suggestion_all_templates` backfill unless `FORCE_BACKFILL=0`.
+- `submit_backfill_incorrect_suggestion_cross_family_20260407_seas.sh`: computes the array size from the discovered runs and submits the incorrect-suggestion cross-family backfill job. Set `DRY_RUN=1` to print the discovered task list and the final `sbatch` command without submitting.
 - `fast_dirty.sbatch`: very quick sanity run.
 - `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
 - `fast_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
@@ -75,6 +79,8 @@ sbatch jobs/sycophancy_bias_probe/full_arc_challenge_llama31_8b_20260321_seas.sb
 bash jobs/sycophancy_bias_probe/submit_arc_challenge_full_llama31_8b_20260321_seas.sh
 sbatch jobs/sycophancy_bias_probe/full_arc_challenge_qwen25_7b_20260322_seas.sbatch
 bash jobs/sycophancy_bias_probe/submit_arc_challenge_full_qwen25_7b_20260322_seas.sh
+bash jobs/sycophancy_bias_probe/submit_backfill_bias_probes_on_neutral_20260402_seas.sh
+bash jobs/sycophancy_bias_probe/submit_backfill_incorrect_suggestion_cross_family_20260407_seas.sh
 sbatch jobs/sycophancy_bias_probe/fast_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/medium_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_seas.sbatch
