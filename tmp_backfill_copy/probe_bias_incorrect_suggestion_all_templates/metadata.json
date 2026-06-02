@@ -1,0 +1,44 @@
+{
+  "artifact_schema_version": 1,
+  "artifact_kind": "chosen_probe_cross_template_backfill",
+  "created_at_utc": "2026-04-07T13:43:29+00:00",
+  "source_run_dir": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/full_aqua_mc_llama31_8b_20260320_auto_allq_l32_seas",
+  "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+  "dataset_name": "aqua_mc",
+  "probe_name": "probe_bias_incorrect_suggestion",
+  "probe_training_template_type": "incorrect_suggestion",
+  "probe_model_path": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/full_aqua_mc_llama31_8b_20260320_auto_allq_l32_seas/probes/chosen_probe/probe_bias_incorrect_suggestion/model.pkl",
+  "probe_metadata_path": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/full_aqua_mc_llama31_8b_20260320_auto_allq_l32_seas/probes/chosen_probe/probe_bias_incorrect_suggestion/metadata.json",
+  "probe_layer": 32,
+  "probe_template_type": "incorrect_suggestion",
+  "probe_construction": "choice_candidates",
+  "probe_example_weighting": "model_probability",
+  "requested_template_types": [
+    "doubt_correct",
+    "model_congruent_suggestion",
+    "neutral",
+    "suggest_correct"
+  ],
+  "requested_splits": [
+    "test",
+    "train",
+    "val"
+  ],
+  "scored_template_types": [
+    "doubt_correct",
+    "neutral",
+    "suggest_correct"
+  ],
+  "scored_splits": [
+    "test",
+    "train",
+    "val"
+  ],
+  "n_source_records": 762,
+  "n_candidate_rows": 3810,
+  "n_prompt_rows": 762,
+  "files": {
+    "probe_candidate_scores": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/full_aqua_mc_llama31_8b_20260320_auto_allq_l32_seas/probes/backfills/probe_bias_incorrect_suggestion_all_templates/probe_candidate_scores.csv",
+    "probe_scores_by_prompt": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/full_aqua_mc_llama31_8b_20260320_auto_allq_l32_seas/probes/backfills/probe_bias_incorrect_suggestion_all_templates/probe_scores_by_prompt.csv"
+  }
+}

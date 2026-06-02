@@ -33,6 +33,12 @@ from .specs import (
     get_notebook_spec,
     list_notebook_specs,
 )
+from .transport import (
+    build_self_commitment_comparison_df,
+    build_incorrect_suggestion_transport_df,
+    summarize_transport_by_margin_quartile,
+    summarize_transport_by_subset,
+)
 
 __all__ = [
     "AnalysisCellSpec",
@@ -52,6 +58,8 @@ __all__ = [
     "build_paired_probe_df",
     "build_probe_readout_matrix_df",
     "build_probe_scores_df",
+    "build_self_commitment_comparison_df",
+    "build_incorrect_suggestion_transport_df",
     "build_sampled_responses_df",
     "get_analysis_function",
     "get_analysis_function_spec",
@@ -64,4 +72,6 @@ __all__ = [
     "safe_display_analysis_operation",
     "safe_generate_analysis_notebook",
     "safe_run_analysis_operation",
+    "summarize_transport_by_margin_quartile",
+    "summarize_transport_by_subset",
 ]

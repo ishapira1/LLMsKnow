@@ -36,6 +36,8 @@ Partition defaults in this directory:
 - `submit_backfill_bias_probes_on_neutral_20260402_seas.sh`: submits the neutral-only chosen-probe backfill array job.
 - `backfill_incorrect_suggestion_cross_family_20260407_seas.sbatch`: array backfill job that auto-discovers every saved run with `probe_bias_incorrect_suggestion` and rescored that chosen probe on the non-training prompt families by default: `neutral`, `doubt_correct`, `suggest_correct`, and `model_congruent_suggestion` when present. It excludes smoke runs by default, includes backup runs by default, and overwrites the canonical `probe_bias_incorrect_suggestion_all_templates` backfill unless `FORCE_BACKFILL=0`.
 - `submit_backfill_incorrect_suggestion_cross_family_20260407_seas.sh`: computes the array size from the discovered runs and submits the incorrect-suggestion cross-family backfill job. Set `DRY_RUN=1` to print the discovered task list and the final `sbatch` command without submitting.
+- `probe_displacement_mini_qwen25_7b_20260602_seas.sbatch`: mini analysis job for the new neutral-probe displacement decomposition on the canonical `Qwen/Qwen2.5-7B-Instruct` `arc_challenge` run. By default it analyzes the `test` split with `probe_no_bias` on the first `64` paired neutral-correct questions and writes notebook-friendly CSV artifacts under `analysis/probe_displacement_decomposition_mini_q64/` inside the saved run directory. Override `MAX_QUESTIONS`, `OUTPUT_DIR`, `RUN_DIR`, `PROBE_NAME`, `DEVICE`, or `USE_DEVICE_MAP_AUTO=1` via the environment when submitting.
+- `submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh`: submits the mini Qwen2.5 ARC probe-displacement job. Set `DRY_RUN=1` to print the final `sbatch` command without submitting.
 - `fast_dirty.sbatch`: very quick sanity run.
 - `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
 - `fast_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
@@ -81,6 +83,8 @@ sbatch jobs/sycophancy_bias_probe/full_arc_challenge_qwen25_7b_20260322_seas.sba
 bash jobs/sycophancy_bias_probe/submit_arc_challenge_full_qwen25_7b_20260322_seas.sh
 bash jobs/sycophancy_bias_probe/submit_backfill_bias_probes_on_neutral_20260402_seas.sh
 bash jobs/sycophancy_bias_probe/submit_backfill_incorrect_suggestion_cross_family_20260407_seas.sh
+bash jobs/sycophancy_bias_probe/submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh
+MAX_QUESTIONS=32 bash jobs/sycophancy_bias_probe/submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh
 sbatch jobs/sycophancy_bias_probe/fast_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/medium_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_seas.sbatch
