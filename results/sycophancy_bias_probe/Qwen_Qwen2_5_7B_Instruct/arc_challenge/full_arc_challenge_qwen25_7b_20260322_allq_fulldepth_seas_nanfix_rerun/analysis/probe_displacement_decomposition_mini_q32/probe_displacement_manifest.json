@@ -1,0 +1,46 @@
+{
+  "created_at_utc": "2026-06-02T12:28:27+00:00",
+  "run_dir": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun",
+  "output_dir": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun/analysis/probe_displacement_decomposition_mini_q32",
+  "model_name": "Qwen/Qwen2.5-7B-Instruct",
+  "dataset_name": "arc_challenge",
+  "requested_split": "test",
+  "probe_name": "probe_no_bias",
+  "probe_training_template_type": "neutral",
+  "probe_layer": 27,
+  "conditions": [
+    "incorrect_suggestion",
+    "model_congruent_suggestion"
+  ],
+  "candidate_roles": [
+    "correct_choice",
+    "endorsed_wrong_choice"
+  ],
+  "comparison_definition": "Teacher-forced same-candidate comparison at the final answer token. For each neutral-correct question, compare neutral vs incorrect_suggestion and neutral vs model_congruent_suggestion for the gold answer c and the incorrect-suggestion endorsed wrong answer b.",
+  "congruent_wrong_choice_convention": "Reuse the incorrect_suggestion endorsed wrong answer b under the congruent prompt as well.",
+  "record_counts": {
+    "base_sampling_records": 10360,
+    "congruent_sampling_records": 1172,
+    "paired_question_count": 32,
+    "pairwise_rows": 128,
+    "summary_rows": 6
+  },
+  "coverage_summary": {
+    "included": 32,
+    "neutral_not_correct": 3
+  },
+  "source_artifacts": {
+    "base_sampling_records": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun/logs/sampling_records.jsonl",
+    "congruent_sampling_records": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun/sampling_backfills/model_congruent_suggestion/sampling_records.jsonl",
+    "probe_metadata": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun/probes/chosen_probe/probe_no_bias/metadata.json",
+    "probe_model": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun/probes/chosen_probe/probe_no_bias/model.pkl"
+  },
+  "dry_run": false,
+  "files": {
+    "pairwise_probe_displacement_csv": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun/analysis/probe_displacement_decomposition_mini_q32/pairwise_probe_displacement.csv",
+    "probe_displacement_summary_csv": "/n/home12/ishapira/LLMsKnow/results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260322_allq_fulldepth_seas_nanfix_rerun/analysis/probe_displacement_decomposition_mini_q32/probe_displacement_summary.csv"
+  },
+  "resolved_device": "cuda",
+  "hf_cache_dir": "/n/holystore01/LABS/barak_lab/Users/ishapira/hf_cache",
+  "probe_weight_norm": 5.356490697277465
+}
