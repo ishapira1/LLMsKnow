@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from llmssycoph.cli import parse_args
 from llmssycoph.pipeline import (
+    PROBE_STAGE_SUBSTAGE_LABELS,
+    _apply_fresh_run_overrides,
     _apply_model_backend_overrides,
     _format_group_example_lines,
     _format_parsed_argument_lines,
@@ -39,6 +41,19 @@ def _subprocess_env() -> dict[str, str]:
 
 
 class PipelineContractTests(unittest.TestCase):
+    def test_probe_stage_substage_sequence_is_explicit_and_stable(self):
+        self.assertEqual(
+            PROBE_STAGE_SUBSTAGE_LABELS,
+            (
+                "probe record-set assembly",
+                "probe eval-cache prep and layer selection",
+                "probe retraining and in-family scoring",
+                "cross-family evaluation and candidate rescoring",
+                "probe artifact persistence and manifests",
+            ),
+        )
+        self.assertEqual(len(PROBE_STAGE_SUBSTAGE_LABELS), len(set(PROBE_STAGE_SUBSTAGE_LABELS)))
+
     def _local_import_graph(self, entry: Path) -> list[str]:
         root = ROOT.resolve()
         src_root = SRC_ROOT.resolve()
@@ -113,6 +128,24 @@ class PipelineContractTests(unittest.TestCase):
         self.assertIn("derived settings:", joined)
         self.assertIn("mc_mode", joined)
         self.assertNotIn('{"', joined)
+
+    def test_apply_fresh_run_overrides_marks_requested_name_and_generates_isolated_run_name(self):
+        args = parse_args(["--fresh_run", "--run_name", "main_run"])
+
+        with patch("llmssycoph.pipeline.build_fresh_run_name", return_value="main_run__fresh__token123"):
+            _apply_fresh_run_overrides(args)
+
+        self.assertTrue(args.no_reuse_sampling_cache)
+        self.assertEqual(args.requested_run_name, "main_run")
+        self.assertEqual(args.run_name, "main_run__fresh__token123")
+
+    def test_apply_fresh_run_overrides_keeps_existing_run_name_when_disabled(self):
+        args = parse_args(["--run_name", "main_run"])
+
+        _apply_fresh_run_overrides(args)
+
+        self.assertEqual(args.requested_run_name, "main_run")
+        self.assertEqual(args.run_name, "main_run")
 
     def test_group_example_lines_pretty_print_prompt_messages(self):
         example = {

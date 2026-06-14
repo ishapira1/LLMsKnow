@@ -857,6 +857,53 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual(len(records), 2)
         self.assertTrue(all(record["sampling_mode"] == "generation" for record in records))
 
+    def test_sample_records_for_groups_carries_source_and_instruction_metadata(self):
+        groups = [make_strict_mc_group("q_meta")]
+        for row in groups[0]["rows_by_type"].values():
+            row["base"].update(
+                {
+                    "instruction_policy": "answer_only",
+                    "source_dataset": "commonsense_qa",
+                    "source_split": "test",
+                    "source_example_id": "csqa-test-1",
+                    "bias_construction_mode": "bias_variants_generated_locally",
+                }
+            )
+
+        class FakeLLM:
+            def score_choices(self, messages, choices):
+                del messages, choices
+                return {"A": 0.05, "B": 0.1, "C": 0.8, "D": 0.05}
+
+        with patch("llmssycoph.llm.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])):
+            records, stats = sample_records_for_groups(
+                llm=FakeLLM(),
+                groups=groups,
+                split_name="test",
+                bias_types=["incorrect_suggestion"],
+                n_draws=1,
+                temperature=0.1,
+                top_p=1.0,
+                max_new_tokens=32,
+                sample_batch_size=1,
+                existing_records=None,
+                checkpoint_every=0,
+                progress_callback=None,
+                start_id=0,
+            )
+
+        self.assertEqual(stats["generated_records"], 2)
+        self.assertEqual(len(records), 2)
+        self.assertEqual({record["instruction_policy"] for record in records}, {"answer_only"})
+        self.assertEqual({record["response_prefix"] for record in records}, {"Answer:"})
+        self.assertEqual({record["source_dataset"] for record in records}, {"commonsense_qa"})
+        self.assertEqual({record["source_split"] for record in records}, {"test"})
+        self.assertEqual({record["source_example_id"] for record in records}, {"csqa-test-1"})
+        self.assertEqual(
+            {record["bias_construction_mode"] for record in records},
+            {"bias_variants_generated_locally"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

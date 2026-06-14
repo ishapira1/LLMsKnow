@@ -4,16 +4,27 @@ from typing import Dict, List, Sequence, Type
 
 from .agreement_bias import AgreementBias
 from .doubt_correct_bias import DoubtCorrectBias
+from .doubt_correct_strong_bias import DoubtCorrectStrongBias
 from .incorrect_suggestion_bias import IncorrectSuggestionBias
+from .incorrect_suggestion_strong_bias import IncorrectSuggestionStrongBias
 from .neutral_bias import NeutralBias
 from .suggest_correct_bias import SuggestCorrectBias
+from .suggest_correct_strong_bias import SuggestCorrectStrongBias
+from .suggest_random_bias import SuggestRandomBias
+from .suggest_random_strong_bias import SuggestRandomStrongBias
+from ..prompt_families import resolve_prompt_families
 
 
 AGREEMENT_BIAS_TYPES: tuple[Type[AgreementBias], ...] = (
     NeutralBias,
     IncorrectSuggestionBias,
+    IncorrectSuggestionStrongBias,
     DoubtCorrectBias,
+    DoubtCorrectStrongBias,
     SuggestCorrectBias,
+    SuggestCorrectStrongBias,
+    SuggestRandomBias,
+    SuggestRandomStrongBias,
 )
 AGREEMENT_BIAS_REGISTRY: Dict[str, Type[AgreementBias]] = {
     bias_type.name: bias_type for bias_type in AGREEMENT_BIAS_TYPES
@@ -35,16 +46,11 @@ def resolve_agreement_biases(
     *,
     include_neutral: bool = False,
 ) -> List[AgreementBias]:
-    ordered_names = [str(name).strip() for name in names if str(name).strip()]
-    if include_neutral:
-        ordered_names = ["neutral", *ordered_names]
-    seen = set()
     resolved: List[AgreementBias] = []
-    for name in ordered_names:
-        if name in seen:
+    for prompt_family in resolve_prompt_families(names, include_neutral=include_neutral):
+        if prompt_family.family_id not in AGREEMENT_BIAS_REGISTRY:
             continue
-        resolved.append(get_agreement_bias(name))
-        seen.add(name)
+        resolved.append(get_agreement_bias(prompt_family.family_id))
     return resolved
 
 

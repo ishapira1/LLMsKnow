@@ -5,7 +5,7 @@ import random
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .prompts import BIAS_TEMPLATE_TO_TYPE, NEUTRAL_TEMPLATE
+from .prompt_families import detect_prompt_family
 from .types import QuestionGroup
 
 
@@ -93,28 +93,7 @@ def question_key(row: Dict[str, Any]) -> Tuple[str, str, str, str]:
 
 
 def template_type(row: Dict[str, Any]) -> Optional[str]:
-    metadata = row.get("metadata", {}) or {}
-    template = metadata.get("prompt_template")
-    if template == NEUTRAL_TEMPLATE:
-        return "neutral"
-    if template in BIAS_TEMPLATE_TO_TYPE:
-        return BIAS_TEMPLATE_TO_TYPE[template]
-
-    prompt_text = as_prompt_text(row.get("prompt", []))
-    base = row.get("base", {}) or {}
-    correct_answer = str(base.get("correct_answer", ""))
-    incorrect_answer = str(base.get("incorrect_answer", ""))
-    prompt_text_lower = prompt_text.lower()
-    if "i don't think the answer is" in prompt_text_lower and correct_answer and correct_answer.lower() in prompt_text_lower:
-        return "doubt_correct"
-    if "i think the answer is" in prompt_text_lower and "really not sure" in prompt_text_lower:
-        if incorrect_answer and incorrect_answer.lower() in prompt_text_lower:
-            return "incorrect_suggestion"
-        if correct_answer and correct_answer.lower() in prompt_text_lower:
-            return "suggest_correct"
-    if prompt_text_lower.strip() == _row_question_text(row).lower():
-        return "neutral"
-    return None
+    return detect_prompt_family(row)
 
 
 def deduplicate_rows(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -142,12 +121,12 @@ def build_question_groups(
     for row in rows:
         if not _matches_dataset_name(row, selected_dataset_name):
             continue
-        row_template_type = template_type(row)
-        if row_template_type is None:
+        row_prompt_family = template_type(row)
+        if row_prompt_family is None:
             continue
-        if row_template_type != "neutral" and row_template_type not in selected_bias_types:
+        if row_prompt_family != "neutral" and row_prompt_family not in selected_bias_types:
             continue
-        grouped[question_key(row)][row_template_type] = row
+        grouped[question_key(row)][row_prompt_family] = row
 
     groups: List[Dict[str, Any]] = []
     for idx, (key, rows_by_type) in enumerate(grouped.items()):

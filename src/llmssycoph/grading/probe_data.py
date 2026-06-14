@@ -4,6 +4,12 @@ import math
 from typing import Any, Dict, List, Sequence
 
 from ..constants import MC_MODE_STRICT
+from ..data import (
+    get_prompt_family,
+    ordered_prompt_families,
+    probe_name_for_family,
+    trainable_prompt_families,
+)
 
 
 def _records_for_template(records: Sequence[Dict[str, Any]], template_type: str) -> List[Dict[str, Any]]:
@@ -121,6 +127,7 @@ def _build_probe_family(
     val_records: Sequence[Dict[str, Any]],
     test_records: Sequence[Dict[str, Any]],
     all_records: Sequence[Dict[str, Any]],
+    evaluation_test_records: Sequence[Dict[str, Any]],
     probe_construction: str,
     probe_example_weighting: str,
 ) -> Dict[str, Any]:
@@ -128,7 +135,16 @@ def _build_probe_family(
     source_val = list(val_records)
     source_test = list(test_records)
     source_all = list(all_records)
+    evaluation_source_test = list(evaluation_test_records)
     resolved_construction = _resolve_probe_construction(source_all, probe_construction)
+    evaluation_template_types = ordered_prompt_families(
+        [record.get("template_type", "") for record in evaluation_source_test],
+        include_neutral=True,
+    )
+    cross_family_test_records_by_template = {
+        family_id: _records_for_template(evaluation_source_test, family_id)
+        for family_id in evaluation_template_types
+    }
 
     if resolved_construction == "choice_candidates":
         train_probe_records = build_choice_candidate_records(
@@ -151,11 +167,20 @@ def _build_probe_family(
             probe_name=meta_key,
             example_weighting=probe_example_weighting,
         )
+        cross_family_candidate_score_records_by_template = {
+            family_id: build_choice_candidate_records(
+                family_records,
+                probe_name=meta_key,
+                example_weighting=probe_example_weighting,
+            )
+            for family_id, family_records in cross_family_test_records_by_template.items()
+        }
     else:
         train_probe_records = source_train
         val_probe_records = source_val
         test_probe_records = source_test
         candidate_score_records = []
+        cross_family_candidate_score_records_by_template = {}
 
     return {
         "template_type": template_type,
@@ -175,6 +200,9 @@ def _build_probe_family(
             "val": val_probe_records,
             "test": test_probe_records,
         },
+        "cross_family_evaluation_template_types": list(evaluation_template_types),
+        "cross_family_test_records_by_template": cross_family_test_records_by_template,
+        "cross_family_candidate_score_records_by_template": cross_family_candidate_score_records_by_template,
         "source_split_records": {
             "train": source_train,
             "val": source_val,
@@ -192,37 +220,32 @@ def build_probe_record_sets(
     probe_construction: str = "auto",
     probe_example_weighting: str = "model_probability",
 ) -> Dict[str, Dict[str, Any]]:
-    neutral_train = _records_for_template(train_records, "neutral")
-    neutral_val = _records_for_template(val_records, "neutral")
-    neutral_test = _records_for_template(test_records, "neutral")
-    families: Dict[str, Dict[str, Any]] = {
-        "neutral": _build_probe_family(
-            template_type="neutral",
-            desc="no_bias",
-            meta_key="probe_no_bias",
-            score_key="probe_x",
-            train_records=neutral_train,
-            val_records=neutral_val,
-            test_records=neutral_test,
-            all_records=_records_for_template(all_records, "neutral"),
-            probe_construction=probe_construction,
-            probe_example_weighting=probe_example_weighting,
-        )
+    wanted_prompt_families = trainable_prompt_families(include_neutral=True)
+    enabled_prompt_families = {
+        "neutral",
+        *[str(bias_type or "").strip() for bias_type in bias_types if str(bias_type or "").strip()],
     }
-
-    for bias_type in bias_types:
-        train_subset = _records_for_template(train_records, bias_type)
-        val_subset = _records_for_template(val_records, bias_type)
-        test_subset = _records_for_template(test_records, bias_type)
-        families[bias_type] = _build_probe_family(
-            template_type=bias_type,
-            desc=f"bias:{bias_type}",
-            meta_key=f"probe_bias_{bias_type}",
-            score_key="probe_xprime",
+    families: Dict[str, Dict[str, Any]] = {}
+    for prompt_family_id in wanted_prompt_families:
+        if prompt_family_id not in enabled_prompt_families:
+            continue
+        prompt_family = get_prompt_family(prompt_family_id)
+        probe_name = probe_name_for_family(prompt_family_id)
+        if not probe_name:
+            continue
+        train_subset = _records_for_template(train_records, prompt_family_id)
+        val_subset = _records_for_template(val_records, prompt_family_id)
+        test_subset = _records_for_template(test_records, prompt_family_id)
+        families[prompt_family_id] = _build_probe_family(
+            template_type=prompt_family_id,
+            desc="no_bias" if prompt_family_id == "neutral" else f"bias:{prompt_family_id}",
+            meta_key=probe_name,
+            score_key="probe_x" if prompt_family_id == "neutral" else "probe_xprime",
             train_records=train_subset,
             val_records=val_subset,
             test_records=test_subset,
-            all_records=_records_for_template(all_records, bias_type),
+            all_records=_records_for_template(all_records, prompt_family_id),
+            evaluation_test_records=test_records,
             probe_construction=probe_construction,
             probe_example_weighting=probe_example_weighting,
         )

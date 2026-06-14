@@ -34,6 +34,7 @@ from .data import (
     deduplicate_rows,
     ensure_sycophancy_eval_cached,
     load_external_ays_mc_rows,
+    ordered_prompt_families,
     prepare_benchmark_rows,
     read_jsonl,
     resolve_ays_mc_datasets,
@@ -64,9 +65,13 @@ from .llm import (
     enumerate_expected_sample_keys,
 )
 from .probes import (
+    evaluate_probe_prompt_movement,
+    evaluate_probe_cross_family_from_caches,
     evaluate_probe_from_cache,
     filter_usable_probe_records,
+    load_paraphrase_artifact_lookup,
     maybe_subsample,
+    prepare_probe_eval_cache_by_template,
     prepare_probe_eval_cache,
     save_probe_family_artifacts,
     score_records_with_probe,
@@ -77,6 +82,7 @@ from .probes import (
 from .runtime import (
     acquire_run_lock,
     assert_resume_compatible,
+    build_fresh_run_name,
     make_run_dir,
     preferred_run_artifact_path,
     release_run_lock,
@@ -92,6 +98,15 @@ from .saving_manager import (
     refresh_runtime_summary_artifacts,
     save_run_results,
     save_sampling_integrity_summary,
+)
+
+
+PROBE_STAGE_SUBSTAGE_LABELS = (
+    "probe record-set assembly",
+    "probe eval-cache prep and layer selection",
+    "probe retraining and in-family scoring",
+    "cross-family evaluation and candidate rescoring",
+    "probe artifact persistence and manifests",
 )
 
 
@@ -165,7 +180,7 @@ def _format_group_example_lines(example: Dict[str, Any], bias_types: Sequence[st
     _append_preview_block(lines, "incorrect_answer", example.get("incorrect_answer", ""), limit=220, width=88)
 
     rows_by_type = example.get("rows_by_type", {}) or {}
-    for template_type in ["neutral", *bias_types]:
+    for template_type in ordered_prompt_families(["neutral", *bias_types], include_neutral=True):
         row = rows_by_type.get(template_type)
         if not isinstance(row, dict):
             continue
@@ -293,6 +308,16 @@ def _warn_sampling_only_split_expectations(args: Any) -> None:
     )
 
 
+def _apply_fresh_run_overrides(args: Any) -> None:
+    requested_run_name = getattr(args, "run_name", None)
+    setattr(args, "requested_run_name", requested_run_name)
+    if not bool(getattr(args, "fresh_run", False)):
+        return
+
+    args.no_reuse_sampling_cache = True
+    args.run_name = build_fresh_run_name(requested_run_name)
+
+
 def _should_preserve_dataset_source_splits(groups: Sequence[Dict[str, Any]]) -> bool:
     dataset_names = {
         str(group.get("dataset", "") or "").strip().lower()
@@ -327,7 +352,10 @@ def _count_expected_by_template(
     expected_keys: Set[tuple[str, str, str, int]],
     bias_types: Sequence[str],
 ) -> Dict[str, int]:
-    counts = {template_type: 0 for template_type in ["neutral", *bias_types]}
+    counts = {
+        template_type: 0
+        for template_type in ordered_prompt_families(["neutral", *bias_types], include_neutral=True)
+    }
     for _, _, template_type, _ in expected_keys:
         counts[template_type] = counts.get(template_type, 0) + 1
     return counts
@@ -361,7 +389,7 @@ def _row_uses_choice_scoring(row: Dict[str, Any]) -> bool:
 
 
 def _choice_scoring_coverage(groups: Sequence[Dict[str, Any]], bias_types: Sequence[str]) -> tuple[bool, bool]:
-    wanted_types = ["neutral", *bias_types]
+    wanted_types = ordered_prompt_families(["neutral", *bias_types], include_neutral=True)
     present = 0
     covered = 0
     for group in groups:
@@ -392,7 +420,7 @@ def _multiple_choice_mode_summary(
         "non_multiple_choice": 0,
     }
     for group in groups:
-        for template_type in ["neutral", *bias_types]:
+        for template_type in ordered_prompt_families(["neutral", *bias_types], include_neutral=True):
             row = group.get("rows_by_type", {}).get(template_type)
             if not isinstance(row, dict):
                 continue
@@ -486,7 +514,7 @@ def _log_sampling_plan(
         counts = _count_expected_by_template(split_expected_keys[split_name], bias_types)
         summary = " ".join(
             f"{template_type}={counts.get(template_type, 0)}"
-            for template_type in ["neutral", *bias_types]
+            for template_type in ordered_prompt_families(["neutral", *bias_types], include_neutral=True)
         )
         log_status(
             "pipeline.py",
@@ -509,7 +537,7 @@ def _log_reuse_summary(
     elif not reuse_enabled:
         log_status(
             "pipeline.py",
-            "reuse strategy: disabled by --no_reuse_sampling_cache/--override_sampling_cache",
+            "reuse strategy: disabled by --fresh_run/--no_reuse_sampling_cache/--override_sampling_cache",
         )
     elif cached_source_run is None:
         log_status("pipeline.py", "reuse strategy: no compatible cached sampling run found")
@@ -1145,6 +1173,7 @@ def run_pipeline(args) -> None:
         )
     if args.smoke_test and args.max_questions is None:
         args.max_questions = args.smoke_questions
+    _apply_fresh_run_overrides(args)
 
     run_dir = make_run_dir(
         args.out_dir,
@@ -1163,12 +1192,35 @@ def run_pipeline(args) -> None:
     run_started_perf = perf_counter()
     stage_timing_rows: List[Dict[str, Any]] = []
     current_stage_timing: Optional[Dict[str, Any]] = None
+    current_substage_timing: Optional[Dict[str, Any]] = None
+
+    def _completed_substage_rows() -> List[Dict[str, Any]]:
+        if current_stage_timing is None:
+            return []
+        return list(current_stage_timing.get("substage_rows", []))
 
     def runtime_timing_snapshot(status: str) -> Dict[str, Any]:
         now_utc = utc_now_iso()
         now_perf = perf_counter()
         stages = list(stage_timing_rows)
         if current_stage_timing is not None:
+            substages = _completed_substage_rows()
+            if current_substage_timing is not None:
+                substages.append(
+                    {
+                        "stage_index": int(current_substage_timing["stage_index"]),
+                        "stage_name": str(current_substage_timing["stage_name"]),
+                        "substage_index": int(current_substage_timing["substage_index"]),
+                        "substage_name": str(current_substage_timing["substage_name"]),
+                        "substage_status": "in_progress",
+                        "started_at_utc": current_substage_timing["started_at_utc"],
+                        "ended_at_utc": None,
+                        "duration_seconds": max(
+                            0.0,
+                            float(now_perf - float(current_substage_timing["started_perf"])),
+                        ),
+                    }
+                )
             stages.append(
                 {
                     "stage_index": int(current_stage_timing["stage_index"]),
@@ -1180,6 +1232,8 @@ def run_pipeline(args) -> None:
                         0.0,
                         float(now_perf - float(current_stage_timing["started_perf"])),
                     ),
+                    "substage_count": int(len(substages)),
+                    "substages": substages,
                 }
             )
         return {
@@ -1192,20 +1246,82 @@ def run_pipeline(args) -> None:
         }
 
     def begin_stage(index: int, message: str) -> None:
-        nonlocal current_stage_timing
+        nonlocal current_stage_timing, current_substage_timing
+        current_substage_timing = None
         current_stage_timing = {
             "stage_index": int(index),
             "stage_name": str(message),
             "started_at_utc": utc_now_iso(),
             "started_perf": perf_counter(),
+            "substage_rows": [],
+            "planned_substage_count": None,
         }
         if stage_bar is not None:
             stage_bar.set_description(tqdm_desc("pipeline.py", f"stage {index}/{stage_count} {message}"))
         log_status("pipeline.py", f"stage {index}/{stage_count}: {message}")
 
+    def begin_substage(message: str, *, total: Optional[int] = None) -> None:
+        nonlocal current_substage_timing
+        if current_stage_timing is None:
+            raise RuntimeError("cannot begin a substage without an active stage")
+        if current_substage_timing is not None:
+            finish_substage()
+        if total is not None:
+            current_stage_timing["planned_substage_count"] = int(total)
+        substage_index = int(len(_completed_substage_rows()) + 1)
+        stage_index = int(current_stage_timing["stage_index"])
+        current_substage_timing = {
+            "stage_index": stage_index,
+            "stage_name": str(current_stage_timing["stage_name"]),
+            "substage_index": substage_index,
+            "substage_name": str(message),
+            "started_at_utc": utc_now_iso(),
+            "started_perf": perf_counter(),
+        }
+        planned_total = current_stage_timing.get("planned_substage_count")
+        if stage_bar is not None:
+            if isinstance(planned_total, int) and planned_total > 0:
+                substage_label = (
+                    f"stage {stage_index}/{stage_count} substage {substage_index}/{planned_total} {message}"
+                )
+            else:
+                substage_label = f"stage {stage_index}/{stage_count} substage {substage_index} {message}"
+            stage_bar.set_description(tqdm_desc("pipeline.py", substage_label))
+        if isinstance(planned_total, int) and planned_total > 0:
+            log_status(
+                "pipeline.py",
+                f"stage {stage_index}/{stage_count} substage {substage_index}/{planned_total}: {message}",
+            )
+        else:
+            log_status("pipeline.py", f"stage {stage_index}/{stage_count} substage {substage_index}: {message}")
+
+    def finish_substage() -> None:
+        nonlocal current_substage_timing
+        if current_stage_timing is None or current_substage_timing is None:
+            return
+        ended_at_utc = utc_now_iso()
+        ended_perf = perf_counter()
+        current_stage_timing.setdefault("substage_rows", []).append(
+            {
+                "stage_index": int(current_substage_timing["stage_index"]),
+                "stage_name": str(current_substage_timing["stage_name"]),
+                "substage_index": int(current_substage_timing["substage_index"]),
+                "substage_name": str(current_substage_timing["substage_name"]),
+                "substage_status": "completed",
+                "started_at_utc": current_substage_timing["started_at_utc"],
+                "ended_at_utc": ended_at_utc,
+                "duration_seconds": max(
+                    0.0,
+                    float(ended_perf - float(current_substage_timing["started_perf"])),
+                ),
+            }
+        )
+        current_substage_timing = None
+
     def finish_stage() -> None:
         nonlocal current_stage_timing
         if current_stage_timing is not None:
+            finish_substage()
             ended_at_utc = utc_now_iso()
             ended_perf = perf_counter()
             stage_timing_rows.append(
@@ -1219,6 +1335,8 @@ def run_pipeline(args) -> None:
                         0.0,
                         float(ended_perf - float(current_stage_timing["started_perf"])),
                     ),
+                    "substage_count": int(len(current_stage_timing.get("substage_rows", []))),
+                    "substages": list(current_stage_timing.get("substage_rows", [])),
                 }
             )
             current_stage_timing = None
@@ -1251,6 +1369,16 @@ def run_pipeline(args) -> None:
         _apply_model_backend_overrides(args, resolve_llm_capabilities(args.model))
         for line in _format_parsed_argument_lines(args):
             log_status("pipeline.py", line)
+        if bool(getattr(args, "fresh_run", False)):
+            requested_run_name = _format_arg_value(getattr(args, "requested_run_name", None))
+            effective_run_name = _format_arg_value(getattr(args, "run_name", None))
+            log_status(
+                "pipeline.py",
+                "fresh run requested: "
+                f"requested_run_name={requested_run_name} "
+                f"effective_run_name={effective_run_name} "
+                "sampling_cache_reuse=disabled",
+            )
         _warn_strict_mc_temperature_bookkeeping(args)
         planned_bias_types = resolve_bias_types(args.bias_types)
         resolved_ays_mc_datasets = resolve_ays_mc_datasets(args.ays_mc_datasets)
@@ -1329,6 +1457,7 @@ def run_pipeline(args) -> None:
             selected_ays_mc_datasets=resolved_ays_mc_datasets,
             instruction_policy=args.instruction_policy,
             mc_mode=args.mc_mode,
+            seed=args.seed,
         )
         if args.benchmark_source == "ays_mc_single_turn":
             log_status(
@@ -1758,7 +1887,12 @@ def run_pipeline(args) -> None:
                     "fallback_record_field": "response",
                     "token_position": "last_token_of_full_sampled_completion",
                 }
+                probe_substage_total = len(PROBE_STAGE_SUBSTAGE_LABELS)
+                all_probe_group_summary: Dict[str, Dict[str, Any]] = {}
+                chosen_probe_group_summary: Dict[str, Dict[str, Any]] = {}
+                probe_execution_state: Dict[str, Dict[str, Any]] = {}
 
+                begin_substage(PROBE_STAGE_SUBSTAGE_LABELS[0], total=probe_substage_total)
                 probe_record_sets = build_probe_record_sets(
                     train_records=train_records,
                     val_records=val_records,
@@ -1768,18 +1902,43 @@ def run_pipeline(args) -> None:
                     probe_construction=args.probe_construction,
                     probe_example_weighting=args.probe_example_weighting,
                 )
-                all_probe_group_summary: Dict[str, Dict[str, Any]] = {}
-                chosen_probe_group_summary: Dict[str, Dict[str, Any]] = {}
-
-                def _run_probe_family_artifacts(probe_bundle: Dict[str, Any]) -> Dict[str, Any]:
+                ordered_probe_bundles = [probe_record_sets["neutral"]] + [
+                    probe_record_sets[btype] for btype in planned_bias_types
+                ]
+                paraphrase_lookup_payload = load_paraphrase_artifact_lookup(
+                    getattr(args, "paraphrase_artifact_path", "")
+                )
+                paraphrase_rows_by_key = dict(paraphrase_lookup_payload.get("rows_by_key", {}) or {})
+                paraphrase_artifact_dir = paraphrase_lookup_payload.get("artifact_dir")
+                if getattr(args, "paraphrase_artifact_path", ""):
+                    if paraphrase_rows_by_key:
+                        log_status(
+                            "pipeline.py",
+                            f"loaded paraphrase artifacts for movement eval: rows={len(paraphrase_rows_by_key)} "
+                            f"artifact_dir={paraphrase_artifact_dir}",
+                        )
+                    else:
+                        warn_status(
+                            "pipeline.py",
+                            "missing_paraphrase_artifacts",
+                            "paraphrase movement evaluation was requested, but no paraphrase rows were loaded; "
+                            f"path={getattr(args, 'paraphrase_artifact_path', '')!r}",
+                        )
+                for probe_bundle in ordered_probe_bundles:
                     log_status(
                         "pipeline.py",
-                        f"probe selection {probe_bundle['desc']}: train_records={len(probe_bundle['train_records'])} "
+                        f"probe family {probe_bundle['desc']}: train_records={len(probe_bundle['train_records'])} "
                         f"val_records={len(probe_bundle['val_records'])} test_records={len(probe_bundle['test_records'])} "
                         f"construction={probe_bundle['probe_construction']} "
                         f"weighting={probe_bundle['probe_example_weighting']}",
                     )
+                    probe_execution_state[probe_bundle["meta_key"]] = {
+                        "probe_bundle": probe_bundle,
+                    }
+                finish_substage()
 
+                begin_substage(PROBE_STAGE_SUBSTAGE_LABELS[1], total=probe_substage_total)
+                for probe_bundle in ordered_probe_bundles:
                     eval_cache = prepare_probe_eval_cache(
                         model=model,
                         tokenizer=tokenizer,
@@ -1797,6 +1956,21 @@ def run_pipeline(args) -> None:
                         max_selection_samples=args.probe_selection_max_samples,
                         desc=probe_bundle["desc"],
                     )
+                    probe_execution_state[probe_bundle["meta_key"]].update(
+                        {
+                            "eval_cache": eval_cache,
+                            "best_layer": best_layer,
+                            "best_dev_auc": best_auc,
+                            "auc_per_layer": auc_per_layer,
+                            "selection_models": layer_clfs,
+                        }
+                    )
+                finish_substage()
+
+                begin_substage(PROBE_STAGE_SUBSTAGE_LABELS[2], total=probe_substage_total)
+                for probe_bundle in ordered_probe_bundles:
+                    probe_state = probe_execution_state[probe_bundle["meta_key"]]
+                    best_layer = probe_state.get("best_layer")
                     clf = (
                         train_probe_for_layer(
                             model=model,
@@ -1812,9 +1986,9 @@ def run_pipeline(args) -> None:
                     )
                     log_status(
                         "pipeline.py",
-                        f"probe retrain {probe_bundle['desc']}: best_layer={best_layer} best_dev_auc={best_auc}",
+                        f"probe retrain {probe_bundle['desc']}: best_layer={best_layer} "
+                        f"best_dev_auc={probe_state.get('best_dev_auc')}",
                     )
-
                     score_records_with_probe(
                         model=model,
                         tokenizer=tokenizer,
@@ -1837,32 +2011,137 @@ def run_pipeline(args) -> None:
                         probe_candidate_score_rows.extend(probe_bundle["candidate_score_records"])
 
                     layer_metrics: Dict[int, Dict[str, Any]] = {}
-                    for layer_id, clf_layer in layer_clfs.items():
+                    for layer_id, clf_layer in probe_state.get("selection_models", {}).items():
                         if clf_layer is None:
                             continue
                         layer_metrics[int(layer_id)] = evaluate_probe_from_cache(
-                            eval_cache,
+                            probe_state["eval_cache"],
                             clf_layer,
                             int(layer_id),
                         )
-                    chosen_metrics = evaluate_probe_from_cache(eval_cache, clf, best_layer)
+                    chosen_metrics = evaluate_probe_from_cache(
+                        probe_state["eval_cache"],
+                        clf,
+                        best_layer,
+                    )
+                    probe_state.update(
+                        {
+                            "chosen_model": clf,
+                            "selection_metrics_by_layer": layer_metrics,
+                            "chosen_metrics": chosen_metrics,
+                            "selection_fit_records": _probe_fit_subset(
+                                probe_bundle["train_records"],
+                                args.probe_selection_max_samples,
+                                args.probe_seed,
+                            ),
+                            "selection_val_records": _probe_fit_subset(
+                                probe_bundle["val_records"],
+                                args.probe_selection_max_samples,
+                                args.probe_seed + 1,
+                            ),
+                            "chosen_fit_records": _probe_fit_subset(
+                                probe_bundle["retrain_records"],
+                                args.probe_train_max_samples,
+                                args.probe_seed,
+                            ),
+                        }
+                    )
+                finish_substage()
 
-                    selection_fit_records = _probe_fit_subset(
-                        probe_bundle["train_records"],
-                        args.probe_selection_max_samples,
-                        args.probe_seed,
+                begin_substage(PROBE_STAGE_SUBSTAGE_LABELS[3], total=probe_substage_total)
+                for probe_bundle in ordered_probe_bundles:
+                    probe_state = probe_execution_state[probe_bundle["meta_key"]]
+                    best_layer = probe_state.get("best_layer")
+                    clf = probe_state.get("chosen_model")
+                    cross_family_template_types = [
+                        template_type
+                        for template_type in probe_bundle.get("cross_family_evaluation_template_types", [])
+                        if str(template_type or "").strip()
+                        and str(template_type) != str(probe_bundle["template_type"])
+                    ]
+                    cross_family_test_records_by_template = {
+                        template_type: list(
+                            probe_bundle.get("cross_family_test_records_by_template", {}).get(template_type, [])
+                        )
+                        for template_type in cross_family_template_types
+                    }
+                    cross_family_candidate_score_records_by_template = {
+                        template_type: list(
+                            probe_bundle.get("cross_family_candidate_score_records_by_template", {}).get(
+                                template_type,
+                                [],
+                            )
+                        )
+                        for template_type in cross_family_template_types
+                    }
+                    if cross_family_template_types:
+                        log_status(
+                            "pipeline.py",
+                            f"probe cross-family eval {probe_bundle['desc']}: "
+                            + ", ".join(
+                                f"{template_type}={len(cross_family_test_records_by_template.get(template_type, []))}"
+                                for template_type in cross_family_template_types
+                            ),
+                        )
+
+                    cross_family_eval_cache = (
+                        prepare_probe_eval_cache_by_template(
+                            model=model,
+                            tokenizer=tokenizer,
+                            records_by_template=cross_family_test_records_by_template,
+                            layer_grid=layer_grid,
+                            desc=probe_bundle["desc"],
+                        )
+                        if cross_family_test_records_by_template
+                        else {}
                     )
-                    selection_val_records = _probe_fit_subset(
-                        probe_bundle["val_records"],
-                        args.probe_selection_max_samples,
-                        args.probe_seed + 1,
+                    cross_family_metrics = evaluate_probe_cross_family_from_caches(
+                        cross_family_eval_cache,
+                        clf,
+                        best_layer,
                     )
-                    chosen_fit_records = _probe_fit_subset(
-                        probe_bundle["retrain_records"],
-                        args.probe_train_max_samples,
-                        args.probe_seed,
+                    movement_artifacts = evaluate_probe_prompt_movement(
+                        model=model,
+                        tokenizer=tokenizer,
+                        clf=clf,
+                        layer=best_layer,
+                        probe_name=probe_bundle["meta_key"],
+                        probe_training_template_type=probe_bundle["template_type"],
+                        source_test_records=probe_bundle.get("source_split_records", {}).get("test", []),
+                        cross_family_test_records_by_template=cross_family_test_records_by_template,
+                        paraphrase_lookup=paraphrase_rows_by_key
+                        if getattr(args, "paraphrase_artifact_path", "")
+                        else None,
+                        paraphrase_artifact_path=getattr(args, "paraphrase_artifact_path", ""),
                     )
 
+                    for template_type in cross_family_template_types:
+                        candidate_records = cross_family_candidate_score_records_by_template.get(template_type, [])
+                        if not candidate_records:
+                            continue
+                        score_records_with_probe(
+                            model=model,
+                            tokenizer=tokenizer,
+                            records=candidate_records,
+                            clf=clf,
+                            layer=best_layer,
+                            score_key="probe_score",
+                            desc=f"{probe_bundle['desc']} candidate_scores eval:{template_type}",
+                        )
+                        probe_candidate_score_rows.extend(candidate_records)
+
+                    probe_state.update(
+                        {
+                            "cross_family_metrics": cross_family_metrics,
+                            "cross_family_template_types": cross_family_template_types,
+                            "movement_artifacts": movement_artifacts,
+                        }
+                    )
+                finish_substage()
+
+                begin_substage(PROBE_STAGE_SUBSTAGE_LABELS[4], total=probe_substage_total)
+                for probe_bundle in ordered_probe_bundles:
+                    probe_state = probe_execution_state[probe_bundle["meta_key"]]
                     family_summary = save_probe_family_artifacts(
                         run_dir=run_dir,
                         probe_name=probe_bundle["meta_key"],
@@ -1874,23 +2153,25 @@ def run_pipeline(args) -> None:
                             "probe_example_weighting": probe_bundle["probe_example_weighting"],
                         },
                         split_records=probe_bundle["split_records"],
-                        selection_models=layer_clfs,
-                        selection_metrics_by_layer=layer_metrics,
-                        auc_per_layer=auc_per_layer,
-                        best_layer=best_layer,
-                        best_dev_auc=best_auc,
-                        chosen_model=clf,
-                        chosen_metrics=chosen_metrics,
-                        selection_fit_records=selection_fit_records,
-                        selection_val_records=selection_val_records,
-                        chosen_fit_records=chosen_fit_records,
+                        selection_models=probe_state["selection_models"],
+                        selection_metrics_by_layer=probe_state["selection_metrics_by_layer"],
+                        auc_per_layer=probe_state["auc_per_layer"],
+                        best_layer=probe_state["best_layer"],
+                        best_dev_auc=probe_state["best_dev_auc"],
+                        chosen_model=probe_state["chosen_model"],
+                        chosen_metrics=probe_state["chosen_metrics"],
+                        selection_fit_records=probe_state["selection_fit_records"],
+                        selection_val_records=probe_state["selection_val_records"],
+                        chosen_fit_records=probe_state["chosen_fit_records"],
                         selection_fit_max_samples=args.probe_selection_max_samples,
                         chosen_fit_max_samples=args.probe_train_max_samples,
                         probe_seed=args.probe_seed,
                         probe_construction=probe_bundle["probe_construction"],
                         probe_example_weighting=probe_bundle["probe_example_weighting"],
+                        cross_family_metrics=probe_state["cross_family_metrics"],
+                        cross_family_evaluated_template_types=probe_state["cross_family_template_types"],
+                        movement_artifacts=probe_state["movement_artifacts"],
                     )
-
                     all_probe_group_summary[probe_bundle["meta_key"]] = {
                         "probe_dir": family_summary["all_probes_dir"],
                         "manifest_path": family_summary["all_probes_manifest"],
@@ -1909,15 +2190,10 @@ def run_pipeline(args) -> None:
                         "metrics_path": family_summary["chosen_probe_metrics_path"],
                         "probe_construction": probe_bundle["probe_construction"],
                         "probe_example_weighting": probe_bundle["probe_example_weighting"],
+                        "movement": dict(family_summary.get("movement", {}) or {}),
                     }
-                    return family_summary
-
-                probes_meta[probe_record_sets["neutral"]["meta_key"]] = _run_probe_family_artifacts(
-                    probe_record_sets["neutral"]
-                )
-                for btype in planned_bias_types:
-                    bias_probe = probe_record_sets[btype]
-                    probes_meta[bias_probe["meta_key"]] = _run_probe_family_artifacts(bias_probe)
+                    probes_meta[probe_bundle["meta_key"]] = family_summary
+                finish_substage()
 
                 all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
                 chosen_probe_dir = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
@@ -1991,15 +2267,12 @@ def run_pipeline(args) -> None:
     finally:
         try:
             try:
-                write_run_status(run_dir, args=args, status=run_status, lock_path=lock_path, error=run_error)
-            finally:
-                try:
-                    _finalize_warning_summary(run_dir)
-                except Exception as warning_summary_exc:
-                    log_status(
-                        "pipeline.py",
-                        f"warning summary finalization failed: {type(warning_summary_exc).__name__}: {warning_summary_exc}",
-                    )
+                _finalize_warning_summary(run_dir)
+            except Exception as warning_summary_exc:
+                log_status(
+                    "pipeline.py",
+                    f"warning summary finalization failed: {type(warning_summary_exc).__name__}: {warning_summary_exc}",
+                )
             try:
                 if saved_paths.get("run_summary_path") is not None:
                     refresh_runtime_summary_artifacts(
@@ -2011,6 +2284,7 @@ def run_pipeline(args) -> None:
                     "pipeline.py",
                     f"runtime summary refresh failed: {type(runtime_summary_exc).__name__}: {runtime_summary_exc}",
                 )
+            write_run_status(run_dir, args=args, status=run_status, lock_path=lock_path, error=run_error)
         finally:
             if stage_bar is not None:
                 stage_bar.close()

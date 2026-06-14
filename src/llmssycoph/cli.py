@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
             "    - uses --instruction_policy to choose the rendered answer-format instruction\n"
             "\n"
             "Bias-type behavior:\n"
-            "  - --bias_types selects the non-neutral agreement-bias variants to keep or generate\n"
+            "  - --bias_types selects the non-neutral prompt families to keep or generate\n"
             "  - neutral is always included automatically\n"
             "  - question groups are kept only if every selected bias type is available\n"
             "\n"
@@ -170,6 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="incorrect_suggestion,doubt_correct,suggest_correct",
         help=(
             "Comma-separated subset of non-neutral agreement-bias variants to keep or generate.\n"
+            "This preserves the legacy --bias_types naming, but the canonical internal term is prompt family.\n"
             f"Valid values: {','.join(ALL_BIAS_TYPES)}.\n"
             "Neutral is always included automatically."
         ),
@@ -372,6 +373,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Root directory where run artifacts are written.",
     )
     io_group.add_argument(
+        "--paraphrase_artifact_path",
+        type=str,
+        default="",
+        help=(
+            "Optional frozen paraphrase artifact directory or manifest path used for chosen-probe "
+            "movement evaluation. When provided, the pipeline compares each source-family test prompt "
+            "against a same-family stem paraphrase keyed by dataset + source_example_id."
+        ),
+    )
+    io_group.add_argument(
+        "--fresh_run",
+        action="store_true",
+        help=(
+            "Force a clean run directory and disable sampling-cache reuse.\n"
+            "If --run_name is omitted, the runner creates a fresh, clearly labeled run name.\n"
+            "If --run_name is provided, the runner appends a fresh-run suffix so the new run stays isolated."
+        ),
+    )
+    io_group.add_argument(
         "--run_name",
         type=str,
         default=None,
@@ -414,6 +434,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             args.temperature = 0.1
         else:
             args.temperature = 0.7
+    if bool(getattr(args, "fresh_run", False)):
+        args.no_reuse_sampling_cache = True
     _apply_effective_sampling_overrides(args)
     args.prompt_spec_version = int(PROMPT_SPEC_VERSION)
     args.grading_spec_version = int(GRADING_SPEC_VERSION)

@@ -14,48 +14,96 @@ import pandas as pd
 from .constants import RESUME_COMPAT_KEYS
 
 
-RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
+CORE_PIPELINE_ARTIFACT_PATHS: Mapping[str, Path] = {
+    "run_log": Path("logs") / "run.log",
+    "warnings_log": Path("logs") / "warnings.log",
+    "warnings_summary": Path("logs") / "warnings_summary.json",
+    "run_config": Path("run_config.json"),
+    "status": Path("status.json"),
+    "sampling_records": Path("logs") / "sampling_records.jsonl",
+    "sampling_manifest": Path("logs") / "sampling_manifest.json",
+    "sampling_integrity_summary": Path("logs") / "sampling_integrity_summary.json",
+    "sampled_responses": Path("sampling") / "sampled_responses.csv",
+    "reports_summary": Path("reports") / "summary.json",
+    "reports_summary_csv": Path("reports") / "summary.csv",
+    "mc_confusion_matrix": Path("reports") / "confusion_matrix_predicted_letter_x_true_letter.csv",
+    "run_summary": Path("run_summary.json"),
+    "probe_scores_by_prompt": Path("probes") / "probe_scores_by_prompt.csv",
+    "executive_summary": Path("reports") / "executive_summary.md",
+}
+
+OPTIONAL_PROBE_ARTIFACT_PATHS: Mapping[str, Path] = {
+    "all_probes_dir": Path("probes") / "all_probes",
+    "all_probes_manifest": Path("probes") / "all_probes" / "manifest.json",
+    "chosen_probe_dir": Path("probes") / "chosen_probe",
+    "chosen_probe_manifest": Path("probes") / "chosen_probe" / "manifest.json",
+}
+
+DERIVED_RUN_ARTIFACT_PATHS: Mapping[str, Path] = {
+    "analysis_dir": Path("analysis"),
+    "analysis_notebook_status": Path("analysis") / "analysis_notebook_status.json",
+    "analysis_plots_dir": Path("analysis") / "plots",
+    "analysis_tables_dir": Path("analysis") / "tables",
+    "sampling_backfills_dir": Path("sampling_backfills"),
+    "probe_backfills_dir": Path("probes") / "backfills",
+}
+
+ACTIVE_RUN_ARTIFACT_PATHS: Mapping[str, Path] = {
+    **CORE_PIPELINE_ARTIFACT_PATHS,
+    **OPTIONAL_PROBE_ARTIFACT_PATHS,
+    **DERIVED_RUN_ARTIFACT_PATHS,
+}
+
+READ_COMPATIBILITY_ARTIFACT_ALIASES: Mapping[str, Sequence[Path]] = {
     "run_log": (
-        Path("logs") / "run.log",
         Path("internal") / "logs" / "run.log",
         Path("run.log"),
     ),
     "warnings_log": (
-        Path("logs") / "warnings.log",
         Path("reports") / "warnings.log",
         Path("internal") / "logs" / "warnings.log",
         Path("warnings.log"),
     ),
     "warnings_summary": (
-        Path("logs") / "warnings_summary.json",
         Path("reports") / "warnings_summary.json",
     ),
     "run_config": (
-        Path("run_config.json"),
         Path("internal") / "run_config.json",
     ),
     "status": (
-        Path("status.json"),
         Path("internal") / "status.json",
     ),
     "sampling_records": (
-        Path("logs") / "sampling_records.jsonl",
         Path("sampling_records.jsonl"),
         Path("internal") / "sampling_records.jsonl",
     ),
     "sampling_manifest": (
-        Path("logs") / "sampling_manifest.json",
         Path("sampling_manifest.json"),
         Path("internal") / "sampling_manifest.json",
     ),
     "sampling_integrity_summary": (
-        Path("logs") / "sampling_integrity_summary.json",
         Path("sampling_integrity_summary.json"),
         Path("internal") / "sampling_integrity_summary.json",
     ),
     "sampled_responses": (
-        Path("sampling") / "sampled_responses.csv",
         Path("sampled_responses.csv"),
+    ),
+    "reports_summary": (
+        Path("internal") / "run_summary.json",
+        Path("analysis") / "run_summary.json",
+    ),
+    "run_summary": (
+        Path("analysis") / "run_summary.json",
+        Path("internal") / "run_summary.json",
+    ),
+    "executive_summary": (
+        Path("summary") / "executive_summary.md",
+    ),
+    "all_probes_dir": (
+        Path("all_probes"),
+    ),
+    "chosen_probe_dir": (
+        Path("chosen_probe"),
     ),
     "final_tuples": (
         Path("analysis") / "final_tuples.csv",
@@ -65,53 +113,22 @@ RUN_ARTIFACT_LOCATIONS: Mapping[str, Sequence[Path]] = {
         Path("analysis") / "summary_by_question.csv",
         Path("summary_by_question.csv"),
     ),
-    "reports_summary": (
-        Path("reports") / "summary.json",
-        Path("internal") / "run_summary.json",
-        Path("analysis") / "run_summary.json",
-    ),
-    "reports_summary_csv": (
-        Path("reports") / "summary.csv",
-    ),
-    "mc_confusion_matrix": (
-        Path("reports") / "confusion_matrix_predicted_letter_x_true_letter.csv",
-    ),
     "model_summary_by_template": (
         Path("analysis") / "model_summary_by_template.csv",
     ),
     "model_summary_by_bias": (
         Path("analysis") / "model_summary_by_bias.csv",
     ),
-    "run_summary": (
-        Path("run_summary.json"),
-        Path("analysis") / "run_summary.json",
-        Path("internal") / "run_summary.json",
-    ),
     "probe_candidate_scores": (
         Path("probes") / "probe_candidate_scores.csv",
         Path("probe_candidate_scores.csv"),
     ),
-    "probe_scores_by_prompt": (
-        Path("probes") / "probe_scores_by_prompt.csv",
-    ),
     "probe_summary_csv": (
         Path("probes") / "probe_summary.csv",
-    ),
-    "executive_summary": (
-        Path("reports") / "executive_summary.md",
-        Path("summary") / "executive_summary.md",
     ),
     "probe_metadata": (
         Path("probes") / "probe_metadata.json",
         Path("probe_metadata.json"),
-    ),
-    "all_probes_dir": (
-        Path("probes") / "all_probes",
-        Path("all_probes"),
-    ),
-    "chosen_probe_dir": (
-        Path("probes") / "chosen_probe",
-        Path("chosen_probe"),
     ),
     "internal_cache_dir": (
         Path("analysis_cache"),
@@ -210,17 +227,41 @@ def build_default_run_name() -> str:
     return f"{ts}_{job_id}_{os.getpid()}_{uuid.uuid4().hex[:8]}"
 
 
+def build_fresh_run_name(run_name: Optional[str] = None) -> str:
+    fresh_token = build_default_run_name()
+    base_name = str(run_name or "").strip()
+    if base_name:
+        return f"{base_name}__fresh__{fresh_token}"
+    return f"fresh__{fresh_token}"
+
+
+def _artifact_candidate_relative_paths(artifact_key: str) -> tuple[Path, ...]:
+    preferred_path = ACTIVE_RUN_ARTIFACT_PATHS.get(artifact_key)
+    compatibility_paths = tuple(READ_COMPATIBILITY_ARTIFACT_ALIASES.get(artifact_key, ()))
+    if preferred_path is None and not compatibility_paths:
+        raise KeyError(f"Unknown artifact key: {artifact_key}")
+
+    ordered_paths: list[Path] = []
+    if preferred_path is not None:
+        ordered_paths.append(preferred_path)
+    for path in compatibility_paths:
+        if path not in ordered_paths:
+            ordered_paths.append(path)
+    return tuple(ordered_paths)
+
+
 def preferred_run_artifact_path(run_dir: Path, artifact_key: str) -> Path:
     try:
-        relative_paths = RUN_ARTIFACT_LOCATIONS[artifact_key]
+        relative_path = ACTIVE_RUN_ARTIFACT_PATHS[artifact_key]
     except KeyError as exc:
         raise KeyError(f"Unknown artifact key: {artifact_key}") from exc
-    return run_dir / relative_paths[0]
+    return run_dir / relative_path
 
 
 def resolve_run_artifact_path(run_dir: Path, artifact_key: str) -> Path:
-    preferred_path = preferred_run_artifact_path(run_dir, artifact_key)
-    for relative_path in RUN_ARTIFACT_LOCATIONS[artifact_key]:
+    relative_paths = _artifact_candidate_relative_paths(artifact_key)
+    preferred_path = run_dir / relative_paths[0]
+    for relative_path in relative_paths:
         candidate = run_dir / relative_path
         if candidate.exists():
             return candidate

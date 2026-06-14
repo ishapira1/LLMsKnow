@@ -4,12 +4,25 @@ This repository contains the code for measuring whether a model's sycophantic be
 
 The active code path samples or scores responses to neutral and bias-injected prompts, labels answer correctness, trains linear probes on hidden states, and compares internal evidence against observed behavior.
 
+## Current main datasets
+
+For the current project, the main datasets are:
+
+- `arc_challenge`
+- `commonsense_qa`
+
+The repo still supports older/default slices such as `aqua_mc` and `truthful_qa_mc`, but the main full-run analysis and cluster workflows are centered on `arc_challenge` and `commonsense_qa`.
+
+Project convention:
+- In future project discussions, analyses, and AI-assisted conversations, treat `arc_challenge` and `commonsense_qa` as the default main datasets unless a different dataset is explicitly requested.
+- Treat `aqua_mc` as a lightweight smoke/sanity dataset, not the default scientific focus of the project.
+
 ## What the pipeline does
 
 For each question, the pipeline builds:
 
 - a neutral prompt `x`
-- one or more biased prompt variants `x'`
+- one or more non-neutral prompt-family variants `x'`
 
 It then:
 
@@ -26,21 +39,48 @@ It then:
 
 The main question is whether bias changes only the model's output, or also changes the internal evidence available in its representations.
 
+## Prompt-family convention
+
+The canonical internal term is `prompt family`.
+
+- `neutral` is the baseline prompt family.
+- The current user-selectable non-neutral prompt families are:
+  - `incorrect_suggestion`
+  - `incorrect_suggestion_strong`
+  - `doubt_correct`
+  - `doubt_correct_strong`
+  - `suggest_correct`
+  - `suggest_correct_strong`
+  - `suggest_random`
+  - `suggest_random_strong`
+- Serialized artifacts still retain legacy field names such as `template_type` and derived reporting names such as `bias_type` for compatibility.
+- In older notes, notebooks, or saved tables, you may still see phrases like "bias template" or "prompt template". In the current code, those should usually be read as "prompt family" unless the text is explicitly referring to the legacy serialized field `prompt_template`.
+
+`suggest_random` is a suggestion-style control family for MC-derived runs. It chooses exactly one answer option uniformly from the available choices, including the correct option, and renders the option text rather than the option letter. The chosen suggestion is deterministic within a run given the run seed and question identity.
+
+`incorrect_suggestion_strong` reuses the same user-endorsed incorrect answer target as `incorrect_suggestion`, but changes the wording to a much stronger, more authoritative claim.
+
+The other core strong prompt families mirror that same idea:
+- `doubt_correct_strong` is the strong-confidence version of `doubt_correct`
+- `suggest_correct_strong` is the strong-confidence version of `suggest_correct`
+- `suggest_random_strong` is the strong-confidence version of `suggest_random`
+
 ## Probe interpretation convention
 
 Be careful when interpreting probe scores across prompt conditions.
 
-- The pipeline trains a neutral probe and separate bias-template probes.
-- The main motivation for the bias-template probes is as a sanity check / auxiliary diagnostic.
+- The pipeline trains a neutral probe and separate prompt-family probes.
+- The main motivation for the non-neutral prompt-family probes is as a sanity check / auxiliary diagnostic.
 - In our typical scientific interpretation, `s` should mean the neutral probe.
 - That means `s(x, a)` is the neutral probe evaluated on the neutral prompt, and `s(x', a)` is that same neutral probe evaluated on the biased prompt.
-- If an analysis instead compares a neutral probe on `x` to a bias-template probe on `x'`, it should say so explicitly, because that is not the default intended interpretation.
-- In particular, the saved prompt-level probe table may contain matched-template probe scores by prompt type, so downstream notebooks should be explicit about whether they are using matched probes or rescoring `x'` with the neutral probe.
+- If an analysis instead compares a neutral probe on `x` to a non-neutral prompt-family probe on `x'`, it should say so explicitly, because that is not the default intended interpretation.
+- In particular, the saved prompt-level probe table may contain matched prompt-family probe scores by prompt family, so downstream notebooks should be explicit about whether they are using matched probes or rescoring `x'` with the neutral probe.
 
 ## Repository layout
 
 - `run_sycophancy_bias_probe.py`: thin public wrapper for the current pipeline
 - `src/llmssycoph/`: main package for dataset prep, sampling, probes, outputs, and runtime helpers
+- `src/llmssycoph/data/prompt_families.py`: canonical registry for prompt-family rendering, detection, ordering, and probe-name mapping
 - `src/llmssycoph/grading/`: answer parsing, correctness grading, graded record preparation, and probe-data assembly
 - `src/llmssycoph/grading/MULTIPLE_CHOICE_DEFINITIONS.md`: strict-MC terminology and metric definitions
 - `pyproject.toml`: packaging metadata for the `src` layout and editable installs
@@ -84,6 +124,8 @@ The pipeline now reads `HF_TOKEN` directly and also aliases `HUGGINGFACE_TOKEN` 
 
 ## Quick start
 
+For the current project, use `commonsense_qa` and `arc_challenge` for substantive runs. The `aqua_mc` examples below are mainly for lightweight smoke tests and debugging.
+
 Run the smoke / integrity test on the AYS-derived `aqua_mc` slice. The wrapper requests `--device auto`, so it prefers GPU when available and falls back to CPU otherwise. If `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, or `HF_HOME` is set, the wrapper normalizes those into a single Hugging Face cache location and passes it through explicitly:
 
 ```bash
@@ -112,6 +154,17 @@ python run_sycophancy_bias_probe.py \
   --sample_batch_size 1 \
   --run_name smoke_aqua_mc_mistral7b_auto_q12_l4
 ```
+
+If you want to force a clearly isolated rerun with no sampling-cache reuse, add:
+
+```bash
+python run_sycophancy_bias_probe.py \
+  ...your usual args... \
+  --fresh_run
+```
+
+This disables sampling-cache reuse and creates a fresh, clearly labeled run directory. If you also pass
+`--run_name`, the runner appends a fresh-run suffix instead of reusing the old directory.
 
 Run a larger experiment:
 
@@ -147,7 +200,7 @@ python run_sycophancy_bias_probe.py \
   --run_name ays_mc_truthful_aqua_run
 ```
 
-Run the same strict-MC pipeline on CommonsenseQA. On first use, the loader normalizes `tau/commonsense_qa` into the same local JSONL row family under `data/sycophancy-eval/commonsense_qa.jsonl`, then the rest of the pipeline reuses the existing AYS-derived path unchanged:
+Run the same strict-MC pipeline on CommonsenseQA. This is one of the two main datasets for the current project. On first use, the loader normalizes `tau/commonsense_qa` into the same local JSONL row family under `data/sycophancy-eval/commonsense_qa.jsonl`, then the rest of the pipeline reuses the existing AYS-derived path unchanged:
 
 ```bash
 python run_sycophancy_bias_probe.py \
@@ -160,7 +213,7 @@ python run_sycophancy_bias_probe.py \
   --run_name commonsense_qa_strict_mc_run
 ```
 
-Run the same path on ARC-Challenge. On first use, the loader normalizes `allenai/ai2_arc` with config `ARC-Challenge` into `data/sycophancy-eval/arc_challenge.jsonl`. Because ARC-Challenge already ships `train`, `validation`, and `test`, the pipeline preserves those native splits instead of re-splitting the questions locally:
+Run the same path on ARC-Challenge. This is one of the two main datasets for the current project. On first use, the loader normalizes `allenai/ai2_arc` with config `ARC-Challenge` into `data/sycophancy-eval/arc_challenge.jsonl`. Because ARC-Challenge already ships `train`, `validation`, and `test`, the pipeline preserves those native splits instead of re-splitting the questions locally:
 
 ```bash
 python run_sycophancy_bias_probe.py \
@@ -187,9 +240,9 @@ Important flags:
 - `--device`: `auto`, `cpu`, `cuda`, or `mps`
 - `--benchmark_source`: `answer_json` for the existing `answer.jsonl` benchmark, or `ays_mc_single_turn` to derive a new single-turn benchmark from AYS multiple-choice source rows
 - `--input_jsonl`: `answer.jsonl` for the original pipeline, or `are_you_sure.jsonl` when using `--benchmark_source ays_mc_single_turn`
-- `--bias_types`: comma-separated subset of `incorrect_suggestion`, `doubt_correct`, `suggest_correct`
-- `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset
-- `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`, and it also supports normalized HF-backed sources such as `commonsense_qa` and `arc_challenge`
+- `--bias_types`: comma-separated subset of `incorrect_suggestion`, `incorrect_suggestion_strong`, `doubt_correct`, `doubt_correct_strong`, `suggest_correct`, `suggest_correct_strong`, `suggest_random`, `suggest_random_strong`. The default CLI behavior remains `incorrect_suggestion,doubt_correct,suggest_correct`, so all strong prompt families and `suggest_random` / `suggest_random_strong` are opt-in unless explicitly requested.
+- `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset. For the current project, this will usually be `commonsense_qa` or `arc_challenge`.
+- `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`, and it also supports normalized HF-backed sources such as `commonsense_qa` and `arc_challenge`. For the current project, the main settings are `commonsense_qa` and `arc_challenge`.
 - `--mc_mode`: `strict_mc` for the canonical benchmark path, or `mc_with_rationale` for the auxiliary rationale-preserving path
 - strict MC prompts require `Answer: <LETTER>` and explicitly forbid non-answers such as `None`, `unknown`, or `cannot determine`
 - strict MC now reads the first answer-token distribution directly over the option letters and uses one deterministic selected-choice row per prompt
@@ -204,6 +257,7 @@ Important flags:
 - `--sample_batch_size`: generation batch size
 - `--hf_cache_dir`: cache directory for model and tokenizer files
 - `--out_dir`: root results directory
+- `--fresh_run`: disable sampling-cache reuse and force a clearly isolated run directory
 - `--run_name`: explicit name for the run directory
 
 ## Outputs
@@ -212,27 +266,34 @@ Each run writes to:
 
 `results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/`
 
-Main artifacts:
+Core pipeline artifacts:
 
-- `sampled_responses.csv`: one row per sampled completion, or one deterministic strict-MC selected-choice row per prompt, including both `question_id` and `prompt_id`, the raw `question`, the rendered `prompt_text`/`prompt_template`, split membership, grading result, and for MC-derived runs the preserved choice metadata (`correct_letter`, `letters`, `answer_options`, `answers_list`) plus exported strict-MC probability columns such as `P(correct)`, `P(selected)`, and `P(A)` / `P(B)` / ...
-- strict MC rows also expose compliance/audit fields such as `committed_answer`, `starts_with_answer_prefix`, `strict_format_exact`, `commitment_line`, `answer_marker_count`, `multiple_answer_markers`, and generation-stop metadata (`finish_reason`, `hit_max_new_tokens`)
-- `logs/sampling_integrity_summary.json`: post-sampling compliance summary, including exact-compliance / minor-deviation / failure buckets by sampling mode and template
-- `final_tuples.csv`: paired neutral and biased records for the same question and draw index, including `question`, `prompt_id_x`, `prompt_id_xprime`, `prompt_x`, `prompt_with_bias`, and prompt-template provenance after dropping ambiguous samples
-- `summary_by_question.csv`: question-level aggregates across repeated draws, grouped by split, with `question`, prompt ids, prompt text, `dataset`, and prompt-template provenance retained
-- `probe_candidate_scores.csv`: one row per `(prompt, answer_choice)` probe evaluation example, including candidate probability, training weight, and chosen-probe score
-- `probe_metadata.json`: selected layers, validation metrics, probe-construction metadata, and saved probe paths
-- `reports/summary.csv` and `reports/summary.json`: flat run-level summary table with one `overall` row, one `neutral` row, and one row per bias type
-- `logs/warnings.log`: warning-only report file, created only when the run emitted warnings
-- `logs/warnings_summary.json`: structured warning rollup with counts by warning code and source, plus the chronological warning list
-- `reports/executive_summary.md`: quick markdown overview of the run
-- `logs/sampling_records.jsonl`: resumable per-sample checkpoint state used for checkpointing and cache reuse
+- `logs/run.log`: human-readable runtime log
+- `logs/sampling_records.jsonl`: canonical raw sampling store
 - `logs/sampling_manifest.json`: sampling spec and checkpoint metadata
-- `run_config.json`: resolved run configuration, including normalized strict-MC settings such as `n_draws = 1`, `temperature = 1.0`, and the chosen probe-construction/weighting mode
+- `logs/sampling_integrity_summary.json`: post-sampling integrity summary
+- `logs/warnings.log` and `logs/warnings_summary.json`: optional warning artifacts, present only when warnings were emitted
+- `sampling/sampled_responses.csv`: flat per-record analysis table
+- `reports/summary.json` and `reports/summary.csv`: flat run-level summary rows
+- `reports/executive_summary.md`: quick markdown overview
+- `reports/confusion_matrix_predicted_letter_x_true_letter.csv`: optional MC confusion-matrix export
+- `probes/probe_scores_by_prompt.csv`: prompt-level probe table, written even for `--sampling_only`
+- `run_config.json`: resolved config plus artifact-path metadata
+- `run_summary.json`: richer nested summary payload
+- `run_summary.json.runtime_timing`: structured top-level stage timing plus nested probe substage timing
 - `status.json`: run lifecycle state
-- `run_summary.json`: richer nested run summary payload for programmatic inspection
-- `probe_models/`: serialized sklearn probe models
 
-`final_tuples.csv` is the main table intended for downstream analysis.
+Optional probe-training artifacts:
+
+- `probes/all_probes/`: all trained layer candidates and manifests
+- `probes/chosen_probe/`: final selected probes and manifests
+
+Optional post-hoc derived artifacts:
+
+- `analysis/`: notebook status, notebooks, plots, and tables created later by analysis scripts
+- `sampling_backfills/` and `probes/backfills/`: later derived backfill/rescoring outputs
+
+The base pipeline does not write post-hoc analysis or backfill artifacts by default.
 
 For artifact schemas and parsing guidance, see `RESULTS_FORMAT.md`.
 
@@ -248,7 +309,8 @@ For artifact schemas and parsing guidance, see `RESULTS_FORMAT.md`.
 - Bias-specific probes are mainly a sanity check and auxiliary diagnostic; unless an analysis explicitly says otherwise, the intended interpretation of `s` is the neutral probe, including when evaluating biased prompts `x'`.
 - Probe layer selection is done by validation AUC on the held-out `val` split.
 - After selecting the best layer, the final probe is retrained on `train + val` before scoring records.
-- For strict MC, the selected-choice probe score is still written back to `sampled_responses.csv`, and the full per-choice probe table is written to `probe_candidate_scores.csv`.
+- The probe-heavy portion of the run is timed as explicit substages: record-set assembly, layer selection, retraining/in-family scoring, cross-family evaluation, and artifact persistence.
+- For strict MC, the selected-choice probe score is still written back to `sampling/sampled_responses.csv`, and the exported core probe table is `probes/probe_scores_by_prompt.csv`.
 - The `test` split stays untouched during layer selection and is the clean held-out evaluation split.
 - Sampling checkpoints can be reused when the sampling specification matches.
 

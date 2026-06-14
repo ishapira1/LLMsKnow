@@ -6,6 +6,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from ..data import family_for_probe_name
 from .core import AnalysisContext
 
 
@@ -20,6 +21,8 @@ PROBE_PROMPT_METADATA_COLUMNS = [
     "probe_score_source_path",
     "prompt_id",
     "source_record_id",
+    "suggested_label",
+    "suggested_answer",
     "selected_choice",
     "selected_choice_is_correct",
     "probe_score_correct_choice",
@@ -44,14 +47,7 @@ def _cached_frame(ctx: AnalysisContext, key: str, builder: Callable[[], pd.DataF
 
 
 def _probe_training_template_type_from_name(probe_name: object) -> str:
-    text = str(probe_name or "").strip()
-    if not text:
-        return ""
-    if text == "probe_no_bias":
-        return "neutral"
-    if text.startswith("probe_bias_"):
-        return text[len("probe_bias_") :]
-    return ""
+    return str(family_for_probe_name(str(probe_name or "").strip()) or "")
 
 
 def _normalize_probe_scores_df(
@@ -89,6 +85,8 @@ def _normalize_probe_scores_df(
         ) & working["probe_training_template_type"].astype(str).ne("")
     if "selected_choice" in working.columns:
         working["selected_choice"] = working["selected_choice"].astype(str).str.strip().str.upper()
+    if "suggested_label" in working.columns:
+        working["suggested_label"] = working["suggested_label"].astype(str).str.strip().str.upper()
     if "probe_score_source_kind" not in working.columns:
         working["probe_score_source_kind"] = default_source_kind
     else:
@@ -169,6 +167,8 @@ def build_candidate_probability_long_df(ctx: AnalysisContext) -> pd.DataFrame:
                 "response",
                 "correct_letter",
                 "incorrect_letter",
+                "suggested_label",
+                "suggested_answer",
             ]
             if column in df.columns
         ]
@@ -184,6 +184,8 @@ def build_candidate_probability_long_df(ctx: AnalysisContext) -> pd.DataFrame:
             long_df["is_correct_option"] = long_df["candidate_option"].eq(long_df["correct_letter"])
         if "incorrect_letter" in long_df.columns:
             long_df["is_incorrect_option"] = long_df["candidate_option"].eq(long_df["incorrect_letter"])
+        if "suggested_label" in long_df.columns:
+            long_df["is_suggested_option"] = long_df["candidate_option"].eq(long_df["suggested_label"])
         return long_df.reset_index(drop=True)
 
     return _cached_frame(ctx, "candidate_probability_long_df", _builder)
@@ -255,6 +257,10 @@ def build_paired_external_df(ctx: AnalysisContext) -> pd.DataFrame:
                 bias_keep.append("incorrect_letter")
             if "correct_letter" in bias_df.columns:
                 bias_keep.append("correct_letter")
+            if "suggested_label" in bias_df.columns:
+                bias_keep.append("suggested_label")
+            if "suggested_answer" in bias_df.columns:
+                bias_keep.append("suggested_answer")
             bias_keep = [column for column in list(dict.fromkeys(bias_keep)) if column in bias_df.columns]
             merged = neutral_df.merge(
                 bias_df[bias_keep].drop_duplicates(subset=join_keys),
@@ -353,6 +359,8 @@ def build_probe_option_long_df(ctx: AnalysisContext) -> pd.DataFrame:
                 "draw_idx",
                 "source_record_id",
                 "correct_letter",
+                "suggested_label",
+                "suggested_answer",
                 "selected_choice",
                 "probe_argmax_choice",
                 "probe_score_correct_choice",
@@ -371,6 +379,7 @@ def build_probe_option_long_df(ctx: AnalysisContext) -> pd.DataFrame:
         long_df["candidate_option"] = long_df["score_column"].str.replace(PROBE_SCORE_COLUMNS_PREFIX, "", regex=False)
         long_df["is_correct_option"] = long_df["candidate_option"].eq(long_df.get("correct_letter"))
         long_df["is_selected_option"] = long_df["candidate_option"].eq(long_df.get("selected_choice"))
+        long_df["is_suggested_option"] = long_df["candidate_option"].eq(long_df.get("suggested_label"))
         long_df["is_probe_argmax_option"] = long_df["candidate_option"].eq(long_df.get("probe_argmax_choice"))
         return long_df.reset_index(drop=True)
 
@@ -388,7 +397,7 @@ def build_chosen_probe_summary_df(ctx: AnalysisContext) -> pd.DataFrame:
         for probe_name, payload in sorted(manifest.get("probes", {}).items()):
             row: dict[str, object] = {
                 "probe_name": probe_name,
-                "template_type": "neutral" if probe_name == "probe_no_bias" else probe_name.replace("probe_bias_", ""),
+                "template_type": _probe_training_template_type_from_name(probe_name),
                 "chosen_layer": payload.get("chosen_layer"),
                 "best_dev_auc": payload.get("best_dev_auc"),
                 "probe_construction": payload.get("probe_construction"),
@@ -435,7 +444,7 @@ def build_all_probe_layer_metrics_df(ctx: AnalysisContext) -> pd.DataFrame:
             payload = json.loads(family_manifest_path.read_text(encoding="utf-8"))
             best_layer = payload.get("best_layer")
             best_dev_auc = payload.get("best_dev_auc")
-            template_type = payload.get("template_type") or ("neutral" if probe_name == "probe_no_bias" else probe_name.replace("probe_bias_", ""))
+            template_type = payload.get("template_type") or _probe_training_template_type_from_name(probe_name)
             for layer_str, layer_payload in sorted(payload.get("layers", {}).items(), key=lambda item: int(item[0])):
                 metrics_path = ctx.run_dir / "probes" / "all_probes" / probe_name / f"layer_{int(layer_str):03d}" / "metrics.json"
                 if not metrics_path.exists():
@@ -698,7 +707,7 @@ def build_paired_probe_df(ctx: AnalysisContext) -> pd.DataFrame:
                 for column in bias_df.columns
                 if column in join_keys
                 or column.endswith("_xprime")
-                or column in {"template_type", "correct_letter", "incorrect_letter"}
+                or column in {"template_type", "correct_letter", "incorrect_letter", "suggested_label", "suggested_answer"}
             ]
             merged = neutral_df.merge(
                 bias_df[bias_keep].drop_duplicates(subset=join_keys),

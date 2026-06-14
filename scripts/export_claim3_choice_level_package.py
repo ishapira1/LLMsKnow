@@ -3,14 +3,20 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from llmssycoph.data import family_for_probe_name
+
 RESULTS_ROOT = REPO_ROOT / "results" / "sycophancy_bias_probe"
 DEFAULT_RUN_DIRS = [
     "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/commonsense_qa/full_commonsense_qa_llama31_8b_20260321_allq_fulldepth_seas",
@@ -299,19 +305,17 @@ def record_meta(record: Mapping[str, Any]) -> Dict[str, Any]:
 
 def probe_family_from_name(probe_name: str) -> str:
     cleaned = normalize_text(probe_name)
-    if cleaned == "probe_no_bias":
-        return "neutral_trained"
-    if cleaned.startswith("probe_bias_"):
-        return f"{cleaned.removeprefix('probe_bias_')}_trained"
+    family_id = family_for_probe_name(cleaned)
+    if family_id:
+        return f"{family_id}_trained"
     return f"{cleaned}_trained" if cleaned else ""
 
 
 def training_families_for_probe_name(probe_name: str) -> List[str]:
     cleaned = normalize_text(probe_name)
-    if cleaned == "probe_no_bias":
-        return ["neutral"]
-    if cleaned.startswith("probe_bias_"):
-        return [cleaned.removeprefix("probe_bias_")]
+    family_id = family_for_probe_name(cleaned)
+    if family_id:
+        return [family_id]
     return [cleaned] if cleaned else []
 
 

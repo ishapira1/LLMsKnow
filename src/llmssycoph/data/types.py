@@ -24,6 +24,10 @@ class PromptVariant:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
+    def prompt_family_id(self) -> str:
+        return str(self.template_type or "")
+
+    @property
     def prompt_messages(self) -> List[Dict[str, str]]:
         return [{"type": "human", "content": self.prompt_text}]
 

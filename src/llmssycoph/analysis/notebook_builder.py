@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from ..saving_manager import build_executive_summary_report_intro_markdown
-from ..runtime import write_json_atomic
+from ..runtime import preferred_run_artifact_path, write_json_atomic
 from .core import AnalysisContext, AnalysisError
 from .functions import get_analysis_function_spec
 from .load import load_analysis_context
@@ -341,7 +341,7 @@ def safe_generate_analysis_notebook(
     raise_on_error: bool = False,
 ) -> Dict[str, Any]:
     run_dir = Path(run_dir).resolve()
-    status_path = run_dir / "analysis" / "analysis_notebook_status.json"
+    status_path = preferred_run_artifact_path(run_dir, "analysis_notebook_status")
     try:
         load_analysis_context(run_dir)
         notebook_path = build_analysis_notebook(run_dir, spec=spec, notebook_name=notebook_name)

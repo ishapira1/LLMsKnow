@@ -16,12 +16,16 @@ class Prompt:
     instruction_policy: InstructionPolicy
 
     @property
+    def prompt_family_id(self) -> str:
+        return self.agreement_bias.name
+
+    @property
     def prompt_template(self) -> str:
         return self.agreement_bias.prompt_template
 
     @property
     def template_type(self) -> str:
-        return self.agreement_bias.name
+        return self.prompt_family_id
 
     @property
     def prompt_text(self) -> str:

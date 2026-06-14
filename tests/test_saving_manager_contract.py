@@ -33,6 +33,53 @@ from llmssycoph.saving_manager import (
 
 
 class SavingManagerContractTests(unittest.TestCase):
+    def test_runtime_markdown_includes_stage_and_substage_timing_tables(self):
+        markdown = build_executive_summary_report_intro_markdown(
+            {
+                "run_name": "demo_run",
+                "model_name": "demo/model",
+                "dataset_name": "commonsense_qa",
+                "headline_counts": {},
+                "summary_rows": [],
+                "runtime_timing": {
+                    "status": "completed",
+                    "started_at_utc": "2026-06-14T10:00:00Z",
+                    "snapshot_at_utc": "2026-06-14T10:10:00Z",
+                    "total_elapsed_seconds": 600.0,
+                    "stages": [
+                        {
+                            "stage_index": 7,
+                            "stage_name": "probe selection, training, and scoring",
+                            "stage_status": "completed",
+                            "duration_seconds": 120.0,
+                            "substage_count": 2,
+                            "substages": [
+                                {
+                                    "substage_index": 1,
+                                    "substage_name": "probe record-set assembly",
+                                    "substage_status": "completed",
+                                    "duration_seconds": 12.0,
+                                },
+                                {
+                                    "substage_index": 2,
+                                    "substage_name": "probe eval-cache prep and layer selection",
+                                    "substage_status": "completed",
+                                    "duration_seconds": 108.0,
+                                },
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertIn("### Stage Timing", markdown)
+        self.assertIn("### Substage Timing", markdown)
+        self.assertIn("probe selection, training, and scoring", markdown)
+        self.assertIn("probe record-set assembly", markdown)
+        self.assertIn("probe eval-cache prep and layer selection", markdown)
+        self.assertIn("| Substages |", markdown)
+
     def test_samples_and_candidate_scores_use_compact_column_contract(self):
         sample_records = [
             {

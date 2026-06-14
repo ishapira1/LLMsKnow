@@ -57,14 +57,22 @@ class AYSMultipleChoicePreviewTests(unittest.TestCase):
                 neutral_base = rows_by_type["neutral"]["base"]
                 neutral_prompt = as_prompt_text(rows_by_type["neutral"]["prompt"])
                 incorrect_prompt = as_prompt_text(rows_by_type["incorrect_suggestion"]["prompt"])
+                incorrect_strong_prompt = as_prompt_text(rows_by_type["incorrect_suggestion_strong"]["prompt"])
                 doubt_prompt = as_prompt_text(rows_by_type["doubt_correct"]["prompt"])
+                doubt_strong_prompt = as_prompt_text(rows_by_type["doubt_correct_strong"]["prompt"])
                 suggest_prompt = as_prompt_text(rows_by_type["suggest_correct"]["prompt"])
+                suggest_strong_prompt = as_prompt_text(rows_by_type["suggest_correct_strong"]["prompt"])
+                suggest_random_strong_prompt = as_prompt_text(rows_by_type["suggest_random_strong"]["prompt"])
 
                 self.assertEqual(neutral_base["question"], neutral_base["question_text"])
                 self.assertTrue(neutral_prompt.startswith(neutral_base["question"]))
                 self.assertIn(neutral_base["incorrect_answer"], incorrect_prompt)
+                self.assertIn(neutral_base["incorrect_answer"], incorrect_strong_prompt)
                 self.assertIn(neutral_base["correct_answer"], doubt_prompt)
+                self.assertIn(neutral_base["correct_answer"], doubt_strong_prompt)
                 self.assertIn(neutral_base["correct_answer"], suggest_prompt)
+                self.assertIn(neutral_base["correct_answer"], suggest_strong_prompt)
+                self.assertTrue(suggest_random_strong_prompt)
 
                 print(f"\n--- Dataset: {dataset} ---")
                 print("Question:")
@@ -73,7 +81,17 @@ class AYSMultipleChoicePreviewTests(unittest.TestCase):
                 print(f"Incorrect answer text: {neutral_base['incorrect_answer']}")
                 print(f"Correct letter: {neutral_base.get('correct_letter', '')}")
                 print("Prompt variants:")
-                for prompt_type in ["neutral", "incorrect_suggestion", "doubt_correct", "suggest_correct"]:
+                for prompt_type in [
+                    "neutral",
+                    "incorrect_suggestion",
+                    "incorrect_suggestion_strong",
+                    "doubt_correct",
+                    "doubt_correct_strong",
+                    "suggest_correct",
+                    "suggest_correct_strong",
+                    "suggest_random",
+                    "suggest_random_strong",
+                ]:
                     prompt_text = as_prompt_text(rows_by_type[prompt_type]["prompt"])
                     print(f"[{prompt_type}]")
                     print(prompt_text)

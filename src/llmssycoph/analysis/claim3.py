@@ -7,8 +7,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-
-DEFAULT_ENDORSED_OPTION_GRID_TEMPLATE_TYPE = "endorsed_option_grid_supportive_weak"
+from ..data import get_prompt_family
+DEFAULT_ENDORSED_OPTION_GRID_TEMPLATE_TYPE = get_prompt_family(
+    "endorsed_option_grid_supportive_weak"
+).family_id
 
 
 def default_claim3_sampling_subdir() -> str:

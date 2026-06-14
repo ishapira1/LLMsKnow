@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .instruction_policies import get_instruction_policy
-from .prompt import Prompt
+from .prompt_families import (
+    PROMPT_TEMPLATE_BY_FAMILY,
+    get_prompt_family,
+    user_selectable_bias_families,
+)
 from .prompt_instructions import (
     ALL_INSTRUCTION_POLICIES,
     ALL_MC_MODES,
@@ -26,26 +30,19 @@ GRADING_SPEC_VERSION = 3
 STRICT_OUTPUT_CONTRACT = "answer_line_letter_only"
 
 
-from .agreement_biases.registry import AGREEMENT_BIAS_TYPES, get_agreement_bias
-
-
 class BiasInjectionTemplates:
     TEMPLATE_TO_TYPE = {
-        bias_class().prompt_template: bias_class.name
-        for bias_class in AGREEMENT_BIAS_TYPES
-        if bias_class.name != "neutral"
+        PROMPT_TEMPLATE_BY_FAMILY[family_id]: family_id
+        for family_id in user_selectable_bias_families()
     }
-    PROMPT_TEMPLATE_BY_TYPE = {
-        bias_class.name: bias_class().prompt_template
-        for bias_class in AGREEMENT_BIAS_TYPES
-    }
+    PROMPT_TEMPLATE_BY_TYPE = dict(PROMPT_TEMPLATE_BY_FAMILY)
     NEUTRAL = PROMPT_TEMPLATE_BY_TYPE["neutral"]
 
 
 BIAS_TEMPLATE_TO_TYPE = dict(BiasInjectionTemplates.TEMPLATE_TO_TYPE)
 PROMPT_TEMPLATE_BY_TYPE = dict(BiasInjectionTemplates.PROMPT_TEMPLATE_BY_TYPE)
 NEUTRAL_TEMPLATE = BiasInjectionTemplates.NEUTRAL
-ALL_BIAS_TYPES = tuple(BIAS_TEMPLATE_TO_TYPE.values())
+ALL_BIAS_TYPES = tuple(user_selectable_bias_families())
 
 
 @dataclass(frozen=True)
@@ -58,11 +55,10 @@ class PromptBuilder:
 
     def bias_text(
         self,
-        template_type: str,
+        prompt_family_id: str,
         correct_answer: str,
         incorrect_answer: str,
     ) -> str:
-        from .agreement_biases import get_agreement_bias
         from .question import Question
 
         question = Question(
@@ -71,12 +67,12 @@ class PromptBuilder:
             correct_answer=correct_answer,
             incorrect_answer=incorrect_answer,
         )
-        return get_agreement_bias(template_type).bias_text(question)
+        return get_prompt_family(prompt_family_id).render_bias_text(question)
 
     def render_prompt_text(
         self,
         question_text: str,
-        template_type: str,
+        prompt_family_id: str,
         correct_answer: str,
         incorrect_answer: str,
         mc_mode: str = MC_MODE_STRICT,
@@ -88,17 +84,20 @@ class PromptBuilder:
 
         from .question import Question
 
-        prompt = Prompt(
-            question=Question(
-                dataset="",
-                question_text=question_text,
-                correct_answer=correct_answer,
-                incorrect_answer=incorrect_answer,
-            ),
-            agreement_bias=get_agreement_bias(template_type),
-            instruction_policy=get_instruction_policy(instruction_policy or mc_mode),
+        question = Question(
+            dataset="",
+            question_text=question_text,
+            correct_answer=correct_answer,
+            incorrect_answer=incorrect_answer,
         )
-        return prompt.prompt_text
+        bias_text = get_prompt_family(prompt_family_id).render_bias_text(question)
+        instruction_text = get_instruction_policy(instruction_policy or mc_mode).render_instruction(question)
+        prompt_parts = [question_text]
+        if str(bias_text or "").strip():
+            prompt_parts.append(str(bias_text).strip())
+        if str(instruction_text or "").strip():
+            prompt_parts.append(str(instruction_text).strip())
+        return "\n\n".join(prompt_parts)
 
 
 default_prompt_builder = PromptBuilder()

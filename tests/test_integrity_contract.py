@@ -363,6 +363,8 @@ class IntegrityContractTests(unittest.TestCase):
             self.assertEqual(report["sample_count"], 6)
             self.assertEqual(report["tuple_count"], 3)
             self.assertEqual(report["question_count"], 3)
+            self.assertTrue(preferred_run_artifact_path(run_dir, "all_probes_dir").exists())
+            self.assertTrue(preferred_run_artifact_path(run_dir, "chosen_probe_dir").exists())
 
     def test_check_run_integrity_accepts_sampling_only_smoke_run(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -374,6 +376,8 @@ class IntegrityContractTests(unittest.TestCase):
             self.assertEqual(report["sample_count"], 6)
             self.assertEqual(report["tuple_count"], 3)
             self.assertEqual(report["question_count"], 3)
+            self.assertFalse(preferred_run_artifact_path(run_dir, "all_probes_dir").exists())
+            self.assertFalse(preferred_run_artifact_path(run_dir, "chosen_probe_dir").exists())
 
     def test_check_run_integrity_accepts_non_aqua_ays_smoke_run(self):
         with tempfile.TemporaryDirectory() as tmpdir:

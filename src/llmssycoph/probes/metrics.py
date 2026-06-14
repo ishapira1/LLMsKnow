@@ -245,6 +245,26 @@ def prepare_probe_eval_cache(
     return cache
 
 
+def prepare_probe_eval_cache_by_template(
+    model,
+    tokenizer,
+    records_by_template: Mapping[str, Sequence[Dict[str, Any]]],
+    layer_grid: Sequence[int],
+    desc: str,
+) -> Dict[str, Dict[str, Any]]:
+    caches: Dict[str, Dict[str, Any]] = {}
+    for template_type in records_by_template:
+        template_records = list(records_by_template.get(template_type, []))
+        caches[str(template_type)] = prepare_probe_eval_cache(
+            model=model,
+            tokenizer=tokenizer,
+            split_records={"test": template_records},
+            layer_grid=layer_grid,
+            desc=f"{desc} eval:{template_type}",
+        )
+    return caches
+
+
 def evaluate_probe_from_cache(
     cache: Mapping[str, Any],
     clf,
@@ -291,6 +311,36 @@ def evaluate_probe_from_cache(
     return metrics
 
 
+def evaluate_probe_cross_family_from_caches(
+    caches_by_template: Mapping[str, Mapping[str, Any]],
+    clf,
+    layer: Optional[int],
+    threshold: float = DEFAULT_PROBE_THRESHOLD,
+) -> Dict[str, Any]:
+    cross_family_metrics: Dict[str, Any] = {
+        "metric_schema_version": PROBE_METRIC_SCHEMA_VERSION,
+        "metric_names": list(PROBE_METRIC_NAMES),
+        "threshold": float(threshold),
+        "evaluated_layer": layer,
+        "eval_splits": ["test"],
+        "by_template_type": {},
+    }
+
+    for template_type in caches_by_template:
+        template_metrics = evaluate_probe_from_cache(
+            caches_by_template[template_type],
+            clf,
+            layer,
+            threshold=threshold,
+        )
+        cross_family_metrics["by_template_type"][str(template_type)] = template_metrics.get("splits", {}).get(
+            "test",
+            _empty_metric_block(),
+        )
+
+    return cross_family_metrics
+
+
 def probe_model_metadata(clf) -> Dict[str, Any]:
     if clf is None:
         return {
@@ -331,8 +381,10 @@ __all__ = [
     "add_path_fields",
     "build_split_data_summary",
     "compute_binary_probe_metrics",
+    "evaluate_probe_cross_family_from_caches",
     "evaluate_probe_from_cache",
     "filter_usable_probe_records",
+    "prepare_probe_eval_cache_by_template",
     "prepare_probe_eval_cache",
     "probe_model_metadata",
     "summarize_probe_records",

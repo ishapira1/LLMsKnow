@@ -2,6 +2,8 @@
 
 This package provides a reusable, spec-driven analysis layer for completed runs.
 
+It is explicitly post-hoc. Analysis artifacts are derived outputs written after a run completes; they are not part of the minimal core pipeline completion contract.
+
 The design goal is to avoid hand-writing notebook logic over and over. Instead:
 
 1. load one run into a canonical `AnalysisContext`
@@ -20,6 +22,7 @@ All generated artifacts must stay inside the current run directory.
 - cell failures: `run_dir/analysis/tables/analysis_cell_failures.csv`
 
 Do not save analysis outputs into source directories or shared global folders.
+Do not treat the presence or absence of `analysis/` as part of the base pipeline success criterion.
 
 ## Supported Scope
 

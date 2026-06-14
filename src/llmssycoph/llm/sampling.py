@@ -90,11 +90,14 @@ def _materialize_sample_record(
         "template_type": task["template_type"],
         "task_format": task["task_format"],
         "mc_mode": task["mc_mode"],
+        "instruction_policy": task.get("instruction_policy", ""),
+        "response_prefix": task.get("response_prefix", ""),
         "answer_channel": task["answer_channel"],
         "prompt_spec_version": task["prompt_spec_version"],
         "grading_spec_version": grading.get("grading_spec_version", task["grading_spec_version"]),
         "correct_letter": task["correct_letter"],
         "incorrect_letter": task["incorrect_letter"],
+        "suggested_label": task["suggested_label"],
         "letters": task["letters"],
         "answer_options": task["answer_options"],
         "answers_list": task["answers_list"],
@@ -104,7 +107,12 @@ def _materialize_sample_record(
         "question": task["question"],
         "correct_answer": task["correct_answer"],
         "incorrect_answer": task["incorrect_answer"],
+        "suggested_answer": task["suggested_answer"],
         "incorrect_answer_source": task["incorrect_answer_source"],
+        "source_dataset": task.get("source_dataset", ""),
+        "source_split": task.get("source_split", ""),
+        "source_example_id": task.get("source_example_id", ""),
+        "bias_construction_mode": task.get("bias_construction_mode", ""),
         "gold_answers": task["gold_answers"],
         "draw_idx": draw_idx,
         "response_raw": generation_record["response_raw"],
@@ -252,14 +260,12 @@ def enumerate_expected_sample_keys(
     keys: Set[Tuple[str, str, str, int]] = set()
     wanted_types = ["neutral"] + list(bias_types)
     for group in groups:
-        base_row = group["rows_by_type"]["neutral"]
-        base = base_row.get("base", {}) or {}
-        gold_answers = _extract_gold_answers_from_base(base)
-        if not gold_answers:
-            continue
-
         for template_type in wanted_types:
             row = group["rows_by_type"][template_type]
+            base = row.get("base", {}) or {}
+            gold_answers = _extract_gold_answers_from_base(base)
+            if not gold_answers:
+                continue
             prompt_messages = row.get("prompt", [])
             if not isinstance(prompt_messages, list) or not prompt_messages:
                 continue
@@ -486,14 +492,12 @@ def sample_records_for_groups(
     pending_tasks: List[Dict[str, Any]] = []
 
     for group in groups:
-        base_row = group["rows_by_type"]["neutral"]
-        base = base_row.get("base", {}) or {}
-        gold_answers = _extract_gold_answers_from_base(base)
-        if not gold_answers:
-            continue
-
         for template_type in wanted_types:
             row = group["rows_by_type"][template_type]
+            base = row.get("base", {}) or {}
+            gold_answers = _extract_gold_answers_from_base(base)
+            if not gold_answers:
+                continue
             prompt_messages = row.get("prompt", [])
             if not isinstance(prompt_messages, list) or not prompt_messages:
                 continue
@@ -503,14 +507,18 @@ def sample_records_for_groups(
             prompt_template = (row.get("metadata", {}) or {}).get("prompt_template", "")
             task_format = str(base.get("task_format", "") or "")
             mc_mode = str(base.get("mc_mode", "") or "")
+            instruction_policy = str(base.get("instruction_policy", "") or "")
+            response_prefix = str(base.get("response_prefix", "") or "")
             answer_channel = str(base.get("answer_channel", "") or "")
             prompt_spec_version = base.get("prompt_spec_version")
             grading_spec_version = base.get("grading_spec_version")
             correct_letter = str(base.get("correct_letter", "") or "")
             incorrect_letter = str(base.get("incorrect_letter", "") or "")
+            suggested_label = str(base.get("suggested_label", "") or "")
             letters = str(base.get("letters", "") or "")
             answer_options = str(base.get("answers", "") or "")
             answers_list = list(base.get("answers_list", []) or [])
+            suggested_answer = str(base.get("suggested_answer", "") or "")
             strict_mc_letters = letters if task_format == "multiple_choice" and mc_mode == "strict_mc" else ""
             choice_labels = _strict_mc_choice_labels(base)
             planned_n_draws = _planned_draw_count(base, n_draws)
@@ -542,18 +550,26 @@ def sample_records_for_groups(
                     "prompt_template": prompt_template,
                     "task_format": task_format,
                     "mc_mode": mc_mode,
+                    "instruction_policy": instruction_policy,
+                    "response_prefix": response_prefix,
                     "answer_channel": answer_channel,
                     "prompt_spec_version": prompt_spec_version,
                     "grading_spec_version": grading_spec_version,
                     "correct_letter": correct_letter,
                     "incorrect_letter": incorrect_letter,
+                    "suggested_label": suggested_label,
                     "letters": letters,
                     "answer_options": answer_options,
                     "answers_list": answers_list,
                     "strict_mc_letters": strict_mc_letters,
                     "choice_labels": choice_labels,
                     "gold_answers": gold_answers,
+                    "suggested_answer": suggested_answer,
                     "incorrect_answer_source": str(base.get("incorrect_answer_source", "") or ""),
+                    "source_dataset": str(base.get("source_dataset", "") or ""),
+                    "source_split": str(base.get("source_split", "") or ""),
+                    "source_example_id": str(base.get("source_example_id", "") or ""),
+                    "bias_construction_mode": str(base.get("bias_construction_mode", "") or ""),
                     "missing_draws": list(missing_draws),
                     "record_ids": record_ids,
                 }

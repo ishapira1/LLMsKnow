@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable
 
 import pandas as pd
 
-from ..runtime import resolve_run_artifact_path
+from ..runtime import preferred_run_artifact_path, resolve_run_artifact_path
 from .core import AnalysisContext, AnalysisError, AnalysisNotSupportedError, maybe_read_csv
 
 
@@ -70,9 +70,9 @@ def load_analysis_context(run_dir: Path | str) -> AnalysisContext:
     sampled_responses = pd.read_csv(sampled_responses_path)
     _assert_multiple_choice(sampled_responses)
 
-    analysis_dir = run_dir / "analysis"
-    plots_dir = analysis_dir / "plots"
-    tables_dir = analysis_dir / "tables"
+    analysis_dir = preferred_run_artifact_path(run_dir, "analysis_dir")
+    plots_dir = preferred_run_artifact_path(run_dir, "analysis_plots_dir")
+    tables_dir = preferred_run_artifact_path(run_dir, "analysis_tables_dir")
     analysis_dir.mkdir(parents=True, exist_ok=True)
     plots_dir.mkdir(parents=True, exist_ok=True)
     tables_dir.mkdir(parents=True, exist_ok=True)

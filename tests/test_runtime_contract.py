@@ -17,12 +17,18 @@ from llmssycoph.constants import (
     RESUME_COMPAT_KEYS,
 )
 from llmssycoph.runtime import (
+    ACTIVE_RUN_ARTIFACT_PATHS,
+    CORE_PIPELINE_ARTIFACT_PATHS,
+    DERIVED_RUN_ARTIFACT_PATHS,
+    OPTIONAL_PROBE_ARTIFACT_PATHS,
+    READ_COMPATIBILITY_ARTIFACT_ALIASES,
     acquire_run_lock,
     assert_resume_compatible,
     dataset_slug,
     make_run_dir,
     model_slug,
     preferred_run_artifact_path,
+    resolve_run_artifact_path,
     release_run_lock,
     run_lock_path,
     write_csv_atomic,
@@ -123,6 +129,93 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual(dataset_slug("", ["aqua_mc"]), "aqua_mc")
         self.assertEqual(dataset_slug("", ["aqua_mc", "arc_challenge"]), "all")
         self.assertEqual(dataset_slug("", None, fallback="legacy_unknown"), "legacy_unknown")
+
+    def test_artifact_contract_splits_active_write_paths_from_legacy_read_aliases(self):
+        self.assertIn("sampled_responses", CORE_PIPELINE_ARTIFACT_PATHS)
+        self.assertIn("all_probes_dir", OPTIONAL_PROBE_ARTIFACT_PATHS)
+        self.assertIn("analysis_notebook_status", DERIVED_RUN_ARTIFACT_PATHS)
+
+        legacy_only_keys = {
+            "final_tuples",
+            "summary_by_question",
+            "probe_candidate_scores",
+            "probe_summary_csv",
+            "probe_metadata",
+            "model_summary_by_template",
+            "model_summary_by_bias",
+            "internal_cache_dir",
+        }
+        for artifact_key in legacy_only_keys:
+            self.assertNotIn(artifact_key, ACTIVE_RUN_ARTIFACT_PATHS)
+            self.assertIn(artifact_key, READ_COMPATIBILITY_ARTIFACT_ALIASES)
+
+    def test_preferred_paths_are_canonical_and_legacy_aliases_remain_resolvable(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = make_run_dir(tmpdir, "model", "artifact_resolution_case")
+            legacy_final_tuples = run_dir / "analysis" / "final_tuples.csv"
+            legacy_final_tuples.parent.mkdir(parents=True, exist_ok=True)
+            legacy_final_tuples.write_text("question_id\nq_1\n", encoding="utf-8")
+
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "sampled_responses"),
+                run_dir / "sampling" / "sampled_responses.csv",
+            )
+            self.assertEqual(resolve_run_artifact_path(run_dir, "final_tuples"), legacy_final_tuples)
+            with self.assertRaises(KeyError):
+                preferred_run_artifact_path(run_dir, "final_tuples")
+
+    def test_derived_artifact_paths_stay_inside_reserved_run_subtrees(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = make_run_dir(tmpdir, "model", "derived_contract_case")
+
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "analysis_dir"),
+                run_dir / "analysis",
+            )
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "analysis_plots_dir"),
+                run_dir / "analysis" / "plots",
+            )
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "analysis_tables_dir"),
+                run_dir / "analysis" / "tables",
+            )
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "probe_backfills_dir"),
+                run_dir / "probes" / "backfills",
+            )
+            self.assertEqual(
+                preferred_run_artifact_path(run_dir, "sampling_backfills_dir"),
+                run_dir / "sampling_backfills",
+            )
+
+    def test_output_docs_match_current_contract(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        readme_text = (repo_root / "README.md").read_text(encoding="utf-8")
+        results_text = (repo_root / "RESULTS_FORMAT.md").read_text(encoding="utf-8")
+        analysis_text = (repo_root / "src" / "llmssycoph" / "analysis" / "README.md").read_text(
+            encoding="utf-8"
+        )
+
+        banned_legacy_outputs = (
+            "final_tuples.csv",
+            "summary_by_question.csv",
+            "probe_candidate_scores.csv",
+            "probe_metadata.json",
+            "probe_summary.csv",
+            "model_summary_by_template.csv",
+            "model_summary_by_bias.csv",
+        )
+        for filename in banned_legacy_outputs:
+            self.assertNotIn(filename, readme_text)
+            self.assertNotIn(filename, results_text)
+
+        self.assertIn("## Core Pipeline Outputs", results_text)
+        self.assertIn("## Optional Probe Outputs", results_text)
+        self.assertIn("## Optional Derived Outputs", results_text)
+        self.assertIn("runtime_timing", results_text)
+        self.assertIn("substage timing", readme_text.lower())
+        self.assertIn("post-hoc", analysis_text)
 
     def test_assert_resume_compatible_detects_mismatches(self):
         with tempfile.TemporaryDirectory() as tmpdir:

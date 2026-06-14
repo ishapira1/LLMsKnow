@@ -50,6 +50,7 @@ from llmssycoph.cli import resolve_device, resolve_hf_cache_dir
 from llmssycoph.grading import record_is_usable_for_metrics
 from llmssycoph.llm.generation import encode_chat
 from llmssycoph.llm.loading import load_model_and_tokenizer
+from llmssycoph.probes.movement import decompose_probe_delta
 from llmssycoph.probes.features import _assistant_text_last_token_index
 
 
@@ -448,43 +449,19 @@ def decompose_probe_direction(
     delta_vec: np.ndarray,
     probe_weights: np.ndarray,
 ) -> Dict[str, float]:
-    delta_arr = np.asarray(delta_vec, dtype=float)
-    weight_arr = np.asarray(probe_weights, dtype=float)
-    if delta_arr.shape != weight_arr.shape:
-        raise ValueError(
-            f"delta_vec and probe_weights must have identical shapes, got {delta_arr.shape} and {weight_arr.shape}."
-        )
-    if not np.isfinite(delta_arr).all() or not np.isfinite(weight_arr).all():
-        raise ValueError("delta_vec and probe_weights must be finite.")
-
-    probe_weight_norm = float(np.linalg.norm(weight_arr))
-    if probe_weight_norm <= 0.0:
-        raise ValueError("probe_weights must have positive norm.")
-    probe_weight_norm_sq = float(probe_weight_norm**2)
-    score_shift_linear = float(np.dot(weight_arr, delta_arr))
-    parallel_vec = (score_shift_linear / probe_weight_norm_sq) * weight_arr
-    orthogonal_vec = delta_arr - parallel_vec
-
-    delta_l2 = float(np.linalg.norm(delta_arr))
-    parallel_l2 = float(np.linalg.norm(parallel_vec))
-    orthogonal_l2 = float(np.linalg.norm(orthogonal_vec))
-    reconstruction_error = float(abs((delta_l2**2) - (parallel_l2**2) - (orthogonal_l2**2)))
-
-    if delta_l2 > 0.0:
-        orthogonal_fraction = float(orthogonal_l2 / delta_l2)
-        parallel_fraction = float(parallel_l2 / delta_l2)
-    else:
-        orthogonal_fraction = float("nan")
-        parallel_fraction = float("nan")
-
+    metrics = decompose_probe_delta(delta_vec, probe_weights)
+    delta_l2 = float(np.sqrt(float(metrics["delta_l2_sq"])))
+    parallel_l2 = float(np.sqrt(float(metrics["parallel_l2_sq"])))
+    orthogonal_l2 = float(np.sqrt(float(metrics["orthogonal_l2_sq"])))
+    probe_weight_norm = float(np.linalg.norm(np.asarray(probe_weights, dtype=float)))
     return {
-        "score_shift_linear": score_shift_linear,
+        "score_shift_linear": float(metrics["delta_probe_logit"]),
         "delta_l2": delta_l2,
         "parallel_l2": parallel_l2,
         "orthogonal_l2": orthogonal_l2,
-        "orthogonal_fraction": orthogonal_fraction,
-        "parallel_fraction": parallel_fraction,
-        "reconstruction_error": reconstruction_error,
+        "orthogonal_fraction": 0.0 if delta_l2 <= 0.0 else float(orthogonal_l2 / delta_l2),
+        "parallel_fraction": 0.0 if delta_l2 <= 0.0 else float(parallel_l2 / delta_l2),
+        "reconstruction_error": float(metrics["reconstruction_error"]),
         "probe_weight_norm": probe_weight_norm,
     }
 

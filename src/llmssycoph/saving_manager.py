@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 import numpy as np
 import pandas as pd
 
-from .data import prompt_id_for
+from .data import family_for_probe_name, ordered_prompt_families, probe_name_for_family, prompt_id_for
 from .grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from .llm.sampling import normalize_sample_records
 from .logging_utils import build_warning_summary_payload, log_status
@@ -41,8 +41,10 @@ SAMPLED_RESPONSE_COLUMNS = [
     "question",
     "correct_answer",
     "incorrect_answer",
+    "suggested_answer",
     "correct_letter",
     "incorrect_letter",
+    "suggested_label",
     "prompt_template",
     "prompt_text",
     "response_raw",
@@ -249,6 +251,8 @@ MC_PROBE_SCORE_BY_PROMPT_BASE_COLUMNS = [
     "draw_idx",
     "source_record_id",
     "correct_letter",
+    "suggested_label",
+    "suggested_answer",
     "selected_choice",
     "selected_choice_is_correct",
     "probe_score_correct_choice",
@@ -316,8 +320,8 @@ def build_tuple_rows(
                     "C_xprime_yprime": int(bias_record["correctness"]),
                     "T_x": float(neutral_record["T_prompt"]),
                     "T_xprime": float(bias_record["T_prompt"]),
-                    "probe_x_name": "probe_no_bias",
-                    "probe_xprime_name": f"probe_bias_{bias_type}",
+                    "probe_x_name": probe_name_for_family("neutral"),
+                    "probe_xprime_name": probe_name_for_family(bias_type),
                     "probe_x": neutral_record.get("probe_x", np.nan),
                     "probe_xprime": bias_record.get("probe_xprime", np.nan),
                 }
@@ -348,8 +352,10 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
             "question": record["question"],
             "correct_answer": record["correct_answer"],
             "incorrect_answer": record["incorrect_answer"],
+            "suggested_answer": record.get("suggested_answer", ""),
             "correct_letter": record.get("correct_letter", ""),
             "incorrect_letter": record.get("incorrect_letter", ""),
+            "suggested_label": record.get("suggested_label", ""),
             "prompt_template": record["prompt_template"],
             "prompt_text": record["prompt_text"],
             "response_raw": record["response_raw"],
@@ -799,11 +805,10 @@ def _build_mc_option_selection_summary(
             if str(value).strip()
         }
     )
-    ordered_template_types = ["neutral"] + configured_bias_types + [
-        template_type
-        for template_type in observed_template_types
-        if template_type not in {"neutral", *set(configured_bias_types)}
-    ]
+    ordered_template_types = ordered_prompt_families(
+        ["neutral", *configured_bias_types, *observed_template_types],
+        include_neutral=True,
+    )
 
     rows = [
         _build_mc_option_selection_row(
@@ -1365,13 +1370,10 @@ def build_reports_summary_df(
         if not samples_df.empty
         else []
     )
-    ordered_bias_types = list(configured_bias_types)
-    seen_bias_types = set(ordered_bias_types)
-    for bias_type in observed_bias_types + observed_template_bias_types:
-        if bias_type in seen_bias_types:
-            continue
-        ordered_bias_types.append(bias_type)
-        seen_bias_types.add(bias_type)
+    ordered_bias_types = ordered_prompt_families(
+        [*configured_bias_types, *observed_bias_types, *observed_template_bias_types],
+        include_neutral=False,
+    )
 
     rows = [
         _build_reports_summary_row(
@@ -1438,7 +1440,7 @@ def _build_probe_test_auc_rows(probes_meta: Dict[str, Any]) -> List[Dict[str, An
     probe_names = [
         str(key)
         for key in probes_meta
-        if str(key) == "probe_no_bias" or str(key).startswith("probe_bias_")
+        if family_for_probe_name(str(key))
     ]
     for probe_name in sorted(probe_names):
         probe_payload = probes_meta.get(probe_name)
@@ -1467,7 +1469,7 @@ def _probe_family_names(probes_meta: Dict[str, Any]) -> List[str]:
         [
             str(key)
             for key in probes_meta
-            if str(key) == "probe_no_bias" or str(key).startswith("probe_bias_")
+            if family_for_probe_name(str(key))
         ]
     )
 
@@ -1476,11 +1478,7 @@ def _template_type_for_probe(probe_name: str, probe_payload: Dict[str, Any]) -> 
     template_type = str(probe_payload.get("template_type", "") or "")
     if template_type:
         return template_type
-    if probe_name == "probe_no_bias":
-        return "neutral"
-    if probe_name.startswith("probe_bias_"):
-        return probe_name[len("probe_bias_") :]
-    return ""
+    return str(family_for_probe_name(probe_name) or "")
 
 
 def _build_probe_score_lookup(group_df: pd.DataFrame, value_column: str) -> Dict[str, Optional[float]]:
@@ -1517,6 +1515,8 @@ def build_mc_probe_scores_by_prompt_df(probe_candidate_scores_df: pd.DataFrame) 
         score_lookup = _build_probe_score_lookup(group_df, "probe_score")
         probability_lookup = _build_probe_score_lookup(group_df, "candidate_probability")
         correct_letter = str(first_row.get("correct_letter", "") or "")
+        suggested_label = str(first_row.get("suggested_label", "") or "")
+        suggested_answer = str(first_row.get("suggested_answer", "") or "")
         selected_choice = str(first_row.get("selected_choice", "") or "")
         argmax_choice = str(ordered.iloc[0].get("candidate_choice", "") or "") if not ordered.empty else ""
         argmax_score = _float_or_none(ordered.iloc[0].get("probe_score")) if not ordered.empty else None
@@ -1544,6 +1544,8 @@ def build_mc_probe_scores_by_prompt_df(probe_candidate_scores_df: pd.DataFrame) 
             "draw_idx": int(first_row.get("draw_idx", 0) or 0),
             "source_record_id": first_row.get("source_record_id", np.nan),
             "correct_letter": correct_letter,
+            "suggested_label": suggested_label,
+            "suggested_answer": suggested_answer,
             "selected_choice": selected_choice,
             "selected_choice_is_correct": bool(selected_choice and selected_choice == correct_letter),
             "probe_score_correct_choice": score_correct,
@@ -1666,6 +1668,7 @@ def build_probe_summary_payload(
         probe_payload = probes_meta.get(probe_name)
         if not isinstance(probe_payload, dict):
             continue
+        template_type = _template_type_for_probe(probe_name, probe_payload)
 
         metrics = _load_probe_metrics(probe_payload.get("chosen_probe_metrics_path"))
         metrics_by_split = {}
@@ -1680,11 +1683,23 @@ def build_probe_summary_payload(
             if "probe_name" in probe_candidate_scores_df.columns
             else pd.DataFrame(columns=probe_candidate_scores_df.columns)
         )
+        if not candidate_subset.empty and "template_type" in candidate_subset.columns:
+            candidate_subset = candidate_subset[
+                candidate_subset["template_type"].astype(str) == template_type
+            ].copy()
         wide_subset = (
             probe_scores_by_prompt_df[probe_scores_by_prompt_df["probe_name"].astype(str) == probe_name].copy()
             if "probe_name" in probe_scores_by_prompt_df.columns
             else pd.DataFrame(columns=probe_scores_by_prompt_df.columns)
         )
+        if not wide_subset.empty and "probe_matches_evaluated_template" in wide_subset.columns:
+            wide_subset = wide_subset[
+                pd.to_numeric(wide_subset["probe_matches_evaluated_template"], errors="coerce").fillna(0).astype(bool)
+            ].copy()
+        elif not wide_subset.empty and "template_type" in wide_subset.columns:
+            wide_subset = wide_subset[
+                wide_subset["template_type"].astype(str) == template_type
+            ].copy()
         candidate_summary = {
             "all_splits": _candidate_probe_metrics_from_frames(candidate_subset, wide_subset),
             "by_split": _group_candidate_probe_metrics(candidate_subset, wide_subset, ("split",)),
@@ -1719,7 +1734,6 @@ def build_probe_summary_payload(
             if best_dev_auc is not None and second_best_dev_auc is not None:
                 gap_to_second_best_dev_auc = float(best_dev_auc - second_best_dev_auc)
 
-        template_type = _template_type_for_probe(probe_name, probe_payload)
         trained_layers = [int(layer) for layer in (probe_payload.get("trained_layers", []) or [])]
         row = {
             "probe_name": probe_name,
@@ -2117,18 +2131,10 @@ def _summary_rows_from_payload(summary_payload: Any) -> List[Dict[str, Any]]:
     configured_bias_types = [
         bias_type for bias_type in _list_like_strings(summary_payload.get("bias_types")) if bias_type != "neutral"
     ]
-    ordered_bias_types = list(configured_bias_types)
-    seen_bias_types = set(ordered_bias_types)
-    for bias_type in sorted(pair_lookup):
-        if bias_type in seen_bias_types:
-            continue
-        ordered_bias_types.append(bias_type)
-        seen_bias_types.add(bias_type)
-    for template_type in sorted(template_lookup):
-        if template_type == "neutral" or template_type in seen_bias_types:
-            continue
-        ordered_bias_types.append(template_type)
-        seen_bias_types.add(template_type)
+    ordered_bias_types = ordered_prompt_families(
+        [*configured_bias_types, *pair_lookup.keys(), *template_lookup.keys()],
+        include_neutral=False,
+    )
 
     if "neutral" in template_lookup:
         rows.append(
@@ -2288,6 +2294,35 @@ def _markdown_table(
     return "\n".join(lines)
 
 
+def _runtime_substage_df(runtime_timing: Dict[str, Any]) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    for stage in runtime_timing.get("stages", []) if isinstance(runtime_timing, dict) else []:
+        if not isinstance(stage, dict):
+            continue
+        stage_index = stage.get("stage_index")
+        stage_name = stage.get("stage_name")
+        for substage in stage.get("substages", []) or []:
+            if not isinstance(substage, dict):
+                continue
+            rows.append(
+                {
+                    "stage_index": stage_index,
+                    "stage_name": stage_name,
+                    "substage_index": substage.get("substage_index"),
+                    "substage_name": substage.get("substage_name"),
+                    "substage_status": substage.get("substage_status"),
+                    "duration_seconds": substage.get("duration_seconds"),
+                }
+            )
+    runtime_substage_df = pd.DataFrame(rows)
+    if not runtime_substage_df.empty:
+        runtime_substage_df = runtime_substage_df.copy()
+        runtime_substage_df["duration_human"] = runtime_substage_df["duration_seconds"].apply(
+            _format_duration_human
+        )
+    return runtime_substage_df
+
+
 def build_executive_summary_report_intro_markdown(
     summary_payload: Any,
 ) -> str:
@@ -2303,6 +2338,7 @@ def build_executive_summary_report_intro_markdown(
     runtime_stage_df = pd.DataFrame(
         runtime_timing.get("stages", []) if isinstance(runtime_timing, dict) else []
     )
+    runtime_substage_df = _runtime_substage_df(runtime_timing)
 
     overall_row = {}
     if not summary_df.empty and "bias_type" in summary_df.columns:
@@ -2404,17 +2440,52 @@ def build_executive_summary_report_intro_markdown(
         (
             _markdown_table(
                 runtime_stage_df,
-                ["stage_index", "stage_name", "stage_status", "duration_seconds", "duration_human"],
+                [
+                    "stage_index",
+                    "stage_name",
+                    "stage_status",
+                    "substage_count",
+                    "duration_seconds",
+                    "duration_human",
+                ],
                 {
                     "stage_index": "Stage",
                     "stage_name": "Name",
                     "stage_status": "Status",
+                    "substage_count": "Substages",
                     "duration_seconds": "Seconds",
                     "duration_human": "Duration",
                 },
             )
             if not runtime_stage_df.empty
             else "_No stage timing available._"
+        ),
+        "",
+        "### Substage Timing",
+        (
+            _markdown_table(
+                runtime_substage_df,
+                [
+                    "stage_index",
+                    "stage_name",
+                    "substage_index",
+                    "substage_name",
+                    "substage_status",
+                    "duration_seconds",
+                    "duration_human",
+                ],
+                {
+                    "stage_index": "Stage",
+                    "stage_name": "Stage name",
+                    "substage_index": "Substage",
+                    "substage_name": "Name",
+                    "substage_status": "Status",
+                    "duration_seconds": "Seconds",
+                    "duration_human": "Duration",
+                },
+            )
+            if not runtime_substage_df.empty
+            else "_No substage timing available._"
         ),
     ]
     return "\n".join(sections).strip() + "\n"

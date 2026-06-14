@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..logging_utils import log_status
-from .agreement_biases import get_agreement_bias, resolve_agreement_biases
+from .agreement_biases import get_agreement_bias
 from .instruction_policies import (
     get_instruction_policy,
 )
 from .prompt import Prompt
+from .prompt_families import resolve_prompt_families
 from .prompts import (
     ALL_BIAS_TYPES,
     GRADING_SPEC_VERSION,
@@ -49,6 +50,7 @@ ALL_AYS_MC_DATASETS = (*SYCOPHANCY_AYS_MC_DATASETS, *tuple(HF_AYS_MC_DATASET_SPE
 DEFAULT_AYS_MC_DATASETS = ("truthful_qa_mc", "aqua_mc")
 SUPPORTED_BENCHMARK_SOURCES = ("answer_json", "ays_mc_single_turn")
 MC_INCORRECT_FALLBACK_SEED = 104729
+MC_SUGGEST_RANDOM_NAMESPACE = "suggest_random"
 
 
 _MC_OPTION_LINE_RE = re.compile(r"^\s*\(([A-Za-z0-9])\)\s*(.*?)\s*$")
@@ -525,6 +527,39 @@ def _seeded_random_incorrect_option(
     return rng.choice(list(candidates))
 
 
+def _seeded_option_choice(
+    base: Dict[str, Any],
+    candidates: Sequence[Tuple[str, str]],
+    *,
+    namespace: object,
+    run_seed: int | None = None,
+) -> Tuple[str, str]:
+    if not candidates:
+        return "", ""
+
+    seed_parts = [str(namespace), _seeded_incorrect_option_identity(base)]
+    if run_seed is not None:
+        seed_parts.append(str(int(run_seed)))
+    seed_material = "\n".join(seed_parts).encode("utf-8")
+    derived_seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:8], "big")
+    rng = random.Random(derived_seed)
+    return rng.choice(list(candidates))
+
+
+def _seeded_random_suggest_option(
+    base: Dict[str, Any],
+    option_items: Sequence[Tuple[str, str]],
+    *,
+    run_seed: int | None = None,
+) -> Tuple[str, str]:
+    return _seeded_option_choice(
+        base,
+        option_items,
+        namespace=MC_SUGGEST_RANDOM_NAMESPACE,
+        run_seed=run_seed,
+    )
+
+
 def _should_preserve_multiple_choice_option_text(base: Dict[str, Any]) -> bool:
     dataset = _normalized_dataset_name(base.get("dataset"))
     return dataset in {"aqua_mc", "commonsense_qa", "arc_challenge"}
@@ -625,6 +660,7 @@ class BenchmarkDatasetAdapter:
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
         instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
+        seed: int | None = None,
     ) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
@@ -644,8 +680,9 @@ class AnswerJsonDataset(BenchmarkDatasetAdapter):
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
         instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
+        seed: int | None = None,
     ) -> List[Dict[str, Any]]:
-        del selected_bias_types, selected_ays_mc_datasets, instruction_policy, mc_mode
+        del selected_bias_types, selected_ays_mc_datasets, instruction_policy, mc_mode, seed
         prepared: List[Dict[str, Any]] = []
         for row in rows:
             if not isinstance(row, dict):
@@ -681,8 +718,9 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
         selected_ays_mc_datasets: Optional[Sequence[str]] = None,
         instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
+        seed: int | None = None,
     ) -> List[Dict[str, Any]]:
-        biases = resolve_agreement_biases(selected_bias_types, include_neutral=True)
+        prompt_families = resolve_prompt_families(selected_bias_types, include_neutral=True)
         resolved_instruction_policy = get_instruction_policy(instruction_policy or mc_mode)
         legacy_mc_mode = resolved_instruction_policy.legacy_mc_mode
         response_prefix = resolved_instruction_policy.response_prefix
@@ -708,6 +746,12 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                 option_items,
                 option_map,
             )
+            suggested_random_letter, suggested_random_text = _seeded_random_suggest_option(
+                base,
+                option_items,
+                run_seed=seed,
+            )
+            suggested_random_answer = _multiple_choice_prompt_answer_text(base, suggested_random_text)
 
             if not question_text or not correct_letter or not correct_answer or not incorrect_answer:
                 continue
@@ -736,16 +780,35 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                     "bias_construction_mode": self.bias_construction_mode,
                 }
             )
-            question = Question(
-                dataset=dataset,
-                question_text=question_text,
-                correct_answer=correct_answer,
-                incorrect_answer=incorrect_answer,
-                base_metadata=derived_base,
-            )
+            for prompt_family in prompt_families:
+                if prompt_family.family_id in {"incorrect_suggestion", "incorrect_suggestion_strong"}:
+                    suggested_label = incorrect_letter
+                    suggested_answer = incorrect_answer
+                elif prompt_family.family_id in {"suggest_correct", "suggest_correct_strong"}:
+                    suggested_label = correct_letter
+                    suggested_answer = correct_answer
+                elif prompt_family.family_id in {"suggest_random", "suggest_random_strong"}:
+                    suggested_label = suggested_random_letter
+                    suggested_answer = suggested_random_answer
+                else:
+                    suggested_label = ""
+                    suggested_answer = ""
 
-            for bias in biases:
-                variant = bias.build_prompt_variant(
+                variant_base = dict(derived_base)
+                variant_base.update(
+                    {
+                        "suggested_label": suggested_label,
+                        "suggested_answer": suggested_answer,
+                    }
+                )
+                question = Question(
+                    dataset=dataset,
+                    question_text=question_text,
+                    correct_answer=correct_answer,
+                    incorrect_answer=incorrect_answer,
+                    base_metadata=variant_base,
+                )
+                variant = get_agreement_bias(prompt_family.family_id).build_prompt_variant(
                     question,
                     instruction_policy=resolved_instruction_policy,
                     bias_construction_mode=self.bias_construction_mode,
@@ -762,7 +825,8 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                         "correct_letter": correct_letter,
                         "correct_label": correct_letter,
                         "incorrect_letter": incorrect_letter,
-                        "suggested_label": incorrect_letter,
+                        "suggested_label": suggested_label,
+                        "suggested_answer": suggested_answer,
                         "source_dataset": str(derived_base.get("source_dataset", "") or ""),
                         "source_split": str(derived_base.get("source_split", "") or ""),
                         "source_example_id": str(derived_base.get("source_example_id", "") or ""),
@@ -779,6 +843,7 @@ def materialize_ays_mc_single_turn_rows(
     selected_ays_mc_datasets: Sequence[str],
     instruction_policy: str | None = None,
     mc_mode: str = MC_MODE_STRICT,
+    seed: int | None = None,
 ) -> List[Dict[str, Any]]:
     adapter = AysMcSingleTurnDataset()
     return adapter.prepare_rows(
@@ -787,6 +852,7 @@ def materialize_ays_mc_single_turn_rows(
         selected_ays_mc_datasets=selected_ays_mc_datasets,
         instruction_policy=instruction_policy,
         mc_mode=mc_mode,
+        seed=seed,
     )
 
 
@@ -807,6 +873,7 @@ def prepare_benchmark_rows(
     selected_ays_mc_datasets: Optional[Sequence[str]] = None,
     instruction_policy: str | None = None,
     mc_mode: str = MC_MODE_STRICT,
+    seed: int | None = None,
 ) -> List[Dict[str, Any]]:
     adapter = dataset_adapter_for_benchmark(benchmark_source)
     adapter.validate_input_jsonl(input_jsonl)
@@ -816,6 +883,7 @@ def prepare_benchmark_rows(
         selected_ays_mc_datasets=selected_ays_mc_datasets,
         instruction_policy=instruction_policy,
         mc_mode=mc_mode,
+        seed=seed,
     )
 
 

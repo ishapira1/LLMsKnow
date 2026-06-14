@@ -85,12 +85,19 @@ class CliContractTests(unittest.TestCase):
         self.assertIn("--probe_construction", help_text)
         self.assertIn("--probe_example_weighting", help_text)
         self.assertIn("--override_sampling_cache", help_text)
+        self.assertIn("--fresh_run", help_text)
         self.assertIn("answer_with_reasoning", help_text)
         self.assertIn("legacy --mc_mode", help_text)
 
     def test_override_sampling_cache_alias_disables_sampling_reuse(self):
         args = parse_args(["--override_sampling_cache"])
 
+        self.assertTrue(args.no_reuse_sampling_cache)
+
+    def test_fresh_run_flag_disables_sampling_reuse(self):
+        args = parse_args(["--fresh_run"])
+
+        self.assertTrue(args.fresh_run)
         self.assertTrue(args.no_reuse_sampling_cache)
 
     def test_sampling_only_flag_defaults_false_and_parses_true(self):

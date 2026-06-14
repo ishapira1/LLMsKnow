@@ -12,6 +12,14 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import roc_auc_score
 
+from ..data import (
+    ordered_prompt_families,
+    pair_target_prompt_families,
+    probe_name_for_family,
+    PROMPT_FAMILY_COLORS,
+    PROMPT_FAMILY_DISPLAY_LABELS,
+    trainable_prompt_families,
+)
 from ..runtime import utc_now_iso
 from .core import AnalysisContext, AnalysisError, AnalysisNotSupportedError
 from .dataframes import (
@@ -68,33 +76,40 @@ DEFAULT_COLORS = {
 }
 
 BIAS_COLORS = {
-    "neutral": "#4f6d7a",
-    "incorrect_suggestion": "#d4651a",
-    "doubt_correct": "#b89b6f",
-    "suggest_correct": "#73b3ab",
+    family_id: color
+    for family_id, color in PROMPT_FAMILY_COLORS.items()
 }
 
-TEMPLATE_ORDER = ["neutral", "incorrect_suggestion", "doubt_correct", "suggest_correct"]
-BIAS_ONLY_ORDER = [template for template in TEMPLATE_ORDER if template != "neutral"]
+TEMPLATE_ORDER = list(ordered_prompt_families(trainable_prompt_families(include_neutral=True), include_neutral=True))
+BIAS_ONLY_ORDER = list(pair_target_prompt_families())
 PROBE_NAME_TO_TEMPLATE = {
-    "probe_no_bias": "neutral",
-    "probe_bias_incorrect_suggestion": "incorrect_suggestion",
-    "probe_bias_doubt_correct": "doubt_correct",
-    "probe_bias_suggest_correct": "suggest_correct",
+    probe_name: family_id
+    for family_id in trainable_prompt_families(include_neutral=True)
+    for probe_name in [probe_name_for_family(family_id)]
+    if probe_name
 }
 TEMPLATE_TO_PROBE_NAME = {value: key for key, value in PROBE_NAME_TO_TEMPLATE.items()}
-DISPLAY_LABELS = {
-    "neutral": "Neutral",
-    "incorrect_suggestion": "Incorrect Suggestion",
-    "doubt_correct": "Doubt Correct",
-    "suggest_correct": "Suggest Correct",
-}
+DISPLAY_LABELS = dict(PROMPT_FAMILY_DISPLAY_LABELS)
 
 
 def _ordered_templates(values: pd.Series | list[str], *, include_neutral: bool = True) -> list[str]:
-    present = {str(value) for value in values if str(value)}
-    order = TEMPLATE_ORDER if include_neutral else BIAS_ONLY_ORDER
-    return [template for template in order if template in present]
+    present = [str(value) for value in values if str(value)]
+    return ordered_prompt_families(present, include_neutral=include_neutral)
+
+
+def _bias_target_letter_series(frame: pd.DataFrame) -> pd.Series:
+    index = frame.index
+    suggested = frame.get("suggested_label", pd.Series("", index=index)).fillna("").astype(str).str.strip().str.upper()
+    bias_type = frame.get("bias_type", pd.Series("", index=index)).fillna("").astype(str)
+    correct_letter = frame.get("correct_letter", pd.Series("", index=index)).fillna("").astype(str).str.strip().str.upper()
+    incorrect_letter = frame.get("incorrect_letter", pd.Series("", index=index)).fillna("").astype(str).str.strip().str.upper()
+
+    legacy = pd.Series(np.nan, index=index, dtype=object)
+    legacy = legacy.where(~bias_type.eq("incorrect_suggestion"), incorrect_letter)
+    legacy = legacy.where(~bias_type.eq("incorrect_suggestion_strong"), incorrect_letter)
+    legacy = legacy.where(~bias_type.eq("suggest_correct"), correct_letter)
+    legacy = legacy.where(~bias_type.eq("suggest_correct_strong"), correct_letter)
+    return legacy.where(suggested.eq(""), suggested)
 
 
 def _filter_usable_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -219,15 +234,7 @@ def _paired_external_metrics(ctx: AnalysisContext) -> pd.DataFrame:
     paired["became_correct"] = paired["correctness_x"].eq(0) & paired["correctness_xprime"].eq(1)
     paired["became_incorrect"] = paired["correctness_x"].eq(1) & paired["correctness_xprime"].eq(0)
 
-    if "incorrect_letter" in paired.columns:
-        paired["bias_target_letter"] = np.where(
-            paired["bias_type"].eq("incorrect_suggestion"),
-            paired["incorrect_letter"],
-            np.where(paired["bias_type"].eq("suggest_correct"), paired["correct_letter"], np.nan),
-        )
-    else:
-        paired["bias_target_letter"] = np.where(paired["bias_type"].eq("suggest_correct"), paired["correct_letter"], np.nan)
-
+    paired["bias_target_letter"] = _bias_target_letter_series(paired)
     paired["p_bias_target_x"] = _probability_with_prefix(paired, "p_x_", paired["bias_target_letter"])
     paired["p_bias_target_xprime"] = _probability_with_prefix(paired, "p_xprime_", paired["bias_target_letter"])
     paired["delta_p_bias_target"] = paired["p_bias_target_xprime"] - paired["p_bias_target_x"]
@@ -303,11 +310,7 @@ def _paired_probe_metrics(ctx: AnalysisContext) -> pd.DataFrame:
         paired["selected_choice_xprime"],
     )
 
-    paired["bias_target_letter"] = np.where(
-        paired["bias_type"].eq("incorrect_suggestion"),
-        paired.get("incorrect_letter"),
-        np.where(paired["bias_type"].eq("suggest_correct"), paired["correct_letter"], np.nan),
-    )
+    paired["bias_target_letter"] = _bias_target_letter_series(paired)
 
     score_x_frame = paired.rename(columns={f"score_{letter}_x": f"score_{letter}" for letter in "ABCDE"})
     score_xprime_frame = paired.rename(columns={f"score_{letter}_xprime": f"score_{letter}" for letter in "ABCDE"})
@@ -737,11 +740,7 @@ def table_probe_readout_matrix(ctx: AnalysisContext) -> pd.DataFrame:
         return pd.DataFrame()
 
     frame = frame.copy()
-    frame["bias_target_letter"] = np.where(
-        frame["bias_type"].eq("incorrect_suggestion"),
-        frame.get("incorrect_letter"),
-        np.where(frame["bias_type"].eq("suggest_correct"), frame["correct_letter"], np.nan),
-    )
+    frame["bias_target_letter"] = _bias_target_letter_series(frame)
     frame["model_answer_changed"] = frame["response_x"].ne(frame["response_xprime"])
     frame["adopts_bias_target"] = frame["response_xprime"].eq(frame["bias_target_letter"])
 
@@ -757,7 +756,7 @@ def table_probe_readout_matrix(ctx: AnalysisContext) -> pd.DataFrame:
         "p_xprime_",
         exclude_option_series=frame["correct_letter"],
     )
-    frame["suggested_wrong_is_neutral_top_wrong"] = frame["incorrect_letter"].eq(frame["neutral_model_top_wrong_choice"])
+    frame["suggested_wrong_is_neutral_top_wrong"] = frame["bias_target_letter"].eq(frame["neutral_model_top_wrong_choice"])
     frame["neutral_model_margin_correct_minus_bias_target"] = (
         _probability_with_prefix(frame, "p_x_", frame["correct_letter"])
         - _probability_with_prefix(frame, "p_x_", frame["bias_target_letter"])

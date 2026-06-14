@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import random
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,12 @@ import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from llmssycoph.data import family_for_probe_name
+
 RESULTS_ROOT = REPO_ROOT / "results" / "sycophancy_bias_probe"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "analysis_exports" / "20260324_careful_analysis_package"
 PAIR_CONDITIONS = ("neutral", "incorrect_suggestion")
@@ -506,7 +513,7 @@ def build_selected_layer_rows(
             "model": model_name,
             "dataset": dataset_name,
             "probe_name": probe_name,
-            "template_type": "neutral" if probe_name == "probe_no_bias" else probe_name.replace("probe_bias_", ""),
+            "template_type": str(family_for_probe_name(probe_name) or ""),
             "chosen_layer": payload.get("chosen_layer"),
             "best_dev_auc": payload.get("best_dev_auc"),
             "probe_construction": payload.get("probe_construction"),
@@ -554,9 +561,7 @@ def build_layerwise_rows(
         payload = load_json(family_manifest_path)
         best_layer = payload.get("best_layer")
         best_dev_auc = payload.get("best_dev_auc")
-        template_type = payload.get("template_type") or (
-            "neutral" if probe_name == "probe_no_bias" else probe_name.replace("probe_bias_", "")
-        )
+        template_type = payload.get("template_type") or str(family_for_probe_name(probe_name) or "")
         for layer_str, layer_payload in sorted(payload.get("layers", {}).items(), key=lambda item: int(item[0])):
             metrics_path = run_dir / "probes" / "all_probes" / probe_name / f"layer_{int(layer_str):03d}" / "metrics.json"
             if not metrics_path.exists():

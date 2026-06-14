@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, List, Sequence
 
 import pandas as pd
 
-from .data import prompt_id_for
+from .data import prompt_id_for, probe_name_for_family
 from .logging_utils import warn_status
 from .runtime import build_run_dir_path, resolve_run_artifact_path
 from .saving_manager import (
@@ -677,7 +677,12 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
             issues.append("run summary headline_counts.probe_family_count should be 0 when sampling_only=true")
 
     probe_summary_df = pd.DataFrame(summary_meta.get("probe_score_summaries", [])) if isinstance(summary_meta, dict) else pd.DataFrame()
-    expected_probe_names = {"probe_no_bias", *[f"probe_bias_{bias_type}" for bias_type in bias_types]}
+    expected_probe_names = {
+        probe_name
+        for bias_type in ["neutral", *bias_types]
+        for probe_name in [probe_name_for_family(bias_type)]
+        if probe_name
+    }
     if probe_stage_skipped:
         if not probe_scores_by_prompt_df.empty:
             issues.append("probe_scores_by_prompt.csv should be empty when sampling_only=true")
@@ -714,7 +719,7 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
             if not chosen_manifest_path.exists():
                 issues.append("chosen_probe/manifest.json is missing")
 
-        for probe_name in ["probe_no_bias", *[f"probe_bias_{bias_type}" for bias_type in bias_types]]:
+        for probe_name in sorted(expected_probe_names):
             if all_probes_dir.exists():
                 family_manifest = all_probes_dir / probe_name / "manifest.json"
                 if not family_manifest.exists():
