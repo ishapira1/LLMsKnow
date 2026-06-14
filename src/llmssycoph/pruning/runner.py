@@ -401,10 +401,13 @@ def run(args: Any) -> Path:
         controls = []
         control_items = []
         matched_count = selected_selection.selected_count
-        for control_name, masks in [
-            ("random", build_random_mask(prunable, count=matched_count, seed=args.seed)),
-            ("magnitude", build_magnitude_mask(prunable, count=matched_count)),
-        ]:
+        del selected_selection
+        control_builders = [
+            ("random", lambda: build_random_mask(prunable, count=matched_count, seed=args.seed)),
+            ("magnitude", lambda: build_magnitude_mask(prunable, count=matched_count)),
+        ]
+        for control_name, build_masks in control_builders:
+            masks = build_masks()
             _save_mask(run_dir / "masks" / f"{control_name}.pt", masks, {"mask_name": control_name, "matched_count": matched_count})
             c_item_df, _pres_loss, _pres_increase = _evaluate_with_mask(
                 model,
@@ -417,6 +420,7 @@ def run(args: Any) -> Path:
             )
             control_items.append(c_item_df)
             controls.append(_summarize_control(control_name, c_item_df))
+            del masks
 
         control_score_specs = [
             ("neutral_wrong", datasets.neutral_wrong, args.wrong_control_min_examples),
@@ -460,6 +464,7 @@ def run(args: Any) -> Path:
             )
             control_items.append(c_item_df)
             controls.append(_summarize_control(control_name, c_item_df))
+            del selection
 
         control_df = pd.DataFrame(controls)
         if control_items:

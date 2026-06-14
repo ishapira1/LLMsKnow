@@ -164,14 +164,39 @@ def build_random_mask(prunable_params: Mapping[str, Any], *, count: int, seed: i
         return masks
     generator = torch.Generator(device="cpu")
     generator.manual_seed(int(seed))
-    chosen = torch.randperm(total, generator=generator)[:count]
-    offset = 0
-    for name, param in prunable_params.items():
-        n = int(param.numel())
-        local = chosen[(chosen >= offset) & (chosen < offset + n)] - offset
-        if local.numel():
-            masks[name].flatten()[local] = True
-        offset += n
+    best_values = None
+    best_tensor_indices = None
+    best_flat_indices = None
+    names = list(prunable_params.keys())
+    for tensor_index, name in enumerate(names):
+        n = int(prunable_params[name].numel())
+        if n <= 0:
+            continue
+        local_count = min(count, n)
+        values = torch.rand(n, generator=generator, dtype=torch.float32)
+        chosen = torch.topk(values, k=local_count, largest=False).indices
+        local_values = values.index_select(0, chosen)
+        local_tensor_indices = torch.full((local_count,), tensor_index, dtype=torch.long)
+
+        if best_values is None:
+            merged_values = local_values
+            merged_tensor_indices = local_tensor_indices
+            merged_flat_indices = chosen
+        else:
+            merged_values = torch.cat([best_values, local_values])
+            merged_tensor_indices = torch.cat([best_tensor_indices, local_tensor_indices])
+            merged_flat_indices = torch.cat([best_flat_indices, chosen])
+        keep_count = min(count, int(merged_values.numel()))
+        keep = torch.topk(merged_values, k=keep_count, largest=False).indices
+        best_values = merged_values.index_select(0, keep)
+        best_tensor_indices = merged_tensor_indices.index_select(0, keep)
+        best_flat_indices = merged_flat_indices.index_select(0, keep)
+
+    if best_tensor_indices is not None and best_flat_indices is not None:
+        for tensor_index, name in enumerate(names):
+            local = best_flat_indices[best_tensor_indices == tensor_index]
+            if local.numel():
+                masks[name].flatten()[local] = True
     return masks
 
 
@@ -182,15 +207,40 @@ def build_magnitude_mask(prunable_params: Mapping[str, Any], *, count: int) -> D
     count = max(0, min(int(count), total))
     if count <= 0:
         return masks
-    values = torch.cat([param.detach().abs().float().cpu().flatten() for param in prunable_params.values()])
-    chosen = torch.topk(-values, k=count, largest=True).indices
-    offset = 0
-    for name, param in prunable_params.items():
+    best_values = None
+    best_tensor_indices = None
+    best_flat_indices = None
+    names = list(prunable_params.keys())
+    for tensor_index, name in enumerate(names):
+        param = prunable_params[name]
         n = int(param.numel())
-        local = chosen[(chosen >= offset) & (chosen < offset + n)] - offset
-        if local.numel():
-            masks[name].flatten()[local] = True
-        offset += n
+        if n <= 0:
+            continue
+        local_count = min(count, n)
+        values = param.detach().abs().float().cpu().flatten()
+        chosen = torch.topk(values, k=local_count, largest=False).indices
+        local_values = values.index_select(0, chosen)
+        local_tensor_indices = torch.full((local_count,), tensor_index, dtype=torch.long)
+
+        if best_values is None:
+            merged_values = local_values
+            merged_tensor_indices = local_tensor_indices
+            merged_flat_indices = chosen
+        else:
+            merged_values = torch.cat([best_values, local_values])
+            merged_tensor_indices = torch.cat([best_tensor_indices, local_tensor_indices])
+            merged_flat_indices = torch.cat([best_flat_indices, chosen])
+        keep_count = min(count, int(merged_values.numel()))
+        keep = torch.topk(merged_values, k=keep_count, largest=False).indices
+        best_values = merged_values.index_select(0, keep)
+        best_tensor_indices = merged_tensor_indices.index_select(0, keep)
+        best_flat_indices = merged_flat_indices.index_select(0, keep)
+
+    if best_tensor_indices is not None and best_flat_indices is not None:
+        for tensor_index, name in enumerate(names):
+            local = best_flat_indices[best_tensor_indices == tensor_index]
+            if local.numel():
+                masks[name].flatten()[local] = True
     return masks
 
 

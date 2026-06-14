@@ -1958,13 +1958,13 @@ def run_pipeline(args) -> None:
                     )
                     probe_execution_state[probe_bundle["meta_key"]].update(
                         {
-                            "eval_cache": eval_cache,
                             "best_layer": best_layer,
                             "best_dev_auc": best_auc,
                             "auc_per_layer": auc_per_layer,
                             "selection_models": layer_clfs,
                         }
                     )
+                    del eval_cache
                 finish_substage()
 
                 begin_substage(PROBE_STAGE_SUBSTAGE_LABELS[2], total=probe_substage_total)
@@ -2010,20 +2010,30 @@ def run_pipeline(args) -> None:
                         )
                         probe_candidate_score_rows.extend(probe_bundle["candidate_score_records"])
 
+                    # Rebuild the eval cache here so we do not retain all probe-family
+                    # all-layer feature tensors in host RAM across the whole stage.
+                    eval_cache = prepare_probe_eval_cache(
+                        model=model,
+                        tokenizer=tokenizer,
+                        split_records=probe_bundle["split_records"],
+                        layer_grid=layer_grid,
+                        desc=f"{probe_bundle['desc']} metrics",
+                    )
                     layer_metrics: Dict[int, Dict[str, Any]] = {}
                     for layer_id, clf_layer in probe_state.get("selection_models", {}).items():
                         if clf_layer is None:
                             continue
                         layer_metrics[int(layer_id)] = evaluate_probe_from_cache(
-                            probe_state["eval_cache"],
+                            eval_cache,
                             clf_layer,
                             int(layer_id),
                         )
                     chosen_metrics = evaluate_probe_from_cache(
-                        probe_state["eval_cache"],
+                        eval_cache,
                         clf,
                         best_layer,
                     )
+                    del eval_cache
                     probe_state.update(
                         {
                             "chosen_model": clf,
