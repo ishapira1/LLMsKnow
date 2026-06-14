@@ -1,0 +1,80 @@
+# Sycophancy Pruning Slurm Jobs
+
+These jobs run the Hugging Face-only sycophancy weight-pruning experiment for `Qwen/Qwen2.5-7B-Instruct` on the Harvard cluster.
+
+## Recommended order
+
+1. Smoke test:
+
+   ```bash
+   jobs/sycophancy_pruning/submit.sh smoke
+   ```
+
+2. Capped pilot:
+
+   ```bash
+   jobs/sycophancy_pruning/submit.sh pilot
+   ```
+
+3. Full two-dataset run:
+
+   ```bash
+   jobs/sycophancy_pruning/submit.sh full
+   ```
+
+Optional single-dataset full runs:
+
+```bash
+jobs/sycophancy_pruning/submit.sh arc
+jobs/sycophancy_pruning/submit.sh csqa
+```
+
+## Job files
+
+- `smoke_qwen25_two_dataset.sbatch`: Qwen load plus tiny calibration/eval caps, sparsities `0,1e-5`.
+- `pilot_qwen25_two_dataset.sbatch`: capped two-dataset run, sparsities `0,1e-6,1e-5,1e-4`.
+- `qwen25_two_dataset.sbatch`: full two-dataset sweep, sparsities `0,1e-6,3e-6,1e-5,3e-5,1e-4,3e-4,1e-3`.
+- `full_arc_challenge_qwen25.sbatch`: full ARC-Challenge only.
+- `full_commonsense_qa_qwen25.sbatch`: full CommonsenseQA only.
+- `run_common.sh`: shared environment setup and command construction.
+
+Every `.sbatch` job requests one GPU, `100G` memory, and sends `END,FAIL` email to `itaishapira@g.harvard.edu`.
+
+## Environment requirements
+
+The jobs expect:
+
+- Repo at `/n/home12/ishapira/LLMsKnow`, unless `REPO_DIR` is set.
+- Python at `/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python`, unless `ENV_PYTHON` is set.
+- `.env` in the repo root.
+- `HUGGINGFACE_HUB_CACHE` or `HF_HUB_CACHE` set in `.env`, not under `/home`.
+
+## Useful overrides
+
+Slurm preserves exported variables, so you can override a run without editing the job:
+
+```bash
+RUN_NAME=my_pilot SPARSITIES_CSV=0,1e-5,1e-4 jobs/sycophancy_pruning/submit.sh pilot
+```
+
+For a larger pilot:
+
+```bash
+MAX_QUESTIONS_PER_DATASET=250 \
+MAX_CALIBRATION_RECORDS=500 \
+MAX_PRESERVATION_RECORDS=1000 \
+MAX_EVAL_RECORDS=1500 \
+jobs/sycophancy_pruning/submit.sh pilot
+```
+
+To pass extra CLI flags directly through to `run_sycophancy_pruning.py`:
+
+```bash
+jobs/sycophancy_pruning/submit.sh smoke --save_all_sweep_masks
+```
+
+Outputs are written under:
+
+```text
+results/sycophancy_pruning/Qwen_Qwen2_5_7B_Instruct/<run_name>/
+```
