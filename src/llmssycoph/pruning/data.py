@@ -275,7 +275,22 @@ def _top_choice(choice_scorer: ChoiceScorer, row: Mapping[str, Any]) -> str:
     choices = _letters(row)
     if not choices:
         return ""
-    probs = choice_scorer(_messages(row), choices)
+    try:
+        probs = choice_scorer(_messages(row), choices)
+    except Exception as exc:
+        base = _base(row)
+        metadata = dict(row.get("metadata", {}) or {})
+        context = {
+            "dataset": str(base.get("dataset", "") or ""),
+            "source_example_id": str(base.get("source_example_id", "") or ""),
+            "source_split": str(base.get("source_split", "") or ""),
+            "prompt_template": str(metadata.get("prompt_template", "") or ""),
+            "template_type": str(metadata.get("template_type", "") or ""),
+            "choices": choices,
+        }
+        raise RuntimeError(
+            f"Failed to score top choice for row context={context!r}; scorer_error={exc}"
+        ) from exc
     return max(choices, key=lambda choice: (float(probs.get(choice, 0.0)), -choices.index(choice)))
 
 

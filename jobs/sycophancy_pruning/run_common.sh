@@ -41,20 +41,24 @@ fi
 
 HF_DATASETS_DIR="${HF_DATASETS_CACHE:-${HF_CACHE_DIR}/datasets}"
 HF_HOME_DIR="${HF_HOME:-$(dirname "$HF_CACHE_DIR")/hf_home}"
+TMPDIR="${TMPDIR:-${HF_HOME_DIR}/tmp}"
+MPLCONFIGDIR="${MPLCONFIGDIR:-${HF_HOME_DIR}/matplotlib}"
+TORCH_HOME="${TORCH_HOME:-${HF_HOME_DIR}/torch}"
 
 export HF_HUB_CACHE="$HF_CACHE_DIR"
 export HUGGINGFACE_HUB_CACHE="$HF_CACHE_DIR"
 export TRANSFORMERS_CACHE="$HF_CACHE_DIR"
 export HF_DATASETS_CACHE="$HF_DATASETS_DIR"
 export HF_HOME="$HF_HOME_DIR"
-
-mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME" jobs/sycophancy_pruning/logs
+export TMPDIR
+export MPLCONFIGDIR
+export TORCH_HOME
 
 MODEL_ID="${MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}"
 DATASETS_CSV="${DATASETS_CSV:-arc_challenge,commonsense_qa}"
 RUN_NAME="${RUN_NAME:-sycophancy_pruning_qwen25_two_dataset}"
 SPARSITIES_CSV="${SPARSITIES_CSV:-0,1e-6,3e-6,1e-5,3e-5,1e-4,3e-4,1e-3}"
-OUT_DIR="${OUT_DIR:-results/sycophancy_pruning}"
+OUT_DIR="${OUT_DIR:-${SYCOPHANCY_PRUNING_RESULTS_DIR:-$(dirname "$HF_CACHE_DIR")/LLMsKnow_results/sycophancy_pruning}}"
 DEVICE="${DEVICE:-cuda}"
 PRUNE_FAMILY="${PRUNE_FAMILY:-incorrect_suggestion}"
 SPLIT_SEED="${SPLIT_SEED:-5}"
@@ -72,11 +76,19 @@ MAX_EVAL_RECORDS="${MAX_EVAL_RECORDS:-}"
 SAVE_ALL_SWEEP_MASKS="${SAVE_ALL_SWEEP_MASKS:-0}"
 DEVICE_MAP_AUTO="${DEVICE_MAP_AUTO:-0}"
 
+mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME" "$TMPDIR" "$MPLCONFIGDIR" "$TORCH_HOME" "$OUT_DIR" jobs/sycophancy_pruning/logs
+
 printf '%s\n' "[env] repo=$REPO_DIR"
 printf '%s\n' "[env] python=$ENV_PYTHON"
 "$ENV_PYTHON" -c "import sys, torch; print('[env] sys.executable=', sys.executable); print('[env] torch=', torch.__version__); print('[env] cuda_available=', torch.cuda.is_available())"
 printf '%s\n' "[env] HF_HUB_CACHE=$HF_HUB_CACHE"
+printf '%s\n' "[env] HUGGINGFACE_HUB_CACHE=$HUGGINGFACE_HUB_CACHE"
 printf '%s\n' "[env] HF_DATASETS_CACHE=$HF_DATASETS_CACHE"
+printf '%s\n' "[env] HF_HOME=$HF_HOME"
+printf '%s\n' "[env] TMPDIR=$TMPDIR"
+printf '%s\n' "[env] MPLCONFIGDIR=$MPLCONFIGDIR"
+printf '%s\n' "[env] TORCH_HOME=$TORCH_HOME"
+printf '%s\n' "[env] OUT_DIR=$OUT_DIR"
 
 cmd=(
   "$ENV_PYTHON" run_sycophancy_pruning.py

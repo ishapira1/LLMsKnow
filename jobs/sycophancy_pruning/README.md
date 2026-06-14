@@ -49,12 +49,26 @@ The jobs expect:
 - `.env` in the repo root.
 - `HUGGINGFACE_HUB_CACHE` or `HF_HUB_CACHE` set in `.env`, not under `/home`.
 
+The shared runner also places temporary/cache-heavy paths in the same large-storage area:
+
+- `HF_DATASETS_CACHE` defaults to `$HF_HUB_CACHE/datasets`.
+- `HF_HOME` defaults to a sibling of `$HF_HUB_CACHE`.
+- `TMPDIR`, `MPLCONFIGDIR`, and `TORCH_HOME` default under `$HF_HOME`.
+- `OUT_DIR` defaults to `$(dirname "$HF_HUB_CACHE")/LLMsKnow_results/sycophancy_pruning`, unless `OUT_DIR` or `SYCOPHANCY_PRUNING_RESULTS_DIR` is set.
+
 ## Useful overrides
 
 Slurm preserves exported variables, so you can override a run without editing the job:
 
 ```bash
 RUN_NAME=my_pilot SPARSITIES_CSV=0,1e-5,1e-4 jobs/sycophancy_pruning/submit.sh pilot
+```
+
+To force a specific large results directory:
+
+```bash
+SYCOPHANCY_PRUNING_RESULTS_DIR=/n/holylabs/LABS/YOUR_LAB/Users/ishapira/sycophancy_pruning \
+jobs/sycophancy_pruning/submit.sh pilot
 ```
 
 For a larger pilot:
@@ -73,8 +87,8 @@ To pass extra CLI flags directly through to `run_sycophancy_pruning.py`:
 jobs/sycophancy_pruning/submit.sh smoke --save_all_sweep_masks
 ```
 
-Outputs are written under:
+Outputs are written under the configured large-storage output root:
 
 ```text
-results/sycophancy_pruning/Qwen_Qwen2_5_7B_Instruct/<run_name>/
+<OUT_DIR>/Qwen_Qwen2_5_7B_Instruct/<run_name>/
 ```

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from typing import Any, Dict, List, Mapping, Sequence
 
 from ..llm.generation import _resolve_model_inputs, _token_id_list_from_encoded, encode_chat
@@ -49,6 +48,17 @@ def _choice_token_ids(tokenizer: Any, choice: str) -> List[int]:
     return token_ids
 
 
+def _choice_token_id_map(tokenizer: Any, choices: Sequence[str]) -> Dict[str, List[int]]:
+    return {choice: _choice_token_ids(tokenizer, choice) for choice in choices}
+
+
+def _format_choice_token_diagnostics(tokenizer: Any, choices: Sequence[str]) -> str:
+    details = []
+    for choice, token_ids in _choice_token_id_map(tokenizer, choices).items():
+        details.append(f"{choice}={token_ids or 'NO_SINGLE_TOKEN_VARIANT'}")
+    return ", ".join(details)
+
+
 def _choice_logmass(log_probs: Any, token_ids: Sequence[int]):
     torch = _import_torch()
     if not token_ids:
@@ -85,15 +95,26 @@ def choice_token_loss(
         output_hidden_states=False,
         return_dict=True,
     )
-    log_probs = torch.log_softmax(out.logits[0, -1], dim=-1)
+    log_probs = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
+    token_id_map = _choice_token_id_map(tokenizer, normalized_choices)
     log_masses = {}
     for choice in normalized_choices:
-        token_ids = _choice_token_ids(tokenizer, choice)
+        token_ids = token_id_map[choice]
         log_mass = _choice_logmass(log_probs, token_ids)
         if log_mass is None:
-            raise ValueError(f"Choice {choice!r} has no single-token realization for this tokenizer.")
+            diagnostics = _format_choice_token_diagnostics(tokenizer, normalized_choices)
+            raise ValueError(
+                f"Choice {choice!r} has no single-token realization for this tokenizer. "
+                f"choices={normalized_choices!r}; token_variants={diagnostics}"
+            )
         log_masses[choice] = log_mass
     denominator = torch.logsumexp(torch.stack([log_masses[choice] for choice in normalized_choices]), dim=0)
+    if not bool(torch.isfinite(denominator).item()):
+        diagnostics = _format_choice_token_diagnostics(tokenizer, normalized_choices)
+        raise RuntimeError(
+            "choice_token_loss produced non-finite candidate log-mass. "
+            f"choices={normalized_choices!r}; token_variants={diagnostics}"
+        )
     return -(log_masses[target] - denominator)
 
 
@@ -120,17 +141,37 @@ def choice_token_probabilities(
             output_hidden_states=False,
             return_dict=True,
         )
-        probs = torch.softmax(out.logits[0, -1], dim=-1)
-        raw: Dict[str, float] = {}
+        log_probs = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
+        token_id_map = _choice_token_id_map(tokenizer, normalized_choices)
+        log_masses = {}
         for choice in normalized_choices:
-            mass = 0.0
-            for token_id in _choice_token_ids(tokenizer, choice):
-                mass += float(probs[token_id].item())
-            raw[choice] = mass
-        total = float(sum(raw.values()))
-        if not math.isfinite(total) or total <= 0.0:
-            raise RuntimeError("choice_token_probabilities produced zero candidate mass.")
-        return {choice: raw[choice] / total for choice in normalized_choices}
+            log_mass = _choice_logmass(log_probs, token_id_map[choice])
+            if log_mass is None:
+                diagnostics = _format_choice_token_diagnostics(tokenizer, normalized_choices)
+                raise ValueError(
+                    f"Choice {choice!r} has no single-token realization for this tokenizer. "
+                    f"choices={normalized_choices!r}; token_variants={diagnostics}"
+                )
+            log_masses[choice] = log_mass
+        denominator = torch.logsumexp(torch.stack([log_masses[choice] for choice in normalized_choices]), dim=0)
+        if not bool(torch.isfinite(denominator).item()):
+            diagnostics = _format_choice_token_diagnostics(tokenizer, normalized_choices)
+            raise RuntimeError(
+                "choice_token_probabilities produced non-finite candidate log-mass. "
+                f"choices={normalized_choices!r}; token_variants={diagnostics}"
+            )
+        probabilities = {
+            choice: float(torch.exp(log_masses[choice] - denominator).item())
+            for choice in normalized_choices
+        }
+        total = sum(probabilities.values())
+        if total <= 0.0:
+            diagnostics = _format_choice_token_diagnostics(tokenizer, normalized_choices)
+            raise RuntimeError(
+                "choice_token_probabilities produced zero candidate mass after log-space normalization. "
+                f"choices={normalized_choices!r}; token_variants={diagnostics}"
+            )
+        return {choice: probabilities[choice] / total for choice in normalized_choices}
 
 
 def completion_nll_loss(
@@ -165,7 +206,7 @@ def completion_nll_loss(
         if idx == 0:
             continue
         token_id = int(input_ids_list[idx])
-        log_probs = torch.log_softmax(out.logits[0, idx - 1], dim=-1)
+        log_probs = torch.log_softmax(out.logits[0, idx - 1].float(), dim=-1)
         losses.append(-log_probs[token_id])
     if not losses:
         raise ValueError("Completion span has no scored tokens.")

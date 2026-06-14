@@ -14,8 +14,8 @@ import torch
 
 from llmssycoph.llm.scoring import score_choices
 from llmssycoph.pruning.cli import parse_args
-from llmssycoph.pruning.data import CalibrationExample, EvalPair, PruningDatasets, build_pruning_datasets
-from llmssycoph.pruning.losses import choice_token_loss
+from llmssycoph.pruning.data import CalibrationExample, EvalPair, PruningDatasets, _top_choice, build_pruning_datasets
+from llmssycoph.pruning.losses import choice_token_loss, choice_token_probabilities, completion_nll_loss
 from llmssycoph.pruning.masks import (
     apply_mask,
     build_magnitude_mask,
@@ -63,6 +63,19 @@ class TinyChoiceModel(torch.nn.Module):
         logits = torch.zeros(batch, seq, 5, dtype=self.proj.weight.dtype)
         hidden = torch.ones(batch, 1, dtype=self.proj.weight.dtype)
         logits[:, -1, :] = self.proj(hidden)
+        return SimpleNamespace(logits=logits)
+
+
+class UnderflowChoiceModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.logit_values = torch.nn.Parameter(torch.tensor([-1000.0, -1001.0, -1002.0, 0.0, -500.0]))
+        self.device = torch.device("cpu")
+
+    def forward(self, input_ids, attention_mask=None, use_cache=False, output_hidden_states=False, return_dict=True):
+        del attention_mask, use_cache, output_hidden_states, return_dict
+        batch, seq = input_ids.shape
+        logits = self.logit_values.to(dtype=torch.float16).reshape(1, 1, -1).expand(batch, seq, -1).clone()
         return SimpleNamespace(logits=logits)
 
 
@@ -140,6 +153,40 @@ class PruningContractTests(unittest.TestCase):
 
         self.assertAlmostEqual(float(loss.item()), -math.log(probabilities["B"]), places=6)
 
+    def test_choice_token_probabilities_survive_fp16_full_vocab_underflow(self):
+        model = UnderflowChoiceModel()
+        tokenizer = FakeTokenizer()
+        messages = [{"type": "human", "content": "prompt"}]
+
+        raw_softmax = torch.softmax(model.logit_values.detach().to(dtype=torch.float16), dim=-1)
+        self.assertEqual(float(raw_softmax[:3].sum().item()), 0.0)
+
+        probabilities = choice_token_probabilities(model, tokenizer, messages, choices=["A", "B", "C"])
+
+        self.assertAlmostEqual(sum(probabilities.values()), 1.0, places=6)
+        self.assertGreater(probabilities["A"], probabilities["B"])
+        self.assertGreater(probabilities["B"], probabilities["C"])
+
+    def test_choice_and_completion_losses_are_finite_with_fp16_logits(self):
+        model = UnderflowChoiceModel()
+        tokenizer = FakeTokenizer()
+        messages = [{"type": "human", "content": "prompt"}]
+
+        choice_loss = choice_token_loss(model, tokenizer, messages, choices=["A", "B", "C"], target_choice="B")
+        choice_loss.backward()
+
+        self.assertTrue(torch.isfinite(choice_loss))
+        self.assertIsNotNone(model.logit_values.grad)
+        self.assertTrue(torch.isfinite(model.logit_values.grad).all())
+
+        model.zero_grad(set_to_none=True)
+        nll_loss = completion_nll_loss(model, tokenizer, messages, "A")
+        nll_loss.backward()
+
+        self.assertTrue(torch.isfinite(nll_loss))
+        self.assertIsNotNone(model.logit_values.grad)
+        self.assertTrue(torch.isfinite(model.logit_values.grad).all())
+
     def test_snip_sign_and_mask_selection_contract(self):
         model = TinyChoiceModel()
         tokenizer = FakeTokenizer()
@@ -168,7 +215,7 @@ class PruningContractTests(unittest.TestCase):
             preserve_exclude_fraction=0.0,
         )
         self.assertEqual(selection.selected_count, 1)
-        self.assertTrue(selection.masks["proj.weight"][0, 0])
+        self.assertEqual(selection.masks["proj.weight"].tolist(), [0])
 
     def test_mask_selection_is_global_and_preservation_exclusion_handles_ties(self):
         syc_scores = {
@@ -184,8 +231,8 @@ class PruningContractTests(unittest.TestCase):
         )
 
         self.assertEqual(selection.selected_count, 3)
-        self.assertEqual(int(selection.masks["layer_a.weight"].sum().item()), 3)
-        self.assertEqual(int(selection.masks["layer_b.weight"].sum().item()), 0)
+        self.assertEqual(set(selection.masks["layer_a.weight"].tolist()), {0, 1, 2})
+        self.assertEqual(int(selection.masks["layer_b.weight"].numel()), 0)
 
         tie_selection = select_pruning_mask(
             syc_scores,
@@ -207,7 +254,7 @@ class PruningContractTests(unittest.TestCase):
 
         before = model.proj.weight.detach().clone()
         originals = apply_mask(model, random_mask)
-        self.assertNotEqual(float(model.proj.weight.detach().sum()), float(before.sum()))
+        self.assertEqual(count_masked_weights(originals), 2)
         restore_masked_values(model, random_mask, originals)
         self.assertTrue(torch.equal(model.proj.weight.detach(), before))
 
@@ -244,6 +291,25 @@ class PruningContractTests(unittest.TestCase):
         self.assertIn("model_congruent_suggestion", {example.condition for example in datasets.preservation})
         self.assertIn("truthful_correction", {example.condition for example in datasets.truthful_correction})
         self.assertEqual({pair.condition for pair in datasets.eval_pairs}, set(args.eval_families))
+
+    def test_top_choice_failure_diagnostics_include_row_and_token_context(self):
+        row = make_row("neutral")
+
+        def failing_scorer(_messages, choices):
+            raise RuntimeError(f"choices={choices!r}; token_variants=A=NO_SINGLE_TOKEN_VARIANT")
+
+        with self.assertRaises(RuntimeError) as cm:
+            _top_choice(failing_scorer, row)
+
+        message = str(cm.exception)
+        self.assertIn("dataset", message)
+        self.assertIn("arc_challenge", message)
+        self.assertIn("source_example_id", message)
+        self.assertIn("ex1", message)
+        self.assertIn("prompt_template", message)
+        self.assertIn("neutral", message)
+        self.assertIn("choices=['A', 'B', 'C']", message)
+        self.assertIn("token_variants=A=NO_SINGLE_TOKEN_VARIANT", message)
 
     def test_metrics_formulas(self):
         pair = SimpleNamespace(
@@ -376,6 +442,18 @@ class PruningContractTests(unittest.TestCase):
         for path in shell_files:
             with self.subTest(path=path.name):
                 subprocess.run(["bash", "-n", str(path)], check=True)
+
+    def test_cluster_runner_uses_large_storage_defaults(self):
+        run_common = Path(__file__).resolve().parents[1] / "jobs" / "sycophancy_pruning" / "run_common.sh"
+        text = run_common.read_text(encoding="utf-8")
+        self.assertIn("SYCOPHANCY_PRUNING_RESULTS_DIR", text)
+        self.assertIn("LLMsKnow_results/sycophancy_pruning", text)
+        self.assertIn("[env] HUGGINGFACE_HUB_CACHE=$HUGGINGFACE_HUB_CACHE", text)
+        self.assertIn("[env] HF_HOME=$HF_HOME", text)
+        self.assertIn("TMPDIR", text)
+        self.assertIn("MPLCONFIGDIR", text)
+        self.assertIn("TORCH_HOME", text)
+        self.assertIn("[env] OUT_DIR=$OUT_DIR", text)
 
     def test_mocked_runner_smoke_writes_paper_style_artifacts(self):
         def example(condition: str, target: str) -> CalibrationExample:

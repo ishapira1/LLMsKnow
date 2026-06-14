@@ -43,9 +43,21 @@ def _eligible_mask_for_tensor(preserve_scores: Any, preserve_exclude_fraction: f
     return eligible.reshape(tuple(preserve_scores.shape))
 
 
-def _empty_masks_like(scores: Mapping[str, Any]) -> Dict[str, Any]:
+def _empty_index_masks_like(scores: Mapping[str, Any]) -> Dict[str, Any]:
     torch = _import_torch()
-    return {name: torch.zeros_like(score, dtype=torch.bool, device="cpu") for name, score in scores.items()}
+    return {name: torch.empty(0, dtype=torch.long, device="cpu") for name in scores}
+
+
+def _mask_indices(mask: Any, *, parameter: Any = None):
+    torch = _import_torch()
+    mask_cpu = mask.detach().cpu()
+    if mask_cpu.dtype == torch.bool:
+        return torch.nonzero(mask_cpu.flatten(), as_tuple=False).flatten()
+    indices = mask_cpu.to(dtype=torch.long).flatten()
+    if parameter is not None:
+        n = int(parameter.numel())
+        indices = indices[(indices >= 0) & (indices < n)]
+    return indices
 
 
 def select_pruning_mask(
@@ -58,14 +70,17 @@ def select_pruning_mask(
     torch = _import_torch()
     total = _total_numel(syc_scores)
     requested_count = int(math.floor(total * float(sparsity)))
-    masks = _empty_masks_like(syc_scores)
+    masks = _empty_index_masks_like(syc_scores)
     if requested_count <= 0 or total <= 0:
         return MaskSelectionResult(masks, float(sparsity), 0, 0, total, float(preserve_exclude_fraction))
 
-    eligible_counts: Dict[str, int] = {}
+    names = list(syc_scores.keys())
+    best_scores = None
+    best_tensor_indices = None
+    best_flat_indices = None
     total_eligible = 0
-    eligible_masks: Dict[str, Any] = {}
-    for name, score in syc_scores.items():
+    for tensor_index, name in enumerate(names):
+        score = syc_scores[name]
         eligible = _eligible_mask_for_tensor(
             None if preserve_scores is None else preserve_scores.get(name),
             preserve_exclude_fraction,
@@ -73,24 +88,11 @@ def select_pruning_mask(
         if eligible is None:
             eligible = torch.ones_like(score, dtype=torch.bool, device="cpu")
         eligible = eligible & torch.isfinite(score.detach().cpu())
-        count = int(eligible.sum().item())
-        eligible_masks[name] = eligible
-        eligible_counts[name] = count
-        total_eligible += count
-
-    if total_eligible <= 0:
-        return MaskSelectionResult(masks, float(sparsity), requested_count, 0, total, float(preserve_exclude_fraction))
-
-    best_scores = None
-    best_tensor_indices = None
-    best_flat_indices = None
-    names = list(syc_scores.keys())
-    for tensor_index, name in enumerate(names):
-        score = syc_scores[name]
-        eligible = eligible_masks[name].flatten()
-        eligible_count = eligible_counts[name]
+        eligible = eligible.flatten()
+        eligible_count = int(eligible.sum().item())
         if eligible_count <= 0:
             continue
+        total_eligible += eligible_count
         local_count = min(requested_count, eligible_count)
         flat_score = score.detach().cpu().flatten()
         eligible_indices = torch.nonzero(eligible, as_tuple=False).flatten()
@@ -119,14 +121,23 @@ def select_pruning_mask(
         for tensor_index, name in enumerate(names):
             local = best_flat_indices[best_tensor_indices == tensor_index]
             if local.numel():
-                masks[name].flatten()[local] = True
+                masks[name] = local.cpu().to(dtype=torch.long)
                 selected_count += int(local.numel())
 
+    if total_eligible <= 0:
+        selected_count = 0
     return MaskSelectionResult(masks, float(sparsity), requested_count, selected_count, total, float(preserve_exclude_fraction))
 
 
 def count_masked_weights(masks: Mapping[str, Any]) -> int:
-    return int(sum(int(mask.sum().item()) for mask in masks.values()))
+    torch = _import_torch()
+    count = 0
+    for mask in masks.values():
+        if mask.detach().cpu().dtype == torch.bool:
+            count += int(mask.sum().item())
+        else:
+            count += int(mask.numel())
+    return count
 
 
 def apply_mask(model: Any, masks: Mapping[str, Any]) -> Dict[str, Any]:
@@ -136,10 +147,14 @@ def apply_mask(model: Any, masks: Mapping[str, Any]) -> Dict[str, Any]:
         parameter = named_params.get(name)
         if parameter is None:
             continue
-        device_mask = mask.to(device=parameter.device, dtype=bool)
-        originals[name] = parameter.detach()[device_mask].clone()
+        indices = _mask_indices(mask, parameter=parameter)
+        if indices.numel() <= 0:
+            continue
+        device_indices = indices.to(device=parameter.device, dtype=_import_torch().long)
+        flat_parameter = parameter.view(-1)
+        originals[name] = flat_parameter.detach().index_select(0, device_indices).clone()
         with _import_torch().no_grad():
-            parameter[device_mask] = 0
+            flat_parameter[device_indices] = 0
     return originals
 
 
@@ -150,14 +165,18 @@ def restore_masked_values(model: Any, masks: Mapping[str, Any], originals: Mappi
         mask = masks.get(name)
         if parameter is None or mask is None:
             continue
-        device_mask = mask.to(device=parameter.device, dtype=bool)
+        indices = _mask_indices(mask, parameter=parameter)
+        if indices.numel() <= 0:
+            continue
+        device_indices = indices.to(device=parameter.device, dtype=_import_torch().long)
+        flat_parameter = parameter.view(-1)
         with _import_torch().no_grad():
-            parameter[device_mask] = values.to(device=parameter.device, dtype=parameter.dtype)
+            flat_parameter[device_indices] = values.to(device=parameter.device, dtype=parameter.dtype)
 
 
 def build_random_mask(prunable_params: Mapping[str, Any], *, count: int, seed: int) -> Dict[str, Any]:
     torch = _import_torch()
-    masks = {name: torch.zeros_like(param.detach(), dtype=torch.bool, device="cpu") for name, param in prunable_params.items()}
+    masks = {name: torch.empty(0, dtype=torch.long, device="cpu") for name in prunable_params}
     total = _total_numel(prunable_params)
     count = max(0, min(int(count), total))
     if count <= 0:
@@ -196,13 +215,13 @@ def build_random_mask(prunable_params: Mapping[str, Any], *, count: int, seed: i
         for tensor_index, name in enumerate(names):
             local = best_flat_indices[best_tensor_indices == tensor_index]
             if local.numel():
-                masks[name].flatten()[local] = True
+                masks[name] = local.cpu().to(dtype=torch.long)
     return masks
 
 
 def build_magnitude_mask(prunable_params: Mapping[str, Any], *, count: int) -> Dict[str, Any]:
     torch = _import_torch()
-    masks = {name: torch.zeros_like(param.detach(), dtype=torch.bool, device="cpu") for name, param in prunable_params.items()}
+    masks = {name: torch.empty(0, dtype=torch.long, device="cpu") for name in prunable_params}
     total = _total_numel(prunable_params)
     count = max(0, min(int(count), total))
     if count <= 0:
@@ -240,7 +259,7 @@ def build_magnitude_mask(prunable_params: Mapping[str, Any], *, count: int) -> D
         for tensor_index, name in enumerate(names):
             local = best_flat_indices[best_tensor_indices == tensor_index]
             if local.numel():
-                masks[name].flatten()[local] = True
+                masks[name] = local.cpu().to(dtype=torch.long)
     return masks
 
 
