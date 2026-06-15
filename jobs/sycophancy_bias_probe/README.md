@@ -39,6 +39,7 @@ Partition defaults in this directory:
 - `probe_displacement_mini_qwen25_7b_20260602_seas.sbatch`: mini analysis job for the new neutral-probe displacement decomposition on the canonical `Qwen/Qwen2.5-7B-Instruct` `arc_challenge` run. By default it analyzes the `test` split with `probe_no_bias` on the first `64` paired neutral-correct questions and writes notebook-friendly CSV artifacts under `analysis/probe_displacement_decomposition_mini_q64/` inside the saved run directory. Override `MAX_QUESTIONS`, `OUTPUT_DIR`, `RUN_DIR`, `PROBE_NAME`, `DEVICE`, or `USE_DEVICE_MAP_AUTO=1` via the environment when submitting.
 - `submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh`: submits the mini Qwen2.5 ARC probe-displacement job. Set `DRY_RUN=1` to print the final `sbatch` command without submitting.
 - `full_refresh_20260614/`: dated fresh-run batch bundle for the current canonical full local-model experiment. It splits the work by `dataset x model` for `commonsense_qa` and `arc_challenge` across `Llama-3.1-8B-Instruct` and `Qwen2.5-7B-Instruct`, saves Slurm logs into `jobs/sycophancy_bias_probe/logs/full_refresh_20260614/<dataset>/`, and uses `--fresh_run` so every saved run is isolated from earlier artifacts.
+- `full_allfamilies_paraphrase_20260614/`: one-submission Slurm array bundle for the full intended experiment: both main datasets, both main local models, all supported trainable bias families, automatic cross-family chosen-probe evaluation across the enabled family set, and same-family paraphrase movement evaluation via `data/ad_hoc/paraphrase_robustness_test_stems_v1`.
 - `fast_dirty.sbatch`: very quick sanity run.
 - `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
 - `fast_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
@@ -87,6 +88,7 @@ bash jobs/sycophancy_bias_probe/submit_backfill_incorrect_suggestion_cross_famil
 bash jobs/sycophancy_bias_probe/submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh
 MAX_QUESTIONS=32 bash jobs/sycophancy_bias_probe/submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh
 bash jobs/sycophancy_bias_probe/full_refresh_20260614/submit_full_refresh_20260614.sh
+bash jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_20260614/submit_full_allfamilies_paraphrase_20260614.sh
 sbatch jobs/sycophancy_bias_probe/fast_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/medium_aqua_mc_seas.sbatch
 sbatch jobs/sycophancy_bias_probe/full_aqua_mc_seas.sbatch
