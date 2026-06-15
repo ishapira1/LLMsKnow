@@ -25,6 +25,8 @@ from llmssycoph.pruning.masks import (
     select_pruning_mask,
 )
 from llmssycoph.pruning.metrics import choose_selected_sparsity, compute_item_metrics, summarize_item_metrics
+from llmssycoph.pruning.preflight import parse_preflight_args
+from llmssycoph.pruning.preflight import run as run_preflight
 from llmssycoph.pruning.runner import run as run_pruning
 from llmssycoph.pruning.scores import collect_prunable_linear_weights, score_weight_importance
 
@@ -423,7 +425,43 @@ class PruningContractTests(unittest.TestCase):
         self.assertEqual(args.datasets, ["arc_challenge", "commonsense_qa"])
         self.assertEqual(args.prune_family, "incorrect_suggestion")
         self.assertEqual(args.target_loss, "choice_token")
+        self.assertEqual(args.torch_dtype, "auto")
         self.assertIn(1e-3, args.sparsities)
+
+    def test_preflight_cli_defaults_target_known_failure_row(self):
+        args = parse_preflight_args(["--run_name", "preflight_unit"])
+        self.assertEqual(args.run_name, "preflight_unit")
+        self.assertEqual(args.torch_dtype, "auto")
+        self.assertEqual(args.sample_per_dataset, 4)
+        self.assertIn("Mercury_7081270", args.known_source_example_ids)
+
+    def test_mocked_preflight_scores_real_rows_and_writes_report(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = parse_preflight_args(
+                [
+                    "--out_dir",
+                    tmpdir,
+                    "--run_name",
+                    "preflight_smoke",
+                    "--device",
+                    "cpu",
+                    "--model",
+                    "fake-model",
+                    "--sample_per_dataset",
+                    "1",
+                ]
+            )
+            with patch("llmssycoph.pruning.preflight.load_llm", return_value=FakeLLM()), patch(
+                "llmssycoph.pruning.preflight._load_prepared_groups", return_value=[make_group("train")]
+            ):
+                run_dir = run_preflight(args)
+
+            report = json.loads((run_dir / "preflight_report.json").read_text(encoding="utf-8"))
+            status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "completed")
+            self.assertEqual(status["status"], "completed")
+            self.assertEqual(report["n_failures"], 0)
+            self.assertEqual(report["results"][0]["dataset"], "arc_challenge")
 
     def test_slurm_wrapper_has_required_mail_settings(self):
         job_dir = Path(__file__).resolve().parents[1] / "jobs" / "sycophancy_pruning"
@@ -451,9 +489,28 @@ class PruningContractTests(unittest.TestCase):
         self.assertIn("[env] HUGGINGFACE_HUB_CACHE=$HUGGINGFACE_HUB_CACHE", text)
         self.assertIn("[env] HF_HOME=$HF_HOME", text)
         self.assertIn("TMPDIR", text)
+        self.assertIn("SYCOPHANCY_TMPDIR", text)
         self.assertIn("MPLCONFIGDIR", text)
         self.assertIn("TORCH_HOME", text)
         self.assertIn("[env] OUT_DIR=$OUT_DIR", text)
+        self.assertIn("--torch_dtype", text)
+        self.assertIn("run_sycophancy_pruning_preflight.py", text)
+
+    def test_verification_ladder_scripts_are_wired(self):
+        job_dir = Path(__file__).resolve().parents[1] / "jobs" / "sycophancy_pruning"
+        submit_text = (job_dir / "submit.sh").read_text(encoding="utf-8")
+        self.assertIn("preflight_qwen25_two_dataset.sbatch", submit_text)
+        self.assertIn("--dependency=\"afterok:$preflight_id\"", submit_text)
+        self.assertIn("--dependency=\"afterok:$smoke_id\"", submit_text)
+        self.assertIn("--dependency=\"afterok:$pilot_id\"", submit_text)
+
+        local_tiny = (job_dir / "local_tiny_cpu_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("HuggingFaceTB/SmolLM2-135M-Instruct", local_tiny)
+        self.assertIn("--device cpu", local_tiny)
+        self.assertIn("--max_questions_per_dataset", local_tiny)
+
+        local_qwen = (job_dir / "local_qwen_tiny_cpu_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", local_qwen)
 
     def test_mocked_runner_smoke_writes_paper_style_artifacts(self):
         def example(condition: str, target: str) -> CalibrationExample:

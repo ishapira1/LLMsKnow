@@ -48,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mc_mode", default=MC_MODE_STRICT)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     parser.add_argument("--device_map_auto", action="store_true")
+    parser.add_argument(
+        "--torch_dtype",
+        default="auto",
+        choices=["auto", "float16", "bfloat16", "float32"],
+        help="Torch dtype for Hugging Face model loading. 'auto' uses bfloat16 for Qwen on CUDA.",
+    )
     parser.add_argument("--hf_cache_dir", default=None)
     parser.add_argument("--env_file", default=".env")
     parser.add_argument("--out_dir", default="results/sycophancy_pruning")
@@ -73,9 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def finalize_args(args: argparse.Namespace) -> argparse.Namespace:
     args.datasets = _csv_values(args.datasets)
     args.sparsities = _csv_floats(args.sparsities)
     args.eval_families = _csv_values(args.eval_families)
@@ -96,4 +100,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return args
 
 
-__all__ = ["DEFAULT_EVAL_FAMILIES", "DEFAULT_SPARSITIES", "build_parser", "parse_args"]
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = build_parser()
+    return finalize_args(parser.parse_args(argv))
+
+
+__all__ = ["DEFAULT_EVAL_FAMILIES", "DEFAULT_SPARSITIES", "build_parser", "finalize_args", "parse_args"]

@@ -3,7 +3,7 @@
 #SBATCH --partition=gpu,seas_gpu,gpu_h200
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=60G
+#SBATCH --mem=80G
 #SBATCH --time=08:00:00
 #SBATCH --output=jobs/sycophancy_bias_probe/logs/full_refresh_20260614/commonsense_qa/%x.%j.out
 #SBATCH --error=jobs/sycophancy_bias_probe/logs/full_refresh_20260614/commonsense_qa/%x.%j.err

@@ -285,6 +285,7 @@ def run(args: Any) -> Path:
             device=args.resolved_device,
             device_map_auto=bool(args.device_map_auto),
             hf_cache_dir=hf_cache_dir,
+            torch_dtype=args.torch_dtype,
         )
         model, tokenizer = llm.get_model_and_tokenizer()
 

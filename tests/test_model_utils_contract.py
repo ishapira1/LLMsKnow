@@ -17,7 +17,7 @@ from llmssycoph.llm import (
     resolve_llm_backend,
     unregister_llm,
 )
-from llmssycoph.llm.huggingface import _device_uses_gpu, _warn_if_not_using_gpu
+from llmssycoph.llm.huggingface import _device_uses_gpu, _resolve_torch_dtype, _warn_if_not_using_gpu
 from llmssycoph.llm.generation import (
     _resolve_model_inputs,
     _strict_mc_generated_answer_complete,
@@ -127,7 +127,14 @@ class ModelUtilsContractTests(unittest.TestCase):
             device="cpu",
             device_map_auto=False,
             hf_cache_dir=None,
+            torch_dtype=None,
         )
+
+    def test_qwen_cuda_auto_dtype_prefers_bfloat16(self):
+        self.assertIs(_resolve_torch_dtype("Qwen/Qwen2.5-7B-Instruct", "cuda", "auto"), torch.bfloat16)
+        self.assertIs(_resolve_torch_dtype("mistralai/Mistral-7B-Instruct-v0.2", "cuda", "auto"), torch.float16)
+        self.assertIs(_resolve_torch_dtype("Qwen/Qwen2.5-7B-Instruct", "cpu", "auto"), torch.float32)
+        self.assertIs(_resolve_torch_dtype("Qwen/Qwen2.5-7B-Instruct", "cuda", "float16"), torch.float16)
 
     def test_gpu_device_detection_accepts_cuda_and_mps(self):
         self.assertTrue(_device_uses_gpu("cuda"))

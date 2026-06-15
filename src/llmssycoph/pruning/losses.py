@@ -67,6 +67,68 @@ def _choice_logmass(log_probs: Any, token_ids: Sequence[int]):
     return torch.logsumexp(log_probs.index_select(0, ids), dim=0)
 
 
+def final_token_logit_diagnostics(
+    model: Any,
+    tokenizer: Any,
+    messages: List[Dict[str, Any]],
+    *,
+    choices: Sequence[str],
+) -> Dict[str, Any]:
+    torch = _import_torch()
+    with torch.no_grad():
+        normalized_choices = [str(choice or "").strip().upper() for choice in choices if str(choice or "").strip()]
+        input_ids, attention_mask = _resolve_model_inputs(
+            tokenizer,
+            messages,
+            _model_device(model),
+            add_generation_prompt=True,
+        )
+        out = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+            output_hidden_states=False,
+            return_dict=True,
+        )
+        logits = out.logits[0, -1]
+        finite = torch.isfinite(logits)
+        finite_values = logits[finite].float()
+        return {
+            "input_length": int(input_ids.shape[-1]),
+            "logits_dtype": str(logits.dtype).replace("torch.", ""),
+            "logits_device": str(logits.device),
+            "logits_numel": int(logits.numel()),
+            "logits_finite_count": int(finite.sum().item()),
+            "logits_all_finite": bool(finite.all().item()),
+            "logits_min_finite": float(finite_values.min().item()) if finite_values.numel() else None,
+            "logits_max_finite": float(finite_values.max().item()) if finite_values.numel() else None,
+            "token_variants": _choice_token_id_map(tokenizer, normalized_choices),
+        }
+
+
+def _format_logit_diagnostics(diagnostics: Mapping[str, Any]) -> str:
+    return (
+        f"dtype={diagnostics.get('logits_dtype')}; device={diagnostics.get('logits_device')}; "
+        f"input_length={diagnostics.get('input_length')}; "
+        f"finite={diagnostics.get('logits_finite_count')}/{diagnostics.get('logits_numel')}; "
+        f"min_finite={diagnostics.get('logits_min_finite')}; "
+        f"max_finite={diagnostics.get('logits_max_finite')}; "
+        f"token_variants={diagnostics.get('token_variants')}"
+    )
+
+
+def _raise_if_nonfinite_logits(logits: Any, tokenizer: Any, normalized_choices: Sequence[str], diagnostics: Mapping[str, Any]) -> None:
+    torch = _import_torch()
+    if bool(torch.isfinite(logits).all().item()):
+        return
+    choice_diagnostics = _format_choice_token_diagnostics(tokenizer, normalized_choices)
+    raise RuntimeError(
+        "Model produced non-finite final-token logits before choice scoring. "
+        f"choices={list(normalized_choices)!r}; token_variants={choice_diagnostics}; "
+        f"logit_diagnostics={_format_logit_diagnostics(diagnostics)}"
+    )
+
+
 def choice_token_loss(
     model: Any,
     tokenizer: Any,
@@ -95,7 +157,24 @@ def choice_token_loss(
         output_hidden_states=False,
         return_dict=True,
     )
-    log_probs = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
+    logits = out.logits[0, -1]
+    diagnostics = {
+        "input_length": int(input_ids.shape[-1]),
+        "logits_dtype": str(logits.dtype).replace("torch.", ""),
+        "logits_device": str(logits.device),
+        "logits_numel": int(logits.numel()),
+        "logits_finite_count": int(torch.isfinite(logits).sum().item()),
+        "logits_all_finite": bool(torch.isfinite(logits).all().item()),
+        "logits_min_finite": None,
+        "logits_max_finite": None,
+        "token_variants": _choice_token_id_map(tokenizer, normalized_choices),
+    }
+    finite_values = logits[torch.isfinite(logits)].float()
+    if finite_values.numel():
+        diagnostics["logits_min_finite"] = float(finite_values.min().item())
+        diagnostics["logits_max_finite"] = float(finite_values.max().item())
+    _raise_if_nonfinite_logits(logits, tokenizer, normalized_choices, diagnostics)
+    log_probs = torch.log_softmax(logits.float(), dim=-1)
     token_id_map = _choice_token_id_map(tokenizer, normalized_choices)
     log_masses = {}
     for choice in normalized_choices:
@@ -141,7 +220,24 @@ def choice_token_probabilities(
             output_hidden_states=False,
             return_dict=True,
         )
-        log_probs = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
+        logits = out.logits[0, -1]
+        diagnostics = {
+            "input_length": int(input_ids.shape[-1]),
+            "logits_dtype": str(logits.dtype).replace("torch.", ""),
+            "logits_device": str(logits.device),
+            "logits_numel": int(logits.numel()),
+            "logits_finite_count": int(torch.isfinite(logits).sum().item()),
+            "logits_all_finite": bool(torch.isfinite(logits).all().item()),
+            "logits_min_finite": None,
+            "logits_max_finite": None,
+            "token_variants": _choice_token_id_map(tokenizer, normalized_choices),
+        }
+        finite_values = logits[torch.isfinite(logits)].float()
+        if finite_values.numel():
+            diagnostics["logits_min_finite"] = float(finite_values.min().item())
+            diagnostics["logits_max_finite"] = float(finite_values.max().item())
+        _raise_if_nonfinite_logits(logits, tokenizer, normalized_choices, diagnostics)
+        log_probs = torch.log_softmax(logits.float(), dim=-1)
         token_id_map = _choice_token_id_map(tokenizer, normalized_choices)
         log_masses = {}
         for choice in normalized_choices:
@@ -237,5 +333,6 @@ __all__ = [
     "choice_token_loss",
     "choice_token_probabilities",
     "completion_nll_loss",
+    "final_token_logit_diagnostics",
     "loss_for_example",
 ]

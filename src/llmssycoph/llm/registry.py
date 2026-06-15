@@ -72,6 +72,7 @@ def load_llm(
     device: str,
     device_map_auto: bool,
     hf_cache_dir: Optional[str],
+    torch_dtype: Optional[str] = None,
 ) -> BaseLLM:
     factory = get_registered_llm_factory(model_name)
     if factory is None:
@@ -84,6 +85,7 @@ def load_llm(
             device=device,
             device_map_auto=device_map_auto,
             hf_cache_dir=hf_cache_dir,
+            torch_dtype=torch_dtype,
         )
 
     log_status("llm/registry.py", f"model={model_name} resolved via registered backend")

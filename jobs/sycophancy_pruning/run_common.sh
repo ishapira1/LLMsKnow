@@ -41,7 +41,7 @@ fi
 
 HF_DATASETS_DIR="${HF_DATASETS_CACHE:-${HF_CACHE_DIR}/datasets}"
 HF_HOME_DIR="${HF_HOME:-$(dirname "$HF_CACHE_DIR")/hf_home}"
-TMPDIR="${TMPDIR:-${HF_HOME_DIR}/tmp}"
+TMPDIR="${SYCOPHANCY_TMPDIR:-${HF_HOME_DIR}/tmp}"
 MPLCONFIGDIR="${MPLCONFIGDIR:-${HF_HOME_DIR}/matplotlib}"
 TORCH_HOME="${TORCH_HOME:-${HF_HOME_DIR}/torch}"
 
@@ -60,6 +60,8 @@ RUN_NAME="${RUN_NAME:-sycophancy_pruning_qwen25_two_dataset}"
 SPARSITIES_CSV="${SPARSITIES_CSV:-0,1e-6,3e-6,1e-5,3e-5,1e-4,3e-4,1e-3}"
 OUT_DIR="${OUT_DIR:-${SYCOPHANCY_PRUNING_RESULTS_DIR:-$(dirname "$HF_CACHE_DIR")/LLMsKnow_results/sycophancy_pruning}}"
 DEVICE="${DEVICE:-cuda}"
+TORCH_DTYPE="${TORCH_DTYPE:-auto}"
+RUN_MODE="${RUN_MODE:-pruning}"
 PRUNE_FAMILY="${PRUNE_FAMILY:-incorrect_suggestion}"
 SPLIT_SEED="${SPLIT_SEED:-5}"
 SEED="${SEED:-5}"
@@ -75,6 +77,8 @@ MAX_PRESERVATION_RECORDS="${MAX_PRESERVATION_RECORDS:-}"
 MAX_EVAL_RECORDS="${MAX_EVAL_RECORDS:-}"
 SAVE_ALL_SWEEP_MASKS="${SAVE_ALL_SWEEP_MASKS:-0}"
 DEVICE_MAP_AUTO="${DEVICE_MAP_AUTO:-0}"
+PREFLIGHT_SAMPLE_PER_DATASET="${PREFLIGHT_SAMPLE_PER_DATASET:-4}"
+PREFLIGHT_KNOWN_SOURCE_EXAMPLE_IDS="${PREFLIGHT_KNOWN_SOURCE_EXAMPLE_IDS:-Mercury_7081270}"
 
 mkdir -p "$HF_HUB_CACHE" "$HF_DATASETS_CACHE" "$HF_HOME" "$TMPDIR" "$MPLCONFIGDIR" "$TORCH_HOME" "$OUT_DIR" jobs/sycophancy_pruning/logs
 
@@ -89,9 +93,24 @@ printf '%s\n' "[env] TMPDIR=$TMPDIR"
 printf '%s\n' "[env] MPLCONFIGDIR=$MPLCONFIGDIR"
 printf '%s\n' "[env] TORCH_HOME=$TORCH_HOME"
 printf '%s\n' "[env] OUT_DIR=$OUT_DIR"
+printf '%s\n' "[env] RUN_MODE=$RUN_MODE"
+printf '%s\n' "[env] TORCH_DTYPE=$TORCH_DTYPE"
+
+case "$RUN_MODE" in
+  pruning)
+    entrypoint="run_sycophancy_pruning.py"
+    ;;
+  preflight)
+    entrypoint="run_sycophancy_pruning_preflight.py"
+    ;;
+  *)
+    printf '%s\n' "Unsupported RUN_MODE=$RUN_MODE; use pruning or preflight" >&2
+    exit 2
+    ;;
+esac
 
 cmd=(
-  "$ENV_PYTHON" run_sycophancy_pruning.py
+  "$ENV_PYTHON" "$entrypoint"
   --model "$MODEL_ID"
   --datasets "$DATASETS_CSV"
   --prune_family "$PRUNE_FAMILY"
@@ -101,6 +120,7 @@ cmd=(
   --split_seed "$SPLIT_SEED"
   --seed "$SEED"
   --device "$DEVICE"
+  --torch_dtype "$TORCH_DTYPE"
   --hf_cache_dir "$HF_CACHE_DIR"
   --preserve_exclude_fraction "$PRESERVE_EXCLUDE_FRACTION"
   --syc_reduction_target "$SYC_REDUCTION_TARGET"
@@ -126,6 +146,12 @@ if [[ "$SAVE_ALL_SWEEP_MASKS" == "1" ]]; then
 fi
 if [[ "$DEVICE_MAP_AUTO" == "1" ]]; then
   cmd+=(--device_map_auto)
+fi
+if [[ "$RUN_MODE" == "preflight" ]]; then
+  cmd+=(
+    --sample_per_dataset "$PREFLIGHT_SAMPLE_PER_DATASET"
+    --known_source_example_ids "$PREFLIGHT_KNOWN_SOURCE_EXAMPLE_IDS"
+  )
 fi
 
 printf '[sycophancy-pruning] %q ' "${cmd[@]}"

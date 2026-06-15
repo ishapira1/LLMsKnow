@@ -33,6 +33,34 @@ def _hf_load_kwargs(hf_cache_dir: Optional[str]) -> Dict[str, Any]:
     return load_kwargs
 
 
+def _qwen_prefers_bfloat16(model_name: str) -> bool:
+    normalized = str(model_name or "").lower()
+    return "qwen" in normalized
+
+
+def _resolve_torch_dtype(model_name: str, device: str, torch_dtype: Optional[str]):
+    import torch
+
+    requested = str(torch_dtype or "auto").strip().lower()
+    if requested in {"", "auto"}:
+        if str(device or "").strip().lower() == "cuda":
+            return torch.bfloat16 if _qwen_prefers_bfloat16(model_name) else torch.float16
+        return torch.float32
+    mapping = {
+        "float16": torch.float16,
+        "fp16": torch.float16,
+        "bfloat16": torch.bfloat16,
+        "bf16": torch.bfloat16,
+        "float32": torch.float32,
+        "fp32": torch.float32,
+    }
+    if requested not in mapping:
+        raise ValueError(
+            f"Unsupported torch_dtype={torch_dtype!r}. Use auto, float16, bfloat16, or float32."
+        )
+    return mapping[requested]
+
+
 def _is_gated_repo_error(exc: Exception) -> bool:
     lowered = str(exc).lower()
     return "gated repo" in lowered or "cannot access gated repo" in lowered or "401 client error" in lowered
@@ -60,6 +88,7 @@ class HuggingFaceLLM(BaseLLM):
         device: str,
         device_map_auto: bool,
         hf_cache_dir: Optional[str],
+        torch_dtype: Optional[str] = None,
     ):
         super().__init__(model_name=model_name)
         self.device = device
@@ -70,6 +99,7 @@ class HuggingFaceLLM(BaseLLM):
             device=device,
             device_map_auto=device_map_auto,
             hf_cache_dir=hf_cache_dir,
+            torch_dtype=torch_dtype,
         )
 
     def capabilities(self) -> LLMCapabilities:
@@ -86,6 +116,7 @@ class HuggingFaceLLM(BaseLLM):
         device: str,
         device_map_auto: bool,
         hf_cache_dir: Optional[str],
+        torch_dtype: Optional[str] = None,
     ) -> Tuple[Any, Any]:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -93,13 +124,18 @@ class HuggingFaceLLM(BaseLLM):
         log_status("llm/huggingface.py", f"loading model={model_name} on device={device}")
         _warn_if_not_using_gpu(model_name=model_name, device=device)
         load_kwargs = _hf_load_kwargs(hf_cache_dir)
+        resolved_torch_dtype = _resolve_torch_dtype(model_name, device, torch_dtype)
+        log_status(
+            "llm/huggingface.py",
+            f"resolved torch_dtype={str(resolved_torch_dtype).replace('torch.', '')} for model={model_name}",
+        )
         if "token" in load_kwargs:
             log_status("llm/huggingface.py", f"using Hugging Face auth token for model={model_name}")
         try:
             if device == "cuda":
                 model = AutoModelForCausalLM.from_pretrained(
                     model_name,
-                    torch_dtype=torch.float16,
+                    torch_dtype=resolved_torch_dtype,
                     device_map="auto" if device_map_auto else None,
                     **load_kwargs,
                 )
@@ -108,14 +144,14 @@ class HuggingFaceLLM(BaseLLM):
             elif device == "mps":
                 model = AutoModelForCausalLM.from_pretrained(
                     model_name,
-                    torch_dtype=torch.float32,
+                    torch_dtype=resolved_torch_dtype,
                     **load_kwargs,
                 )
                 model = model.to("mps")
             else:
                 model = AutoModelForCausalLM.from_pretrained(
                     model_name,
-                    torch_dtype=torch.float32,
+                    torch_dtype=resolved_torch_dtype,
                     **load_kwargs,
                 )
                 model = model.to("cpu")
@@ -175,5 +211,6 @@ __all__ = [
     "HuggingFaceLLM",
     "_hf_load_kwargs",
     "_is_gated_repo_error",
+    "_resolve_torch_dtype",
     "_raise_helpful_hf_auth_error",
 ]
