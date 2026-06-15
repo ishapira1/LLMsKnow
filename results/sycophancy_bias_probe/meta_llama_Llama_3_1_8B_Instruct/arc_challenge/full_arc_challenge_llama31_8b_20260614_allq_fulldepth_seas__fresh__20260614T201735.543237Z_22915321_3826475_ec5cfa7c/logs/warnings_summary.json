@@ -1,0 +1,34 @@
+{
+  "warning_summary_schema_version": 1,
+  "total_warnings": 1,
+  "unique_warning_codes": 1,
+  "unique_sources": 1,
+  "by_code": [
+    {
+      "warning_code": "strict_mc_temperature_bookkeeping",
+      "count": 1,
+      "sources": [
+        "pipeline.py"
+      ],
+      "latest_message": "strict MC mode overrides temperature from 0.1 to 1.0 for bookkeeping. First-token choice scoring ignores temperature, but if any prompt later falls back to text generation this value will apply there."
+    }
+  ],
+  "by_source": [
+    {
+      "source": "pipeline.py",
+      "count": 1,
+      "warning_codes": [
+        "strict_mc_temperature_bookkeeping"
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "warning_index": 1,
+      "source": "pipeline.py",
+      "warning_code": "strict_mc_temperature_bookkeeping",
+      "message": "strict MC mode overrides temperature from 0.1 to 1.0 for bookkeeping. First-token choice scoring ignores temperature, but if any prompt later falls back to text generation this value will apply there.",
+      "formatted_line": "[warning][pipeline.py][strict_mc_temperature_bookkeeping]: strict MC mode overrides temperature from 0.1 to 1.0 for bookkeeping. First-token choice scoring ignores temperature, but if any prompt later falls back to text generation this value will apply there."
+    }
+  ]
+}

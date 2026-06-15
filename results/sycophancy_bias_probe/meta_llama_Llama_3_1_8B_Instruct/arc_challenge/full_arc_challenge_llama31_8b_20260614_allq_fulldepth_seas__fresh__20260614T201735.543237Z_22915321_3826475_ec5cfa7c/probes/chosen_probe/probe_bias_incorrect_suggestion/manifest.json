@@ -1,0 +1,41 @@
+{
+  "artifact_schema_version": 1,
+  "artifact_group": "chosen_probe",
+  "probe_name": "probe_bias_incorrect_suggestion",
+  "template_type": "incorrect_suggestion",
+  "chosen_layer": 15,
+  "best_dev_auc": 0.923674819229835,
+  "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion",
+  "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/metadata.json",
+  "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/metrics.json",
+  "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/model.pkl",
+  "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/record_membership.jsonl",
+  "source_all_probes_artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_incorrect_suggestion/layer_015",
+  "movement": {
+    "movement_schema_version": 1,
+    "probe_name": "probe_bias_incorrect_suggestion",
+    "probe_training_template_type": "incorrect_suggestion",
+    "probe_layer": 15,
+    "n_item_rows": 3516,
+    "n_summary_rows": 4,
+    "coverage": {
+      "movement_schema_version": 1,
+      "probe_name": "probe_bias_incorrect_suggestion",
+      "probe_training_template_type": "incorrect_suggestion",
+      "probe_layer": 15,
+      "source_record_count": 1172,
+      "expected_comparisons_upper_bound": 3516,
+      "computed_row_count": 3516,
+      "summary_row_count": 4,
+      "exclusion_counts": {},
+      "paraphrase_artifact_path": ""
+    },
+    "artifact_paths": {
+      "rows_jsonl": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/movement_rows.jsonl",
+      "rows_csv": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/movement_rows.csv",
+      "summary_json": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/movement_summary.json",
+      "summary_csv": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/movement_summary.csv",
+      "coverage_json": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/chosen_probe/probe_bias_incorrect_suggestion/movement_coverage.json"
+    }
+  }
+}

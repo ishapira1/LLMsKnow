@@ -1,0 +1,13 @@
+{
+  "status": "completed",
+  "updated_at_utc": "2026-06-14T22:41:59Z",
+  "created_at_utc": "2026-06-14T20:17:35Z",
+  "model": "meta-llama/Llama-3.1-8B-Instruct",
+  "model_slug": "meta_llama_Llama_3_1_8B_Instruct",
+  "run_name": "full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c",
+  "run_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c",
+  "dataset_dir": "arc_challenge",
+  "pid": 3826475,
+  "hostname": "holygpu8a22604.rc.fas.harvard.edu",
+  "lock_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/.run.lock"
+}

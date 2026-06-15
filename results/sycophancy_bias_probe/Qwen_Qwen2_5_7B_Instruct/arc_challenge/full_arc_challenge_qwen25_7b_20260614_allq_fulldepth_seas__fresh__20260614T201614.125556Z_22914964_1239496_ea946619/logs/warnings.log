@@ -1,0 +1,12 @@
+[warning][pipeline.py][strict_mc_temperature_bookkeeping]: strict MC mode overrides temperature from 0.1 to 1.0 for bookkeeping. First-token choice scoring ignores temperature, but if any prompt later falls back to text generation this value will apply there.
+[warning][sampling_integrity.py][choice_probability_integrity_failures]: 192/10360 choice-probability rows failed bookkeeping or integrity checks. Top reasons: distribution_is_consistent=10168, non_finite_probability=192
+[warning][select_layer.py][probe_layer_selection_non_finite_features]: layer selection for no_bias dropped non-finite feature rows at layer=28: train_dropped=1/2000 val_dropped=3/1194
+[warning][select_layer.py][probe_layer_selection_non_finite_features]: layer selection for bias:incorrect_suggestion dropped non-finite feature rows at layer=28: train_dropped=1/2000 val_dropped=0/1194
+[warning][select_layer.py][probe_layer_selection_non_finite_features]: layer selection for bias:suggest_correct dropped non-finite feature rows at layer=28: train_dropped=0/2000 val_dropped=2/1194
+[warning][metrics.py][probe_eval_non_finite_features]: probe evaluation for layer=28 split=train dropped non-finite feature rows: dropped=2/4476
+[warning][metrics.py][probe_eval_non_finite_features]: probe evaluation for layer=28 split=val dropped non-finite feature rows: dropped=3/1194
+[warning][metrics.py][probe_eval_non_finite_features]: probe evaluation for layer=28 split=test dropped non-finite feature rows: dropped=11/4687
+[warning][metrics.py][probe_eval_non_finite_features]: probe evaluation for layer=28 split=train dropped non-finite feature rows: dropped=1/4476
+[warning][metrics.py][probe_eval_non_finite_features]: probe evaluation for layer=28 split=test dropped non-finite feature rows: dropped=1/4687
+[warning][metrics.py][probe_eval_non_finite_features]: probe evaluation for layer=28 split=val dropped non-finite feature rows: dropped=2/1194
+[warning][metrics.py][probe_eval_non_finite_features]: probe evaluation for layer=28 split=test dropped non-finite feature rows: dropped=1/4687

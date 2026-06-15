@@ -1,0 +1,161 @@
+{
+  "artifact_schema_version": 1,
+  "artifact_group": "all_probes",
+  "probe_name": "probe_bias_doubt_correct",
+  "template_type": "doubt_correct",
+  "description": "bias:doubt_correct",
+  "layer": 13,
+  "is_best_layer": false,
+  "label_schema": {
+    "positive_label": 1,
+    "negative_label": 0,
+    "positive_meaning": "correct",
+    "negative_meaning": "incorrect"
+  },
+  "feature_source": {
+    "probe_feature_mode": "response_raw_final_token",
+    "record_field": "response_raw",
+    "fallback_record_field": "response",
+    "token_position": "last_token_of_full_sampled_completion",
+    "probe_construction": "choice_candidates",
+    "probe_example_weighting": "model_probability"
+  },
+  "selection": {
+    "selection_metric": "auc",
+    "selection_split": "val",
+    "selection_val_auc": 0.6338110274471702,
+    "best_layer": 18,
+    "best_dev_auc": 0.9912482950617514
+  },
+  "training": {
+    "fit_strategy": "selection_choice_candidates",
+    "probe_construction": "choice_candidates",
+    "example_weighting": "model_probability",
+    "fit_splits": [
+      "train"
+    ],
+    "fit_seed": 5,
+    "fit_max_samples": 2000,
+    "fit_summary": {
+      "n_records": 2000,
+      "n_usable_records": 2000,
+      "n_label_1": 474,
+      "n_label_0": 1526,
+      "n_questions": 1011,
+      "n_usable_questions": 1011,
+      "sum_sample_weight": 485.90492813967944,
+      "mean_sample_weight": 0.24295246406983972,
+      "datasets": {
+        "arc_challenge": {
+          "n_records": 2000,
+          "n_label_1": 474,
+          "n_label_0": 1526
+        }
+      }
+    },
+    "selection_split": "val",
+    "selection_seed": 6,
+    "selection_max_samples": 2000,
+    "selection_summary": {
+      "n_records": 1194,
+      "n_usable_records": 1194,
+      "n_label_1": 299,
+      "n_label_0": 895,
+      "n_questions": 299,
+      "n_usable_questions": 299,
+      "sum_sample_weight": 299.00014899999996,
+      "mean_sample_weight": 0.25041888525963146,
+      "datasets": {
+        "arc_challenge": {
+          "n_records": 1194,
+          "n_label_1": 299,
+          "n_label_0": 895
+        }
+      }
+    }
+  },
+  "evaluation": {
+    "eval_splits": [
+      "train",
+      "val",
+      "test"
+    ]
+  },
+  "data_summary": {
+    "train": {
+      "n_records": 4476,
+      "n_usable_records": 4476,
+      "n_label_1": 1119,
+      "n_label_0": 3357,
+      "n_questions": 1119,
+      "n_usable_questions": 1119,
+      "sum_sample_weight": 1119.000543,
+      "mean_sample_weight": 0.25000012131367294,
+      "datasets": {
+        "arc_challenge": {
+          "n_records": 4476,
+          "n_label_1": 1119,
+          "n_label_0": 3357
+        }
+      }
+    },
+    "val": {
+      "n_records": 1194,
+      "n_usable_records": 1194,
+      "n_label_1": 299,
+      "n_label_0": 895,
+      "n_questions": 299,
+      "n_usable_questions": 299,
+      "sum_sample_weight": 299.00014899999996,
+      "mean_sample_weight": 0.25041888525963146,
+      "datasets": {
+        "arc_challenge": {
+          "n_records": 1194,
+          "n_label_1": 299,
+          "n_label_0": 895
+        }
+      }
+    },
+    "test": {
+      "n_records": 4687,
+      "n_usable_records": 4687,
+      "n_label_1": 1172,
+      "n_label_0": 3515,
+      "n_questions": 1172,
+      "n_usable_questions": 1172,
+      "sum_sample_weight": 1172.000474,
+      "mean_sample_weight": 0.25005344015361636,
+      "datasets": {
+        "arc_challenge": {
+          "n_records": 4687,
+          "n_label_1": 1172,
+          "n_label_0": 3515
+        }
+      }
+    }
+  },
+  "model": {
+    "model_type": "LogisticRegression",
+    "input_dim": 3584,
+    "coef_shape": [
+      1,
+      3584
+    ],
+    "classes": [
+      0,
+      1
+    ],
+    "intercept_shape": [
+      1
+    ]
+  },
+  "metadata_schema_version": 1,
+  "saved_at_utc": "2026-06-14T22:34:16Z",
+  "artifact_dir": "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260614_allq_fulldepth_seas__fresh__20260614T201614.125556Z_22914964_1239496_ea946619/probes/all_probes/probe_bias_doubt_correct/layer_013",
+  "paths": {
+    "model": "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260614_allq_fulldepth_seas__fresh__20260614T201614.125556Z_22914964_1239496_ea946619/probes/all_probes/probe_bias_doubt_correct/layer_013/model.pkl",
+    "metadata": "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260614_allq_fulldepth_seas__fresh__20260614T201614.125556Z_22914964_1239496_ea946619/probes/all_probes/probe_bias_doubt_correct/layer_013/metadata.json",
+    "metrics": "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260614_allq_fulldepth_seas__fresh__20260614T201614.125556Z_22914964_1239496_ea946619/probes/all_probes/probe_bias_doubt_correct/layer_013/metrics.json",
+    "record_membership": "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260614_allq_fulldepth_seas__fresh__20260614T201614.125556Z_22914964_1239496_ea946619/probes/all_probes/probe_bias_doubt_correct/layer_013/record_membership.jsonl"
+  }
+}

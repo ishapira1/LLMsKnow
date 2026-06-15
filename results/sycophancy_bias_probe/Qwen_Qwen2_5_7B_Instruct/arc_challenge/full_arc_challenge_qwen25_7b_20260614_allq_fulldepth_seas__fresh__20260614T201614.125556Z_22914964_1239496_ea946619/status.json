@@ -1,0 +1,13 @@
+{
+  "status": "completed",
+  "updated_at_utc": "2026-06-14T22:35:36Z",
+  "created_at_utc": "2026-06-14T20:16:14Z",
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "model_slug": "Qwen_Qwen2_5_7B_Instruct",
+  "run_name": "full_arc_challenge_qwen25_7b_20260614_allq_fulldepth_seas__fresh__20260614T201614.125556Z_22914964_1239496_ea946619",
+  "run_dir": "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260614_allq_fulldepth_seas__fresh__20260614T201614.125556Z_22914964_1239496_ea946619",
+  "dataset_dir": "arc_challenge",
+  "pid": 1239496,
+  "hostname": "holygpu8a22105.rc.fas.harvard.edu",
+  "lock_path": "results/sycophancy_bias_probe/Qwen_Qwen2_5_7B_Instruct/arc_challenge/full_arc_challenge_qwen25_7b_20260614_allq_fulldepth_seas__fresh__20260614T201614.125556Z_22914964_1239496_ea946619/.run.lock"
+}

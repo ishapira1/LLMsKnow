@@ -1,0 +1,332 @@
+{
+  "artifact_schema_version": 1,
+  "artifact_group": "all_probes",
+  "probe_name": "probe_bias_doubt_correct",
+  "template_type": "doubt_correct",
+  "best_layer": 14,
+  "best_dev_auc": 0.9990358924534295,
+  "trained_layers": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32
+  ],
+  "layers": {
+    "1": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_001",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_001/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_001/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_001/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_001/record_membership.jsonl",
+      "selection_val_auc": 0.5328674725808562,
+      "input_dim": 4096
+    },
+    "2": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_002",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_002/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_002/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_002/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_002/record_membership.jsonl",
+      "selection_val_auc": 0.5353001625530165,
+      "input_dim": 4096
+    },
+    "3": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_003",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_003/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_003/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_003/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_003/record_membership.jsonl",
+      "selection_val_auc": 0.5330094729171727,
+      "input_dim": 4096
+    },
+    "4": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_004",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_004/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_004/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_004/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_004/record_membership.jsonl",
+      "selection_val_auc": 0.5295902542927076,
+      "input_dim": 4096
+    },
+    "5": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_005",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_005/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_005/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_005/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_005/record_membership.jsonl",
+      "selection_val_auc": 0.5274565123970031,
+      "input_dim": 4096
+    },
+    "6": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_006",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_006/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_006/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_006/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_006/record_membership.jsonl",
+      "selection_val_auc": 0.5251770333140263,
+      "input_dim": 4096
+    },
+    "7": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_007",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_007/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_007/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_007/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_007/record_membership.jsonl",
+      "selection_val_auc": 0.5217017619252255,
+      "input_dim": 4096
+    },
+    "8": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_008",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_008/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_008/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_008/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_008/record_membership.jsonl",
+      "selection_val_auc": 0.5209207600754844,
+      "input_dim": 4096
+    },
+    "9": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_009",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_009/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_009/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_009/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_009/record_membership.jsonl",
+      "selection_val_auc": 0.5319743652024439,
+      "input_dim": 4096
+    },
+    "10": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_010",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_010/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_010/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_010/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_010/record_membership.jsonl",
+      "selection_val_auc": 0.6846695689542424,
+      "input_dim": 4096
+    },
+    "11": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_011",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_011/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_011/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_011/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_011/record_membership.jsonl",
+      "selection_val_auc": 0.9337157377477999,
+      "input_dim": 4096
+    },
+    "12": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_012",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_012/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_012/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_012/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_012/record_membership.jsonl",
+      "selection_val_auc": 0.9967526765194971,
+      "input_dim": 4096
+    },
+    "13": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_013",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_013/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_013/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_013/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_013/record_membership.jsonl",
+      "selection_val_auc": 0.9974178359896115,
+      "input_dim": 4096
+    },
+    "14": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_014",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_014/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_014/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_014/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_014/record_membership.jsonl",
+      "selection_val_auc": 0.9990358924534295,
+      "input_dim": 4096
+    },
+    "15": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_015",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_015/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_015/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_015/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_015/record_membership.jsonl",
+      "selection_val_auc": 0.9986024177425683,
+      "input_dim": 4096
+    },
+    "16": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_016",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_016/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_016/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_016/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_016/record_membership.jsonl",
+      "selection_val_auc": 0.9983371013247136,
+      "input_dim": 4096
+    },
+    "17": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_017",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_017/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_017/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_017/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_017/record_membership.jsonl",
+      "selection_val_auc": 0.998071784906859,
+      "input_dim": 4096
+    },
+    "18": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_018",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_018/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_018/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_018/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_018/record_membership.jsonl",
+      "selection_val_auc": 0.996677939500383,
+      "input_dim": 4096
+    },
+    "19": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_019",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_019/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_019/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_019/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_019/record_membership.jsonl",
+      "selection_val_auc": 0.9956727265932999,
+      "input_dim": 4096
+    },
+    "20": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_020",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_020/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_020/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_020/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_020/record_membership.jsonl",
+      "selection_val_auc": 0.9956017264251416,
+      "input_dim": 4096
+    },
+    "21": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_021",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_021/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_021/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_021/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_021/record_membership.jsonl",
+      "selection_val_auc": 0.9952392518824387,
+      "input_dim": 4096
+    },
+    "22": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_022",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_022/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_022/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_022/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_022/record_membership.jsonl",
+      "selection_val_auc": 0.9966517815436932,
+      "input_dim": 4096
+    },
+    "23": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_023",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_023/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_023/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_023/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_023/record_membership.jsonl",
+      "selection_val_auc": 0.9962145699818763,
+      "input_dim": 4096
+    },
+    "24": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_024",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_024/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_024/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_024/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_024/record_membership.jsonl",
+      "selection_val_auc": 0.9957362530595466,
+      "input_dim": 4096
+    },
+    "25": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_025",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_025/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_025/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_025/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_025/record_membership.jsonl",
+      "selection_val_auc": 0.9953812522187552,
+      "input_dim": 4096
+    },
+    "26": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_026",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_026/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_026/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_026/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_026/record_membership.jsonl",
+      "selection_val_auc": 0.9946264083257039,
+      "input_dim": 4096
+    },
+    "27": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_027",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_027/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_027/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_027/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_027/record_membership.jsonl",
+      "selection_val_auc": 0.9932661945778293,
+      "input_dim": 4096
+    },
+    "28": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_028",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_028/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_028/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_028/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_028/record_membership.jsonl",
+      "selection_val_auc": 0.9927206143382971,
+      "input_dim": 4096
+    },
+    "29": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_029",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_029/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_029/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_029/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_029/record_membership.jsonl",
+      "selection_val_auc": 0.992051718017227,
+      "input_dim": 4096
+    },
+    "30": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_030",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_030/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_030/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_030/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_030/record_membership.jsonl",
+      "selection_val_auc": 0.9903962930438519,
+      "input_dim": 4096
+    },
+    "31": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_031",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_031/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_031/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_031/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_031/record_membership.jsonl",
+      "selection_val_auc": 0.9903701350871621,
+      "input_dim": 4096
+    },
+    "32": {
+      "artifact_dir": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_032",
+      "model_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_032/model.pkl",
+      "metadata_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_032/metadata.json",
+      "metrics_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_032/metrics.json",
+      "membership_path": "results/sycophancy_bias_probe/meta_llama_Llama_3_1_8B_Instruct/arc_challenge/full_arc_challenge_llama31_8b_20260614_allq_fulldepth_seas__fresh__20260614T201735.543237Z_22915321_3826475_ec5cfa7c/probes/all_probes/probe_bias_doubt_correct/layer_032/record_membership.jsonl",
+      "selection_val_auc": 0.9922348237140562,
+      "input_dim": 4096
+    }
+  }
+}

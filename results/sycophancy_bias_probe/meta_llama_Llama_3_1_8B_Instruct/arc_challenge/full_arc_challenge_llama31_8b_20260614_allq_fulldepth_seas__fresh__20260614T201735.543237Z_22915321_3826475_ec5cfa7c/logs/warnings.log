@@ -1,0 +1,1 @@
+[warning][pipeline.py][strict_mc_temperature_bookkeeping]: strict MC mode overrides temperature from 0.1 to 1.0 for bookkeeping. First-token choice scoring ignores temperature, but if any prompt later falls back to text generation this value will apply there.

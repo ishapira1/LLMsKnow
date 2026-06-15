@@ -1,0 +1,211 @@
+{
+  "sampling_integrity_version": 1,
+  "total_records": 10360,
+  "sampling_modes_present": [
+    "choice_probabilities"
+  ],
+  "by_sampling_mode": {
+    "choice_probabilities": {
+      "description": "Rows produced from first-token choice probabilities instead of sampled text generation.",
+      "checks": {
+        "exact_compliance": "Stored choice probabilities are normalized and internally consistent with the selected choice, gold choice, and grading result.",
+        "integrity_failure": "At least one probability or bookkeeping consistency check failed."
+      },
+      "total": 10360,
+      "buckets": {
+        "exact_compliance": {
+          "count": 10360,
+          "rate": 1.0
+        },
+        "integrity_failure": {
+          "count": 0,
+          "rate": 0.0
+        }
+      },
+      "reason_counts": {
+        "distribution_is_consistent": 10360
+      },
+      "human_summary": [
+        "Exact compliance: 100.00%",
+        "Integrity failure: 0.00%"
+      ],
+      "selected_choice_counts": {
+        "1": 57,
+        "2": 55,
+        "3": 44,
+        "4": 40,
+        "A": 2641,
+        "B": 2594,
+        "C": 2545,
+        "D": 2380,
+        "E": 4
+      },
+      "selected_choice_total": 10360,
+      "dominant_selected_choice": "A",
+      "dominant_selected_choice_count": 2641,
+      "dominant_selected_choice_rate": 0.2549227799227799,
+      "by_template": {
+        "doubt_correct": {
+          "description": "Rows produced from first-token choice probabilities instead of sampled text generation.",
+          "checks": {
+            "exact_compliance": "Stored choice probabilities are normalized and internally consistent with the selected choice, gold choice, and grading result.",
+            "integrity_failure": "At least one probability or bookkeeping consistency check failed."
+          },
+          "total": 2590,
+          "buckets": {
+            "exact_compliance": {
+              "count": 2590,
+              "rate": 1.0
+            },
+            "integrity_failure": {
+              "count": 0,
+              "rate": 0.0
+            }
+          },
+          "reason_counts": {
+            "distribution_is_consistent": 2590
+          },
+          "human_summary": [
+            "Exact compliance: 100.00%",
+            "Integrity failure: 0.00%"
+          ],
+          "selected_choice_counts": {
+            "1": 18,
+            "2": 12,
+            "3": 12,
+            "4": 7,
+            "A": 705,
+            "B": 662,
+            "C": 613,
+            "D": 560,
+            "E": 1
+          },
+          "selected_choice_total": 2590,
+          "dominant_selected_choice": "A",
+          "dominant_selected_choice_count": 705,
+          "dominant_selected_choice_rate": 0.2722007722007722
+        },
+        "incorrect_suggestion": {
+          "description": "Rows produced from first-token choice probabilities instead of sampled text generation.",
+          "checks": {
+            "exact_compliance": "Stored choice probabilities are normalized and internally consistent with the selected choice, gold choice, and grading result.",
+            "integrity_failure": "At least one probability or bookkeeping consistency check failed."
+          },
+          "total": 2590,
+          "buckets": {
+            "exact_compliance": {
+              "count": 2590,
+              "rate": 1.0
+            },
+            "integrity_failure": {
+              "count": 0,
+              "rate": 0.0
+            }
+          },
+          "reason_counts": {
+            "distribution_is_consistent": 2590
+          },
+          "human_summary": [
+            "Exact compliance: 100.00%",
+            "Integrity failure: 0.00%"
+          ],
+          "selected_choice_counts": {
+            "1": 13,
+            "2": 15,
+            "3": 10,
+            "4": 11,
+            "A": 622,
+            "B": 648,
+            "C": 661,
+            "D": 609,
+            "E": 1
+          },
+          "selected_choice_total": 2590,
+          "dominant_selected_choice": "C",
+          "dominant_selected_choice_count": 661,
+          "dominant_selected_choice_rate": 0.2552123552123552
+        },
+        "neutral": {
+          "description": "Rows produced from first-token choice probabilities instead of sampled text generation.",
+          "checks": {
+            "exact_compliance": "Stored choice probabilities are normalized and internally consistent with the selected choice, gold choice, and grading result.",
+            "integrity_failure": "At least one probability or bookkeeping consistency check failed."
+          },
+          "total": 2590,
+          "buckets": {
+            "exact_compliance": {
+              "count": 2590,
+              "rate": 1.0
+            },
+            "integrity_failure": {
+              "count": 0,
+              "rate": 0.0
+            }
+          },
+          "reason_counts": {
+            "distribution_is_consistent": 2590
+          },
+          "human_summary": [
+            "Exact compliance: 100.00%",
+            "Integrity failure: 0.00%"
+          ],
+          "selected_choice_counts": {
+            "1": 15,
+            "2": 14,
+            "3": 11,
+            "4": 9,
+            "A": 744,
+            "B": 623,
+            "C": 609,
+            "D": 564,
+            "E": 1
+          },
+          "selected_choice_total": 2590,
+          "dominant_selected_choice": "A",
+          "dominant_selected_choice_count": 744,
+          "dominant_selected_choice_rate": 0.28725868725868725
+        },
+        "suggest_correct": {
+          "description": "Rows produced from first-token choice probabilities instead of sampled text generation.",
+          "checks": {
+            "exact_compliance": "Stored choice probabilities are normalized and internally consistent with the selected choice, gold choice, and grading result.",
+            "integrity_failure": "At least one probability or bookkeeping consistency check failed."
+          },
+          "total": 2590,
+          "buckets": {
+            "exact_compliance": {
+              "count": 2590,
+              "rate": 1.0
+            },
+            "integrity_failure": {
+              "count": 0,
+              "rate": 0.0
+            }
+          },
+          "reason_counts": {
+            "distribution_is_consistent": 2590
+          },
+          "human_summary": [
+            "Exact compliance: 100.00%",
+            "Integrity failure: 0.00%"
+          ],
+          "selected_choice_counts": {
+            "1": 11,
+            "2": 14,
+            "3": 11,
+            "4": 13,
+            "A": 570,
+            "B": 661,
+            "C": 662,
+            "D": 647,
+            "E": 1
+          },
+          "selected_choice_total": 2590,
+          "dominant_selected_choice": "C",
+          "dominant_selected_choice_count": 662,
+          "dominant_selected_choice_rate": 0.2555984555984556
+        }
+      }
+    }
+  }
+}

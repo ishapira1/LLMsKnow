@@ -1,0 +1,13 @@
+{
+  "movement_schema_version": 1,
+  "probe_name": "probe_bias_doubt_correct",
+  "probe_training_template_type": "doubt_correct",
+  "probe_layer": 18,
+  "source_record_count": 1172,
+  "expected_comparisons_upper_bound": 3516,
+  "computed_row_count": 3516,
+  "summary_row_count": 4,
+  "exclusion_counts": {},
+  "exclusions": [],
+  "paraphrase_artifact_path": ""
+}
