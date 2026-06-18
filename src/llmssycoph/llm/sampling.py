@@ -98,6 +98,7 @@ def _materialize_sample_record(
         "correct_letter": task["correct_letter"],
         "incorrect_letter": task["incorrect_letter"],
         "suggested_label": task["suggested_label"],
+        "random_all_variant_family": task.get("random_all_variant_family", ""),
         "letters": task["letters"],
         "answer_options": task["answer_options"],
         "answers_list": task["answers_list"],
@@ -515,6 +516,7 @@ def sample_records_for_groups(
             correct_letter = str(base.get("correct_letter", "") or "")
             incorrect_letter = str(base.get("incorrect_letter", "") or "")
             suggested_label = str(base.get("suggested_label", "") or "")
+            random_all_variant_family = str(base.get("random_all_variant_family", "") or "")
             letters = str(base.get("letters", "") or "")
             answer_options = str(base.get("answers", "") or "")
             answers_list = list(base.get("answers_list", []) or [])
@@ -558,6 +560,7 @@ def sample_records_for_groups(
                     "correct_letter": correct_letter,
                     "incorrect_letter": incorrect_letter,
                     "suggested_label": suggested_label,
+                    "random_all_variant_family": random_all_variant_family,
                     "letters": letters,
                     "answer_options": answer_options,
                     "answers_list": answers_list,

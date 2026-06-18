@@ -5,9 +5,12 @@ from typing import Dict, List, Sequence, Type
 from .agreement_bias import AgreementBias
 from .doubt_correct_bias import DoubtCorrectBias
 from .doubt_correct_strong_bias import DoubtCorrectStrongBias
+from .doubt_random_bias import DoubtRandomBias
+from .doubt_random_strong_bias import DoubtRandomStrongBias
 from .incorrect_suggestion_bias import IncorrectSuggestionBias
 from .incorrect_suggestion_strong_bias import IncorrectSuggestionStrongBias
 from .neutral_bias import NeutralBias
+from .random_all_bias import RandomAllBias
 from .suggest_correct_bias import SuggestCorrectBias
 from .suggest_correct_strong_bias import SuggestCorrectStrongBias
 from .suggest_random_bias import SuggestRandomBias
@@ -21,8 +24,11 @@ AGREEMENT_BIAS_TYPES: tuple[Type[AgreementBias], ...] = (
     IncorrectSuggestionStrongBias,
     DoubtCorrectBias,
     DoubtCorrectStrongBias,
+    DoubtRandomBias,
+    DoubtRandomStrongBias,
     SuggestCorrectBias,
     SuggestCorrectStrongBias,
+    RandomAllBias,
     SuggestRandomBias,
     SuggestRandomStrongBias,
 )

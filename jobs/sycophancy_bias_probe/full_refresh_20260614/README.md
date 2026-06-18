@@ -1,5 +1,7 @@
 # Full Refresh Batch 2026-06-14
 
+Legacy note: this bundle is no longer the recommended path for the full ARC/CSQA all-family experiment. Use `jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260616/` instead, which samples once and then runs one probe family per Slurm task.
+
 This bundle is the fresh full-experiment Slurm batch for the current canonical local-model runs.
 
 ## Split Strategy

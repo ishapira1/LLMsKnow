@@ -4,10 +4,52 @@ import contextlib
 import io
 import unittest
 
-from llmssycoph.cli import build_parser, parse_args
+from llmssycoph.cli import DEFAULT_PARAPHRASE_ARTIFACT_PATH, build_parser, parse_args
+from llmssycoph.data import trainable_prompt_families
 
 
 class CliContractTests(unittest.TestCase):
+    def test_defaults_include_all_trainable_probe_families_and_paraphrases(self):
+        args = parse_args([])
+
+        expected_bias_types = ",".join(trainable_prompt_families(include_neutral=False))
+        self.assertEqual(args.bias_types, expected_bias_types)
+        self.assertIn("doubt_random", args.bias_types.split(","))
+        self.assertIn("doubt_random_strong", args.bias_types.split(","))
+        self.assertIn("random_all", args.bias_types.split(","))
+        self.assertEqual(args.probe_families, ",".join(trainable_prompt_families(include_neutral=True)))
+        self.assertEqual(args.paraphrase_artifact_path, DEFAULT_PARAPHRASE_ARTIFACT_PATH)
+
+    def test_probe_families_can_select_one_sampled_family_without_changing_bias_types(self):
+        args = parse_args(["--probe_families", "suggest_random"])
+
+        expected_bias_types = ",".join(trainable_prompt_families(include_neutral=False))
+        self.assertEqual(args.bias_types, expected_bias_types)
+        self.assertEqual(args.probe_families, "suggest_random")
+
+    def test_probe_families_default_tracks_reduced_bias_types(self):
+        args = parse_args(["--bias_types", "incorrect_suggestion"])
+
+        self.assertEqual(args.bias_types, "incorrect_suggestion")
+        self.assertEqual(args.probe_families, "neutral,incorrect_suggestion")
+
+    def test_probe_families_rejects_unknown_family(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parse_args(["--probe_families", "not_a_family"])
+
+    def test_probe_families_rejects_family_not_in_sampled_bias_types(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parse_args(
+                    [
+                        "--bias_types",
+                        "incorrect_suggestion",
+                        "--probe_families",
+                        "suggest_random",
+                    ]
+                )
+
     def test_instruction_policy_argument_uses_canonical_names(self):
         args = parse_args(
             [
@@ -82,6 +124,7 @@ class CliContractTests(unittest.TestCase):
         self.assertIn("--instruction_policy", help_text)
         self.assertIn("--mc_mode", help_text)
         self.assertIn("--sampling_only", help_text)
+        self.assertIn("--probe_families", help_text)
         self.assertIn("--probe_construction", help_text)
         self.assertIn("--probe_example_weighting", help_text)
         self.assertIn("--override_sampling_cache", help_text)

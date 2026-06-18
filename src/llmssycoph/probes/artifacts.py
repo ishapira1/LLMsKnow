@@ -25,6 +25,11 @@ from .metrics import (
 )
 
 
+def _slugify_path_token(value: Any, *, empty_fallback: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() else "_" for ch in str(value or "")).strip("_")
+    return cleaned or empty_fallback
+
+
 def _record_id_set(records: Sequence[Dict[str, Any]]) -> set[int]:
     record_ids: set[int] = set()
     for record in records:
@@ -143,15 +148,15 @@ def write_probe_movement_artifacts(
     summary_rows = list(movement_payload.get("summary_rows", []) or [])
     coverage_payload = dict(movement_payload.get("coverage", {}) or {})
 
-    rows_jsonl_path = artifact_dir / "movement_rows.jsonl"
-    rows_csv_path = artifact_dir / "movement_rows.csv"
-    summary_json_path = artifact_dir / "movement_summary.json"
-    summary_csv_path = artifact_dir / "movement_summary.csv"
-    coverage_json_path = artifact_dir / "movement_coverage.json"
+    rows_jsonl_path = artifact_dir / "all_items.jsonl"
+    summary_json_path = artifact_dir / "all_summary.json"
+    summary_csv_path = artifact_dir / "all_summary.csv"
+    coverage_json_path = artifact_dir / "coverage.json"
+    manifest_path = artifact_dir / "manifest.json"
+    targets_root = artifact_dir / "targets"
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl_atomic(rows_jsonl_path, rows)
-    write_csv_atomic(rows_csv_path, pd.DataFrame(rows))
     write_json_atomic(
         summary_json_path,
         {
@@ -164,12 +169,132 @@ def write_probe_movement_artifacts(
     )
     write_csv_atomic(summary_csv_path, pd.DataFrame(summary_rows))
     write_json_atomic(coverage_json_path, coverage_payload)
+    for row in summary_rows:
+        change_kind = str(row.get("target_change_kind", "") or "").strip()
+        target_template_type = str(row.get("target_template_type", "") or "").strip()
+        if not change_kind or not target_template_type or change_kind == "overall":
+            continue
+        if change_kind == "prompt_family":
+            target_dir = targets_root / "prompt_family" / _slugify_path_token(
+                target_template_type,
+                empty_fallback="target",
+            )
+        elif change_kind == "paraphrase":
+            target_dir = targets_root / "paraphrase" / "same_family"
+        else:
+            target_dir = targets_root / _slugify_path_token(change_kind, empty_fallback="target_change") / _slugify_path_token(
+                target_template_type,
+                empty_fallback="target",
+            )
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_rows = [
+            item_row
+            for item_row in rows
+            if str(item_row.get("target_change_kind", "") or "").strip() == change_kind
+            and str(item_row.get("target_template_type", "") or "").strip() == target_template_type
+        ]
+        write_jsonl_atomic(target_dir / "items.jsonl", target_rows)
+        write_json_atomic(
+            target_dir / "summary.json",
+            {
+                "movement_schema_version": movement_payload.get("movement_schema_version"),
+                "probe_name": movement_payload.get("probe_name"),
+                "probe_training_template_type": movement_payload.get("probe_training_template_type"),
+                "probe_layer": movement_payload.get("probe_layer"),
+                "summary_rows": [dict(row)],
+            },
+        )
+        write_csv_atomic(target_dir / "summary.csv", pd.DataFrame([dict(row)]))
+    write_json_atomic(
+        manifest_path,
+        {
+            "movement_schema_version": movement_payload.get("movement_schema_version"),
+            "probe_name": movement_payload.get("probe_name"),
+            "probe_training_template_type": movement_payload.get("probe_training_template_type"),
+            "probe_layer": movement_payload.get("probe_layer"),
+            "n_item_rows": int(len(rows)),
+            "n_summary_rows": int(len(summary_rows)),
+            "artifact_paths": {
+                "all_items_jsonl": str(rows_jsonl_path),
+                "all_summary_json": str(summary_json_path),
+                "all_summary_csv": str(summary_csv_path),
+                "coverage_json": str(coverage_json_path),
+            },
+        },
+    )
     return {
+        "manifest_path": manifest_path,
         "rows_jsonl_path": rows_jsonl_path,
-        "rows_csv_path": rows_csv_path,
         "summary_json_path": summary_json_path,
         "summary_csv_path": summary_csv_path,
         "coverage_json_path": coverage_json_path,
+    }
+
+
+def write_probe_cross_family_artifacts(
+    *,
+    artifact_dir: Path,
+    probe_name: str,
+    probe_training_template_type: str,
+    probe_layer: Optional[int],
+    cross_family_metrics: Optional[Mapping[str, Any]],
+) -> Dict[str, Path] | None:
+    if not cross_family_metrics:
+        return None
+
+    by_template_type = dict(cross_family_metrics.get("by_template_type", {}) or {})
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    targets_root = artifact_dir / "targets"
+    rows: list[Dict[str, Any]] = []
+    for target_template_type, metric_payload in sorted(by_template_type.items()):
+        metric_payload = dict(metric_payload or {})
+        row = {
+            "probe_name": probe_name,
+            "probe_training_template_type": probe_training_template_type,
+            "target_template_type": str(target_template_type),
+            "chosen_layer": probe_layer,
+        }
+        for key, value in metric_payload.items():
+            row[str(key)] = value
+        rows.append(row)
+        target_dir = targets_root / _slugify_path_token(target_template_type, empty_fallback="target")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(target_dir / "metrics.json", metric_payload)
+        write_csv_atomic(target_dir / "metrics.csv", pd.DataFrame([row]))
+
+    all_metrics_json_path = artifact_dir / "all_metrics.json"
+    all_metrics_csv_path = artifact_dir / "all_metrics.csv"
+    manifest_path = artifact_dir / "manifest.json"
+    write_json_atomic(
+        all_metrics_json_path,
+        {
+            "metric_schema_version": cross_family_metrics.get("metric_schema_version"),
+            "probe_name": probe_name,
+            "probe_training_template_type": probe_training_template_type,
+            "probe_layer": probe_layer,
+            "eval_splits": list(cross_family_metrics.get("eval_splits", []) or []),
+            "rows": rows,
+        },
+    )
+    write_csv_atomic(all_metrics_csv_path, pd.DataFrame(rows))
+    write_json_atomic(
+        manifest_path,
+        {
+            "metric_schema_version": cross_family_metrics.get("metric_schema_version"),
+            "probe_name": probe_name,
+            "probe_training_template_type": probe_training_template_type,
+            "probe_layer": probe_layer,
+            "target_template_types": sorted(by_template_type),
+            "artifact_paths": {
+                "all_metrics_json": str(all_metrics_json_path),
+                "all_metrics_csv": str(all_metrics_csv_path),
+            },
+        },
+    )
+    return {
+        "manifest_path": manifest_path,
+        "all_metrics_json_path": all_metrics_json_path,
+        "all_metrics_csv_path": all_metrics_csv_path,
     }
 
 
@@ -202,8 +327,8 @@ def save_probe_family_artifacts(
 ) -> Dict[str, Any]:
     all_probes_root = preferred_run_artifact_path(run_dir, "all_probes_dir")
     chosen_probe_root = preferred_run_artifact_path(run_dir, "chosen_probe_dir")
-    family_all_dir = all_probes_root / probe_name
-    family_chosen_dir = chosen_probe_root / probe_name
+    family_all_dir = all_probes_root / "families" / probe_name
+    family_chosen_dir = chosen_probe_root / "families" / probe_name
     family_all_dir.mkdir(parents=True, exist_ok=True)
     family_chosen_dir.mkdir(parents=True, exist_ok=True)
 
@@ -234,7 +359,7 @@ def save_probe_family_artifacts(
         if clf_layer is None:
             continue
         trained_layers.append(int(layer_id))
-        layer_dir = family_all_dir / f"layer_{int(layer_id):03d}"
+        layer_dir = family_all_dir / "layers" / f"layer_{int(layer_id):03d}"
         layer_metrics = selection_metrics_by_layer.get(int(layer_id))
         model_info = probe_model_metadata(clf_layer)
         metadata = {
@@ -305,9 +430,37 @@ def save_probe_family_artifacts(
     chosen_saved_paths = None
     movement_saved_paths = None
     movement_summary_payload = None
+    cross_family_saved_paths = None
+    cross_family_summary_payload = None
+    if cross_family_metrics is not None:
+        cross_family_dir = family_chosen_dir / "evaluation" / "cross_family"
+        cross_family_saved_paths = write_probe_cross_family_artifacts(
+            artifact_dir=cross_family_dir,
+            probe_name=probe_name,
+            probe_training_template_type=template_type,
+            probe_layer=best_layer,
+            cross_family_metrics=cross_family_metrics,
+        )
+        by_template_type = dict(cross_family_metrics.get("by_template_type", {}) or {})
+        cross_family_summary_payload = {
+            "metric_schema_version": cross_family_metrics.get("metric_schema_version"),
+            "probe_name": probe_name,
+            "probe_training_template_type": template_type,
+            "probe_layer": best_layer,
+            "eval_splits": list(cross_family_metrics.get("eval_splits", []) or []),
+            "evaluated_template_types": list(cross_family_evaluated_template_types or []),
+            "target_template_types": sorted(by_template_type),
+            "artifact_paths": {}
+            if cross_family_saved_paths is None
+            else {
+                "manifest_json": str(cross_family_saved_paths["manifest_path"]),
+                "all_metrics_json": str(cross_family_saved_paths["all_metrics_json_path"]),
+                "all_metrics_csv": str(cross_family_saved_paths["all_metrics_csv_path"]),
+            },
+        }
     if movement_artifacts is not None:
         movement_saved_paths = write_probe_movement_artifacts(
-            artifact_dir=family_chosen_dir,
+            artifact_dir=family_chosen_dir / "evaluation" / "movement",
             movement_payload=movement_artifacts,
         )
         movement_coverage = dict(movement_artifacts.get("coverage", {}) or {})
@@ -325,10 +478,10 @@ def save_probe_family_artifacts(
             "n_summary_rows": int(len(list(movement_artifacts.get("summary_rows", []) or []))),
             "coverage": movement_coverage_summary,
             "artifact_paths": {
-                "rows_jsonl": str(movement_saved_paths["rows_jsonl_path"]),
-                "rows_csv": str(movement_saved_paths["rows_csv_path"]),
-                "summary_json": str(movement_saved_paths["summary_json_path"]),
-                "summary_csv": str(movement_saved_paths["summary_csv_path"]),
+                "manifest_json": str(movement_saved_paths["manifest_path"]),
+                "all_items_jsonl": str(movement_saved_paths["rows_jsonl_path"]),
+                "all_summary_json": str(movement_saved_paths["summary_json_path"]),
+                "all_summary_csv": str(movement_saved_paths["summary_csv_path"]),
                 "coverage_json": str(movement_saved_paths["coverage_json_path"]),
             },
         }
@@ -376,10 +529,7 @@ def save_probe_family_artifacts(
             },
             "evaluation": {
                 "eval_splits": ["train", "val", "test"],
-                "cross_family": {
-                    "eval_splits": ["test"],
-                    "evaluated_template_types": list(cross_family_evaluated_template_types or []),
-                },
+                "cross_family": dict(cross_family_summary_payload or {}),
                 "movement": dict(movement_summary_payload or {}),
             },
             "data_summary": split_summary,
@@ -418,6 +568,7 @@ def save_probe_family_artifacts(
         "model_path": None if chosen_saved_paths is None else str(chosen_saved_paths["model_path"]),
         "membership_path": None if chosen_saved_paths is None else str(chosen_saved_paths["membership_path"]),
         "source_all_probes_artifact_dir": chosen_source_artifact,
+        "cross_family": dict(cross_family_summary_payload or {}),
         "movement": dict(movement_summary_payload or {}),
     }
     write_json_atomic(family_chosen_dir / "manifest.json", family_chosen_manifest)
@@ -449,6 +600,7 @@ def save_probe_family_artifacts(
         "selection_val_summary": selection_val_summary,
         "chosen_fit_summary": chosen_fit_summary,
         "data_summary": split_summary,
+        "cross_family": dict(cross_family_summary_payload or {}),
         "cross_family_evaluated_template_types": list(cross_family_evaluated_template_types or []),
         "movement": dict(movement_summary_payload or {}),
     }
@@ -476,6 +628,7 @@ def write_probe_group_manifest(
 __all__ = [
     "build_probe_membership_rows",
     "save_probe_family_artifacts",
+    "write_probe_cross_family_artifacts",
     "write_probe_movement_artifacts",
     "write_probe_artifact",
     "write_probe_group_manifest",

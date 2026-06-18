@@ -1,12 +1,15 @@
 # Results Format And Parsing Guide
 
-This document describes the active artifact contract for:
+This document describes the active **results layout v2** for:
 
 ```bash
 python run_sycophancy_bias_probe.py ...
 ```
 
-It is intentionally narrow: it lists what the current pipeline actually writes, separates core outputs from optional probe artifacts and later derived artifacts, and leaves older legacy files in compatibility mode rather than treating them as part of the active contract.
+The v2 contract is designed for two use cases at once:
+
+- a **nested tree** that is easy to browse manually
+- a **query layer** that is easy to parse programmatically without globbing
 
 ## Path Rule
 
@@ -16,230 +19,251 @@ Every run lives at:
 results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/
 ```
 
-- `model_slug`: sanitized model name such as `Qwen_Qwen2_5_7B_Instruct`
+- `model_slug`: sanitized model name such as `Qwen_Qwen2_5B_Instruct`
 - `dataset_dir`: usually `commonsense_qa`, `arc_challenge`, or `all`
 - `run_name`: explicit `--run_name`, auto-generated timestamped name, or a `--fresh_run` name
 
+## Canonical Tree
+
+```text
+results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/
+├── meta/
+│   ├── run_manifest.json
+│   ├── run_config.json
+│   ├── run_summary.json
+│   └── status.json
+├── runtime/
+│   └── logs/
+│       ├── run.log
+│       ├── warnings.log                       # optional
+│       └── warnings_summary.json              # optional
+├── sampling/
+│   ├── raw/
+│   │   ├── sampling_records.jsonl
+│   │   ├── sampling_manifest.json
+│   │   └── sampling_integrity_summary.json
+│   └── flat/
+│       └── sampled_responses.csv
+├── evaluation/
+│   └── run/
+│       ├── summary.json
+│       ├── summary.csv
+│       ├── executive_summary.md
+│       └── confusion_matrix_predicted_letter_x_true_letter.csv   # optional
+├── probes/
+│   ├── candidates/
+│   │   ├── manifest.json
+│   │   └── families/
+│   │       └── <probe_name>/
+│   │           ├── manifest.json
+│   │           └── layers/
+│   │               └── layer_XXX/
+│   │                   ├── model.pkl
+│   │                   ├── metadata.json
+│   │                   ├── metrics.json
+│   │                   └── record_membership.jsonl
+│   ├── chosen/
+│   │   ├── manifest.json
+│   │   └── families/
+│   │       └── <probe_name>/
+│   │           ├── model.pkl
+│   │           ├── metadata.json
+│   │           ├── metrics.json
+│   │           ├── record_membership.jsonl
+│   │           ├── manifest.json
+│   │           └── evaluation/
+│   │               ├── cross_family/
+│   │               │   ├── manifest.json
+│   │               │   ├── all_metrics.json
+│   │               │   ├── all_metrics.csv
+│   │               │   └── targets/
+│   │               │       └── <target_template_type>/
+│   │               │           ├── metrics.json
+│   │               │           └── metrics.csv
+│   │               └── movement/
+│   │                   ├── manifest.json
+│   │                   ├── coverage.json
+│   │                   ├── all_items.jsonl
+│   │                   ├── all_summary.json
+│   │                   ├── all_summary.csv
+│   │                   └── targets/
+│   │                       ├── prompt_family/
+│   │                       │   └── <target_template_type>/
+│   │                       │       ├── items.jsonl
+│   │                       │       ├── summary.json
+│   │                       │       └── summary.csv
+│   │                       └── paraphrase/
+│   │                           └── same_family/
+│   │                               ├── items.jsonl
+│   │                               ├── summary.json
+│   │                               └── summary.csv
+│   └── backfills/                                  # optional derived subtree
+├── query/
+│   ├── artifact_catalog.jsonl
+│   ├── probe_scores_by_prompt.csv
+│   ├── chosen_probe_registry.csv
+│   ├── chosen_probe_metrics.csv
+│   ├── chosen_probe_cross_family_metrics.csv
+│   ├── chosen_probe_movement_summary.csv
+│   ├── chosen_probe_movement_items.jsonl
+│   └── paraphrase_coverage.csv
+├── sampling_backfills/                             # optional derived subtree
+└── analysis/                                       # optional derived subtree
+    ├── analysis_notebook_status.json
+    ├── analysis_<spec>.ipynb
+    ├── plots/
+    └── tables/
+```
+
+## Source Of Truth
+
+There are two canonical entrypoints:
+
+1. `meta/run_manifest.json`
+   - the root navigation manifest
+   - use this when you need to discover where artifacts live
+
+2. `query/`
+   - the direct-query layer
+   - use this when you want metrics or movement summaries without traversing probe-local files
+
+The intended rule is:
+
+- for **run-wide questions**, start in `query/`
+- for **probe-specific deep dives**, start in `probes/chosen/families/<probe_name>/`
+- for **artifact discovery**, start in `meta/run_manifest.json`
+
 ## Core Pipeline Outputs
 
-These are the canonical outputs written by the base pipeline itself.
+These are written by the base pipeline itself.
 
-- `logs/run.log`
-  - Human-readable runtime log.
-  - Written for every run.
-- `logs/sampling_records.jsonl`
-  - Canonical raw per-record sampling store.
-  - Also used for sampling checkpointing and cache reuse.
-- `logs/sampling_manifest.json`
-  - Sampling spec, checkpoint state, split stats, and sampling hash.
-- `logs/sampling_integrity_summary.json`
-  - Post-sampling integrity/compliance summary.
-- `logs/warnings.log`
-  - Optional warning-only log.
-  - Present only if warnings were emitted.
-- `logs/warnings_summary.json`
-  - Optional structured warning rollup.
-  - Present only if warnings were emitted.
-- `sampling/sampled_responses.csv`
-  - Flat table of sampled rows.
-  - Best starting point for pandas analysis.
-- `reports/summary.json`
-  - Flat summary rows as JSON.
-  - This is not the richer nested run summary.
-- `reports/summary.csv`
-  - CSV version of the flat summary rows.
-- `reports/executive_summary.md`
-  - Human-readable markdown overview.
-- `reports/confusion_matrix_predicted_letter_x_true_letter.csv`
-  - Optional multiple-choice confusion matrix export.
-  - Written only when that summary is available.
-- `probes/probe_scores_by_prompt.csv`
-  - Prompt-level probe readout table.
-  - Written even for sampling-only runs, though it may be empty or minimal.
-- `run_config.json`
-  - Resolved run config plus canonical artifact paths and runtime metadata.
-- `run_summary.json`
-  - Rich nested summary payload.
-  - Includes `summary_rows` plus higher-level runtime and reporting sections.
-  - `runtime_timing` stores both top-level stage timing and nested probe substage timing.
-- `status.json`
-  - Lifecycle metadata for the run.
-  - The final status write happens last.
+- `meta/run_manifest.json`
+  - root navigation manifest for the run
+- `meta/run_config.json`
+  - resolved run config plus artifact paths and runtime metadata
+- `meta/run_summary.json`
+  - rich nested summary payload
+  - includes `runtime_timing` for stage and substage timing
+- `meta/status.json`
+  - lifecycle metadata for the run
+- `runtime/logs/run.log`
+  - human-readable runtime log
+- `sampling/raw/sampling_records.jsonl`
+  - canonical raw per-record sampling store
+- `sampling/raw/sampling_manifest.json`
+  - sampling spec, checkpoint state, split stats, and sampling hash
+- `sampling/raw/sampling_integrity_summary.json`
+  - post-sampling integrity/compliance summary
+- `sampling/flat/sampled_responses.csv`
+  - flat sampled-response table
+- `evaluation/run/summary.json`
+  - flat summary rows as JSON
+- `evaluation/run/summary.csv`
+  - CSV version of the flat summary rows
+- `evaluation/run/executive_summary.md`
+  - human-readable markdown overview
+- `query/probe_scores_by_prompt.csv`
+  - prompt-level probe readout table
 
 ## Optional Probe Outputs
 
 These are written only when probe training runs successfully. They are absent for `--sampling_only`.
 
-- `probes/all_probes/manifest.json`
-  - Group-level manifest for all trained layer candidates.
-- `probes/all_probes/<probe_name>/manifest.json`
-  - Per-family manifest for one probe family.
-- `probes/all_probes/<probe_name>/layer_XXX/`
-  - One directory per trained candidate layer.
-- `probes/all_probes/<probe_name>/layer_XXX/model.pkl`
-  - Serialized candidate probe model.
-- `probes/all_probes/<probe_name>/layer_XXX/metadata.json`
-  - Candidate probe metadata.
-- `probes/all_probes/<probe_name>/layer_XXX/metrics.json`
-  - Candidate probe metrics.
-- `probes/all_probes/<probe_name>/layer_XXX/record_membership.jsonl`
-  - Candidate probe membership table.
-- `probes/chosen_probe/manifest.json`
-  - Group-level manifest for the final selected probes.
-- `probes/chosen_probe/<probe_name>/`
-  - Final selected probe directory for one probe family.
-- `probes/chosen_probe/<probe_name>/model.pkl`
-  - Final selected probe model.
-- `probes/chosen_probe/<probe_name>/metadata.json`
-  - Final selected probe metadata.
-- `probes/chosen_probe/<probe_name>/metrics.json`
-  - Final selected probe metrics.
-- `probes/chosen_probe/<probe_name>/record_membership.jsonl`
-  - Final selected probe membership table.
-- `probes/chosen_probe/<probe_name>/manifest.json`
-  - Final selected probe manifest.
+- `probes/candidates/`
+  - all trained layer candidates
+- `probes/chosen/`
+  - final chosen probe artifacts
+- `probes/chosen/families/<probe_name>/evaluation/cross_family/`
+  - cross-family evaluation files for one chosen probe
+- `probes/chosen/families/<probe_name>/evaluation/movement/`
+  - activation-movement evaluation files for one chosen probe
+
+The movement subtree includes both:
+
+- full item-level rows in `all_items.jsonl`
+- grouped summaries in `all_summary.json` and `all_summary.csv`
+
+It also breaks movement out by target:
+
+- `targets/prompt_family/<target_template_type>/`
+- `targets/paraphrase/same_family/`
+
+## Query Tables
+
+The `query/` directory contains stable denormalized tables for direct questions.
+
+- `artifact_catalog.jsonl`
+  - generic artifact inventory with paths and schema versions
+- `chosen_probe_registry.csv`
+  - one row per chosen probe family
+- `chosen_probe_metrics.csv`
+  - one row per chosen probe family with own-family metrics
+- `chosen_probe_cross_family_metrics.csv`
+  - one row per chosen probe family × target family
+- `chosen_probe_movement_summary.csv`
+  - one row per chosen probe family × target change
+- `chosen_probe_movement_items.jsonl`
+  - one row per movement comparison
+- `paraphrase_coverage.csv`
+  - one row per chosen probe family with paraphrase-coverage counts
+
+These query files are the preferred way to answer questions such as:
+
+- “What is the chosen probe AUC for `probe_bias_incorrect_suggestion_strong`?”
+- “What is the average movement geometry for `probe_no_bias` when the target family is `strong`?”
+- “How many paraphrase comparisons were skipped because of invalid paraphrases?”
 
 ## Optional Derived Outputs
 
 These are post-hoc artifacts written by later analysis or backfill scripts. They are supported and organized, but they are not required for a pipeline run to count as complete.
 
 - `analysis/analysis_notebook_status.json`
-  - Notebook generation status file.
 - `analysis/analysis_<spec>.ipynb`
-  - Generated notebook.
 - `analysis/plots/*.pdf`
-  - Post-hoc plot exports.
 - `analysis/tables/*.csv`
-  - Post-hoc table exports.
-- `analysis/tables/analysis_cell_failures.csv`
-  - Notebook cell-level failure log when analysis degrades gracefully.
 - `sampling_backfills/<template_type>/...`
-  - Derived sampling backfill artifacts.
 - `probes/backfills/<probe_name>_all_templates/...`
-  - Derived neutral-probe rescoring/backfill artifacts.
 - `probes/backfills/<probe_name>_on_<template_type>/...`
-  - Derived cross-template probe rescoring/backfill artifacts.
-
-All derived outputs must stay inside the current run directory. The base pipeline does not write them by default.
-
-## Canonical Trees
-
-Sampling-only run:
-
-```text
-results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/
-├── logs/
-│   ├── run.log
-│   ├── sampling_records.jsonl
-│   ├── sampling_manifest.json
-│   ├── sampling_integrity_summary.json
-│   ├── warnings.log                       # optional
-│   └── warnings_summary.json              # optional
-├── sampling/
-│   └── sampled_responses.csv
-├── probes/
-│   └── probe_scores_by_prompt.csv         # may be empty/minimal
-├── reports/
-│   ├── summary.json
-│   ├── summary.csv
-│   ├── executive_summary.md
-│   └── confusion_matrix_predicted_letter_x_true_letter.csv   # optional
-├── run_config.json
-├── run_summary.json
-└── status.json
-```
-
-Full probe run:
-
-```text
-results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/
-├── logs/
-├── sampling/
-├── probes/
-│   ├── probe_scores_by_prompt.csv
-│   ├── all_probes/
-│   │   ├── manifest.json
-│   │   └── <probe_name>/
-│   │       ├── manifest.json
-│   │       └── layer_XXX/
-│   │           ├── model.pkl
-│   │           ├── metadata.json
-│   │           ├── metrics.json
-│   │           └── record_membership.jsonl
-│   └── chosen_probe/
-│       ├── manifest.json
-│       └── <probe_name>/
-│           ├── model.pkl
-│           ├── metadata.json
-│           ├── metrics.json
-│           ├── record_membership.jsonl
-│           └── manifest.json
-├── reports/
-├── run_config.json
-├── run_summary.json
-└── status.json
-```
-
-Probe run with post-hoc analysis and backfills:
-
-```text
-results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/
-├── logs/
-├── sampling/
-├── probes/
-│   ├── probe_scores_by_prompt.csv
-│   ├── all_probes/
-│   ├── chosen_probe/
-│   └── backfills/                        # optional derived subtree
-├── sampling_backfills/                   # optional derived subtree
-├── analysis/
-│   ├── analysis_notebook_status.json
-│   ├── analysis_<spec>.ipynb
-│   ├── plots/
-│   └── tables/
-├── reports/
-├── run_config.json
-├── run_summary.json
-└── status.json
-```
 
 ## Save Order
 
 The pipeline writes artifacts in this logical order:
 
 1. Create the run directory and configure logging.
-2. Write `status.json` as `running`.
-3. Persist `logs/sampling_records.jsonl` and `logs/sampling_manifest.json` during sampling.
-4. Write `logs/sampling_integrity_summary.json` and optional warning summaries after sampling.
+2. Write `meta/status.json` as `running`.
+3. Persist sampling artifacts under `sampling/raw/` during sampling.
+4. Write `sampling/raw/sampling_integrity_summary.json` and optional warning summaries after sampling.
 5. Write optional probe directories and manifests if probe training runs.
-6. Write final summaries and config:
-   - `sampling/sampled_responses.csv`
-   - `reports/summary.json`
-   - `reports/summary.csv`
-   - `run_summary.json`
-   - `probes/probe_scores_by_prompt.csv`
+6. Write final flat outputs:
+   - `sampling/flat/sampled_responses.csv`
+   - `evaluation/run/summary.json`
+   - `evaluation/run/summary.csv`
+   - `meta/run_summary.json`
+   - `query/probe_scores_by_prompt.csv`
    - optional confusion matrix
-   - `run_summary.json.runtime_timing` keeps the stage/substage timing hierarchy used during execution
-   - `reports/executive_summary.md`
-   - `run_config.json`
-7. Write final `status.json` as `completed` or `failed` last.
+   - `evaluation/run/executive_summary.md`
+   - `meta/run_config.json`
+7. Write query tables under `query/`.
+8. Write `meta/run_manifest.json`.
+9. Write final `meta/status.json` as `completed` or `failed` last.
 
 ## Parsing Notes
 
-- Start from `logs/sampling_records.jsonl` when you need the canonical raw record stream.
-- Start from `sampling/sampled_responses.csv` when you want a flat analysis table.
-- Use `reports/summary.csv` or `reports/summary.json` for quick run-level summaries.
-- Use `run_summary.json` for the richer nested programmatic payload.
-- Use `status.json` plus `logs/sampling_manifest.json` when checking resume state, cache provenance, or completion state.
+- Start from `meta/run_manifest.json` when you need artifact discovery.
+- Start from `query/` when you want direct metric lookup.
+- Start from `sampling/raw/sampling_records.jsonl` when you need the canonical raw record stream.
+- Start from `sampling/flat/sampled_responses.csv` when you want the flat model-output table.
+- Use probe-local `evaluation/` subtrees when you want one chosen probe in detail.
 
 ## Legacy Compatibility
 
-Older runs may still contain or be read from compatibility aliases such as:
+Older runs may still contain legacy layouts such as:
 
-- `internal/run_config.json`
-- `internal/status.json`
-- `internal/logs/run.log`
-- `sampled_responses.csv`
-- `sampling_manifest.json`
+- root-level `run_config.json`, `run_summary.json`, `status.json`
+- `logs/`
+- `reports/`
+- `sampling/sampled_responses.csv`
+- `probes/all_probes/`
+- `probes/chosen_probe/`
 
-Some older files are still loader-compatible when present, but they are not part of the active write contract and should not be expected in new runs. The current docs intentionally omit those legacy artifact names so they do not look like required modern outputs.
+Loaders may still resolve some of these for backward compatibility, but they are **not** part of the active v2 write contract for new runs.

@@ -15,7 +15,18 @@ from .constants import (
     SUPPORTED_BENCHMARK_SOURCES,
     VISIBLE_INSTRUCTION_POLICY_NAMES,
 )
-from .data import canonical_instruction_policy_name, legacy_mc_mode_for_instruction_policy
+from .data import (
+    canonical_instruction_policy_name,
+    legacy_mc_mode_for_instruction_policy,
+    trainable_prompt_families,
+)
+
+
+DEFAULT_BIAS_TYPES = trainable_prompt_families(include_neutral=False)
+DEFAULT_BIAS_TYPES_CSV = ",".join(DEFAULT_BIAS_TYPES)
+DEFAULT_PROBE_FAMILIES = trainable_prompt_families(include_neutral=True)
+DEFAULT_PROBE_FAMILIES_CSV = ",".join(DEFAULT_PROBE_FAMILIES)
+DEFAULT_PARAPHRASE_ARTIFACT_PATH = "data/ad_hoc/paraphrase_robustness_test_stems_v1"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -167,10 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_group.add_argument(
         "--bias_types",
         type=str,
-        default="incorrect_suggestion,doubt_correct,suggest_correct",
+        default=DEFAULT_BIAS_TYPES_CSV,
         help=(
             "Comma-separated subset of non-neutral agreement-bias variants to keep or generate.\n"
             "This preserves the legacy --bias_types naming, but the canonical internal term is prompt family.\n"
+            f"Defaults to every trainable non-neutral probe family: {DEFAULT_BIAS_TYPES_CSV}.\n"
             f"Valid values: {','.join(ALL_BIAS_TYPES)}.\n"
             "Neutral is always included automatically."
         ),
@@ -271,6 +283,17 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Stop after sampling artifacts and prompt-level summaries are saved. "
             "Skips probe selection, training, and scoring."
+        ),
+    )
+    probe_group.add_argument(
+        "--probe_families",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated probe families to train and evaluate.\n"
+            "Omit this to train neutral plus every trainable family selected by --bias_types.\n"
+            "Explicit values must be neutral or trainable families present in --bias_types.\n"
+            f"Current full default with default --bias_types: {DEFAULT_PROBE_FAMILIES_CSV}."
         ),
     )
     probe_group.add_argument(
@@ -375,11 +398,12 @@ def build_parser() -> argparse.ArgumentParser:
     io_group.add_argument(
         "--paraphrase_artifact_path",
         type=str,
-        default="",
+        default=DEFAULT_PARAPHRASE_ARTIFACT_PATH,
         help=(
-            "Optional frozen paraphrase artifact directory or manifest path used for chosen-probe "
+            "Frozen paraphrase artifact directory or manifest path used for chosen-probe "
             "movement evaluation. When provided, the pipeline compares each source-family test prompt "
-            "against a same-family stem paraphrase keyed by dataset + source_example_id."
+            "against a same-family stem paraphrase keyed by dataset + source_example_id. "
+            "Pass an empty string to disable paraphrase movement evaluation."
         ),
     )
     io_group.add_argument(
@@ -406,9 +430,11 @@ def _validate_cli_dependencies(ap: argparse.ArgumentParser, args: argparse.Names
     if args.benchmark_source == "ays_mc_single_turn" and args.input_jsonl != "are_you_sure.jsonl":
         ap.error("--benchmark_source=ays_mc_single_turn requires --input_jsonl=are_you_sure.jsonl.")
     try:
-        resolve_bias_types(args.bias_types)
+        bias_types = resolve_bias_types(args.bias_types)
+        probe_families = resolve_probe_families(args.probe_families, bias_types)
     except ValueError as exc:
         ap.error(str(exc))
+    args.probe_families = ",".join(probe_families)
 
 
 def _apply_effective_sampling_overrides(args: argparse.Namespace) -> None:
@@ -455,6 +481,44 @@ def resolve_bias_types(arg: str) -> List[str]:
 
 def resolve_csv_choices(arg: str) -> List[str]:
     return [x.strip() for x in arg.split(",") if x.strip()]
+
+
+def resolve_probe_families(arg: Optional[str], bias_types: Sequence[str] | str) -> List[str]:
+    if isinstance(bias_types, str):
+        sampled_bias_types = resolve_bias_types(bias_types)
+    else:
+        sampled_bias_types = [str(x).strip() for x in bias_types if str(x).strip()]
+
+    allowed = {"neutral", *sampled_bias_types}
+    trainable_order = trainable_prompt_families(include_neutral=True)
+    trainable = set(trainable_order)
+    if arg is None:
+        requested = [family for family in trainable_order if family in allowed]
+    else:
+        requested = resolve_csv_choices(arg)
+
+    if not requested:
+        raise ValueError("At least one probe family is required.")
+
+    unknown = [family for family in requested if family not in trainable]
+    if unknown:
+        raise ValueError(f"Unknown or non-trainable probe families: {unknown}. Valid: {trainable_order}")
+
+    unavailable = [family for family in requested if family not in allowed]
+    if unavailable:
+        raise ValueError(
+            "Probe families must be neutral or sampled by --bias_types. "
+            f"Unavailable for current --bias_types: {unavailable}. "
+            f"Allowed: {ordered_probe_families_for_bias_types(sampled_bias_types)}"
+        )
+
+    requested_set = set(requested)
+    return [family for family in trainable_order if family in requested_set]
+
+
+def ordered_probe_families_for_bias_types(bias_types: Sequence[str]) -> List[str]:
+    allowed = {"neutral", *[str(x).strip() for x in bias_types if str(x).strip()]}
+    return [family for family in trainable_prompt_families(include_neutral=True) if family in allowed]
 
 
 def resolve_device(device_arg: str) -> str:

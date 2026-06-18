@@ -12,6 +12,10 @@ Most work on sycophancy evaluates models behaviorally and treats them as black b
 
 Our goal is to distinguish uncertainty-driven sycophancy from policy-override sycophancy. We want to measure whether internal truth evidence remains stable or degrades when user pressure is introduced, how often sycophantic errors occur despite strong internal support for the correct answer, and whether these patterns differ across single-turn and multi-turn interaction regimes. More broadly, we want a mechanistic account of sycophancy that links external behavior to internal model state and helps clarify when the model fails because it does not know the truth versus when it knows the truth but does not say it. 
 
+## Current working notes
+
+The current near-term action items are tracked in [meeting_notes_2026-06-15.md](meeting_notes_2026-06-15.md). As of June 15, 2026, the priorities are to complete the full experiment pipeline after diagnosing cluster errors, rerun the pruning experiment using Hadas's code, develop the possible connection to in-context learning and mechanistic interpretability, and read the collected papers more carefully.
+
 ## Working definitions
 
 **Sycophancy** is behavior where the model affirms a user’s stated or implied stance even when it conflicts with factual accuracy or sound judgment, instead of offering a direct correction or counterargument. 

@@ -8,7 +8,7 @@
 #SBATCH --array=0-3
 #SBATCH --output=jobs/sycophancy_bias_probe/logs/full_allfamilies_paraphrase_20260614/%x.%A_%a.out
 #SBATCH --error=jobs/sycophancy_bias_probe/logs/full_allfamilies_paraphrase_20260614/%x.%A_%a.err
-#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=itaishapira@g.harvard.edu
 
 set -euo pipefail
@@ -62,7 +62,8 @@ mkdir -p \
   "$HF_HOME" \
   jobs/sycophancy_bias_probe/logs/full_allfamilies_paraphrase_20260614
 
-BIAS_TYPES_CSV="${BIAS_TYPES_CSV:-incorrect_suggestion,incorrect_suggestion_strong,doubt_correct,doubt_correct_strong,suggest_correct,suggest_correct_strong,suggest_random,suggest_random_strong}"
+DEFAULT_BIAS_TYPES_CSV="$("$ENV_PYTHON" -c 'from llmssycoph.data import trainable_prompt_families; print(",".join(trainable_prompt_families(include_neutral=False)))')"
+BIAS_TYPES_CSV="${BIAS_TYPES_CSV:-$DEFAULT_BIAS_TYPES_CSV}"
 PARAPHRASE_ARTIFACT_PATH="${PARAPHRASE_ARTIFACT_PATH:-data/ad_hoc/paraphrase_robustness_test_stems_v1}"
 SAMPLE_BATCH_SIZE="${SAMPLE_BATCH_SIZE:-1}"
 DEVICE="${DEVICE:-auto}"
@@ -73,9 +74,21 @@ PROBE_SEED="${PROBE_SEED:-5}"
 PROBE_LAYER_MIN="${PROBE_LAYER_MIN:-1}"
 PROBE_LAYER_MAX="${PROBE_LAYER_MAX:-999}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-256}"
+FRESH_RUN="${FRESH_RUN:-0}"
+NO_REUSE_SAMPLING_CACHE="${NO_REUSE_SAMPLING_CACHE:-0}"
+ALLOW_STALE_LOCK_CLEANUP="${ALLOW_STALE_LOCK_CLEANUP:-0}"
+PROBE_SELECTION_MAX_SAMPLES="${PROBE_SELECTION_MAX_SAMPLES:-}"
+PROBE_TRAIN_MAX_SAMPLES="${PROBE_TRAIN_MAX_SAMPLES:-}"
+MAX_QUESTIONS="${MAX_QUESTIONS:-}"
+SAMPLING_ONLY="${SAMPLING_ONLY:-0}"
+DEVICE_MAP_AUTO="${DEVICE_MAP_AUTO:-0}"
 
 if [[ ! -d "$PARAPHRASE_ARTIFACT_PATH" && ! -f "$PARAPHRASE_ARTIFACT_PATH" ]]; then
   printf '%s\n' "Missing paraphrase artifact path: $PARAPHRASE_ARTIFACT_PATH" >&2
+  exit 1
+fi
+if [[ -z "$BIAS_TYPES_CSV" ]]; then
+  printf '%s\n' "No trainable probe families resolved from llmssycoph.data.trainable_prompt_families." >&2
   exit 1
 fi
 
@@ -115,6 +128,24 @@ case "$TASK_ID" in
     ;;
 esac
 
+slugify() {
+  "$ENV_PYTHON" - "$1" <<'PY'
+import sys
+value = sys.argv[1]
+cleaned = "".join(ch if ch.isalnum() else "_" for ch in value).strip("_")
+print(cleaned or "model")
+PY
+}
+
+MODEL_SLUG="$(slugify "$MODEL_ID")"
+DATASET_DIR="$DATASET_NAME"
+RUN_DIR="$OUT_DIR/$MODEL_SLUG/$DATASET_DIR/$RUN_NAME"
+
+if [[ "$ALLOW_STALE_LOCK_CLEANUP" == "1" && -f "$RUN_DIR/.run.lock" ]]; then
+  printf '%s\n' "[full-allfamilies-paraphrase-20260614] removing stale lock by request: $RUN_DIR/.run.lock"
+  rm -f "$RUN_DIR/.run.lock"
+fi
+
 cmd=(
   "$ENV_PYTHON" run_sycophancy_bias_probe.py
   --model "$MODEL_ID"
@@ -135,14 +166,39 @@ cmd=(
   --max_new_tokens "$MAX_NEW_TOKENS"
   --paraphrase_artifact_path "$PARAPHRASE_ARTIFACT_PATH"
   --run_name "$RUN_NAME"
-  --fresh_run
   --out_dir "$OUT_DIR"
 )
+
+if [[ "$FRESH_RUN" == "1" ]]; then
+  cmd+=(--fresh_run)
+fi
+if [[ "$NO_REUSE_SAMPLING_CACHE" == "1" ]]; then
+  cmd+=(--no_reuse_sampling_cache)
+fi
+if [[ "$SAMPLING_ONLY" == "1" ]]; then
+  cmd+=(--sampling_only)
+fi
+if [[ "$DEVICE_MAP_AUTO" == "1" ]]; then
+  cmd+=(--device_map_auto)
+fi
+if [[ -n "$PROBE_SELECTION_MAX_SAMPLES" ]]; then
+  cmd+=(--probe_selection_max_samples "$PROBE_SELECTION_MAX_SAMPLES")
+fi
+if [[ -n "$PROBE_TRAIN_MAX_SAMPLES" ]]; then
+  cmd+=(--probe_train_max_samples "$PROBE_TRAIN_MAX_SAMPLES")
+fi
+if [[ -n "$MAX_QUESTIONS" ]]; then
+  cmd+=(--max_questions "$MAX_QUESTIONS")
+fi
 
 printf '[full-allfamilies-paraphrase-20260614] task=%s model=%s dataset=%s\n' \
   "$TASK_LABEL" "$MODEL_ID" "$DATASET_NAME"
 printf '[full-allfamilies-paraphrase-20260614] bias_types=%s\n' "$BIAS_TYPES_CSV"
 printf '[full-allfamilies-paraphrase-20260614] paraphrase_artifact_path=%s\n' "$PARAPHRASE_ARTIFACT_PATH"
+printf '[full-allfamilies-paraphrase-20260614] run_dir=%s\n' "$RUN_DIR"
+printf '[full-allfamilies-paraphrase-20260614] fresh_run=%s no_reuse_sampling_cache=%s sampling_only=%s\n' \
+  "$FRESH_RUN" "$NO_REUSE_SAMPLING_CACHE" "$SAMPLING_ONLY"
+printf '[full-allfamilies-paraphrase-20260614] phase plan: strict-MC sample/score -> probes -> cross-family+paraphrase movement eval -> summaries\n'
 printf '[full-allfamilies-paraphrase-20260614] %q ' "${cmd[@]}"
 printf '\n'
 

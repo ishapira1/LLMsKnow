@@ -67,6 +67,21 @@ jobs/sycophancy_pruning/submit.sh csqa
 
 Every `.sbatch` job requests one GPU, `100G` memory, and sends `END,FAIL` email to `itaishapira@g.harvard.edu`.
 
+## Needed for diagnosis
+
+The June 14-15 Slurm emails for the short `FAILED, ExitCode 1` pruning jobs do not include Python tracebacks or stderr. Before changing pruning compute behavior, collect the matching stdout/stderr files from:
+
+- `jobs/sycophancy_pruning/logs/sycophancy_pruning_qwen25_two_dataset.22914533.out`
+- `jobs/sycophancy_pruning/logs/sycophancy_pruning_qwen25_two_dataset.22914533.err`
+- `jobs/sycophancy_pruning/logs/syco_prune_pilot_qwen25.22924233.out`
+- `jobs/sycophancy_pruning/logs/syco_prune_pilot_qwen25.22924233.err`
+- `jobs/sycophancy_pruning/logs/sycophancy_pruning_qwen25_two_dataset.22924245.out`
+- `jobs/sycophancy_pruning/logs/sycophancy_pruning_qwen25_two_dataset.22924245.err`
+- `jobs/sycophancy_pruning/logs/sycophancy_pruning_qwen25_two_dataset.23017578.out`, if Slurm created it before cancellation
+- `jobs/sycophancy_pruning/logs/sycophancy_pruning_qwen25_two_dataset.23017578.err`, if Slurm created it before cancellation
+
+Those logs should distinguish startup/config failures such as import errors, bad CLI arguments, missing paths, module/conda activation issues, cache/auth problems, or wrong working directory.
+
 ## Environment requirements
 
 The jobs expect:

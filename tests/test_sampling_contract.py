@@ -302,6 +302,32 @@ class SamplingContractTests(unittest.TestCase):
             self.assertIsNotNone(fallback)
             self.assertEqual(fallback["run_dir"], run_incomplete)
 
+    def test_sampling_spec_hash_ignores_probe_family_shard_selection(self):
+        train_groups = [make_group("q_1")]
+        val_groups = [make_group("q_2")]
+        test_groups = [make_group("q_3")]
+        common_kwargs = dict(
+            bias_types=["incorrect_suggestion"],
+            train_groups=train_groups,
+            val_groups=val_groups,
+            test_groups=test_groups,
+            expected_train=2,
+            expected_val=2,
+            expected_test=2,
+        )
+
+        neutral_shard_spec = build_sampling_spec(
+            args=make_args(probe_families="neutral"),
+            **common_kwargs,
+        )
+        bias_shard_spec = build_sampling_spec(
+            args=make_args(probe_families="incorrect_suggestion"),
+            **common_kwargs,
+        )
+
+        self.assertEqual(neutral_shard_spec, bias_shard_spec)
+        self.assertEqual(sampling_spec_hash(neutral_shard_spec), sampling_spec_hash(bias_shard_spec))
+
     def test_sampling_cache_candidate_prefers_more_records_then_newer_run_within_same_dataset(self):
         args = make_args(dataset_name="aqua_mc", ays_mc_datasets=None)
         digest = "same_hash"

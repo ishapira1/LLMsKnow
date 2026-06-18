@@ -23,6 +23,7 @@ PROBE_PROMPT_METADATA_COLUMNS = [
     "source_record_id",
     "suggested_label",
     "suggested_answer",
+    "random_all_variant_family",
     "selected_choice",
     "selected_choice_is_correct",
     "probe_score_correct_choice",

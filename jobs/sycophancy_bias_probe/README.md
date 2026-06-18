@@ -7,6 +7,14 @@ Partition defaults in this directory:
 - `full_aqua_mc_n64.sbatch` remains on `gpu_test` as the explicit MIG/test queue script.
 - Filenames ending in `_seas` are kept for continuity, even though the partition request is now broader than `seas_gpu`.
 
+Log organization convention for new or updated Slurm bundles:
+
+- Keep logs under `jobs/sycophancy_bias_probe/logs/<bundle_name>/`.
+- Put submitter output under `submit/`.
+- Put raw Slurm stdout/stderr under stage folders such as `slurm/sampling/` and `slurm/probes/`.
+- Tee each array task into a canonical browseable path such as `by_task/<dataset_model>/<stage_or_probe_family>/job_<job_id>/task_<array_task>.out`.
+- Include enough startup metadata in each task log to diagnose failures without opening the Slurm email: task label, model, dataset, probe family when applicable, run directory, command, Slurm IDs, hostname, start/end time, exit status, and resource snapshots when available.
+
 - `smoke_aqua_mc_auto.sh`: direct smoke/integrity run using `mistralai/Mistral-7B-Instruct-v0.2` on the AYS-derived `aqua_mc` slice, preferring GPU via `--device auto` and falling back to CPU when no accelerator is available, with an artifact-level integrity check after the pipeline finishes. The wrapper normalizes `HF_HUB_CACHE` / `HUGGINGFACE_HUB_CACHE` / `TRANSFORMERS_CACHE` / `HF_HOME` into a single Hugging Face cache path and passes it to the pipeline. The integrity CLI warns by default and only exits non-zero when passed `--strict`.
 - `full_aqua_mc_gpt54nano_samples.sh`: direct run wrapper for the `aqua_mc` all-questions slice aligned to the `full_aqua_mc_mistral7b_auto_allq_l32_seas` setup, but using `gpt-5.4-nano` and `--sampling_only` so the saved sampling artifacts can be compared against the Mistral reference later. It sources `.env`, requires `OPENAI_API_KEY_FOR_PROJECT` (or `OPENAI_API_KEY`), defaults to bounded parallel OpenAI requests via `SAMPLE_BATCH_SIZE=8`, and runs integrity checks after sampling completes.
 - `full_aqua_mc_gpt54nano_20260320_seas.sbatch`: dated CPU batch wrapper for `gpt-5.4-nano` on the `aqua_mc` all-questions slice. It reuses the sample-only OpenAI wrapper, so probes are skipped and the job / log names include `20260320`.
@@ -38,8 +46,10 @@ Partition defaults in this directory:
 - `submit_backfill_incorrect_suggestion_cross_family_20260407_seas.sh`: computes the array size from the discovered runs and submits the incorrect-suggestion cross-family backfill job. Set `DRY_RUN=1` to print the discovered task list and the final `sbatch` command without submitting.
 - `probe_displacement_mini_qwen25_7b_20260602_seas.sbatch`: mini analysis job for the new neutral-probe displacement decomposition on the canonical `Qwen/Qwen2.5-7B-Instruct` `arc_challenge` run. By default it analyzes the `test` split with `probe_no_bias` on the first `64` paired neutral-correct questions and writes notebook-friendly CSV artifacts under `analysis/probe_displacement_decomposition_mini_q64/` inside the saved run directory. Override `MAX_QUESTIONS`, `OUTPUT_DIR`, `RUN_DIR`, `PROBE_NAME`, `DEVICE`, or `USE_DEVICE_MAP_AUTO=1` via the environment when submitting.
 - `submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh`: submits the mini Qwen2.5 ARC probe-displacement job. Set `DRY_RUN=1` to print the final `sbatch` command without submitting.
-- `full_refresh_20260614/`: dated fresh-run batch bundle for the current canonical full local-model experiment. It splits the work by `dataset x model` for `commonsense_qa` and `arc_challenge` across `Llama-3.1-8B-Instruct` and `Qwen2.5-7B-Instruct`, saves Slurm logs into `jobs/sycophancy_bias_probe/logs/full_refresh_20260614/<dataset>/`, and uses `--fresh_run` so every saved run is isolated from earlier artifacts.
-- `full_allfamilies_paraphrase_20260614/`: one-submission Slurm array bundle for the full intended experiment: both main datasets, both main local models, all supported trainable bias families, automatic cross-family chosen-probe evaluation across the enabled family set, and same-family paraphrase movement evaluation via `data/ad_hoc/paraphrase_robustness_test_stems_v1`.
+- `full_allfamilies_paraphrase_sharded_20260618/`: current recommended full local-model experiment bundle. It keeps the proven two-stage sharded pattern from the `20260616` bundle, but adds clearer submission metadata, task matrices, a status helper, and stricter post-run artifact verification for both sampling and probe-family shards. Same-family paraphrase movement evaluation is enabled by default.
+- `full_allfamilies_paraphrase_sharded_20260616/`: previous recommended full local-model experiment bundle. It remains a good reference and fallback, but the `20260618` bundle is easier to manage during long full runs.
+- `full_refresh_20260614/`: legacy dated fresh-run batch bundle. It is useful for reading the old per-dataset/model setup, but it is no longer the recommended full experiment path because full all-family probe/eval work can timeout or fail expensively inside one monolithic job.
+- `full_allfamilies_paraphrase_20260614/`: one-submission Slurm array bundle for the full intended experiment: both main datasets, both main local models, all supported trainable bias families resolved from the prompt-family registry, automatic cross-family chosen-probe evaluation across the enabled family set, and same-family paraphrase movement evaluation by default via `data/ad_hoc/paraphrase_robustness_test_stems_v1`. It uses stable run names by default so interrupted attempts can reuse sampling checkpoints; set `FRESH_RUN=1` for isolated reruns.
 - `fast_dirty.sbatch`: very quick sanity run.
 - `fast_truthful_qa.sbatch`: very quick sanity run restricted to `truthful_qa`.
 - `fast_aqua_mc.sbatch`: very quick AYS-derived MC sanity run restricted to `aqua_mc`.
@@ -87,6 +97,11 @@ bash jobs/sycophancy_bias_probe/submit_backfill_bias_probes_on_neutral_20260402_
 bash jobs/sycophancy_bias_probe/submit_backfill_incorrect_suggestion_cross_family_20260407_seas.sh
 bash jobs/sycophancy_bias_probe/submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh
 MAX_QUESTIONS=32 bash jobs/sycophancy_bias_probe/submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh
+bash jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260618/submit_full_allfamilies_paraphrase_sharded_20260618.sh
+bash jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260618/status_full_allfamilies_paraphrase_sharded_20260618.sh
+DRY_RUN=1 bash jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260618/submit_full_allfamilies_paraphrase_sharded_20260618.sh
+bash jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260616/submit_full_allfamilies_paraphrase_sharded_20260616.sh
+DRY_RUN=1 bash jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260616/submit_full_allfamilies_paraphrase_sharded_20260616.sh
 bash jobs/sycophancy_bias_probe/full_refresh_20260614/submit_full_refresh_20260614.sh
 bash jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_20260614/submit_full_allfamilies_paraphrase_20260614.sh
 sbatch jobs/sycophancy_bias_probe/fast_aqua_mc_seas.sbatch

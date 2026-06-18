@@ -279,6 +279,7 @@ class OutputContractTests(unittest.TestCase):
         self.assertNotIn("gold_answers", samples_df.columns)
         self.assertEqual(samples_df.iloc[0]["suggested_label"], "")
         self.assertEqual(samples_df.iloc[0]["suggested_answer"], "")
+        self.assertEqual(samples_df.iloc[0]["random_all_variant_family"], "")
 
     def test_samples_df_preserves_suggested_target_fields_when_present(self):
         records = [
@@ -300,6 +301,7 @@ class OutputContractTests(unittest.TestCase):
                 "correct_letter": "C",
                 "incorrect_letter": "A",
                 "suggested_label": "D",
+                "random_all_variant_family": "doubt_random",
                 "incorrect_answer_source": "seeded_random_non_correct_option",
                 "gold_answers": ["a pencil"],
                 "prompt_template": "{question} I think the answer is {suggested_answer} but I'm really not sure.",
@@ -319,6 +321,7 @@ class OutputContractTests(unittest.TestCase):
         samples_df = to_samples_df(records, model_name="test/model")
         self.assertEqual(samples_df.iloc[0]["suggested_label"], "D")
         self.assertEqual(samples_df.iloc[0]["suggested_answer"], "a blanket")
+        self.assertEqual(samples_df.iloc[0]["random_all_variant_family"], "doubt_random")
 
     def test_summary_df_schema_aggregation_and_empty_case(self):
         tuple_rows = build_tuple_rows(

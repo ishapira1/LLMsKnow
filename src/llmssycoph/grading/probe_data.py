@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from ..constants import MC_MODE_STRICT
 from ..data import (
@@ -217,6 +217,7 @@ def build_probe_record_sets(
     test_records: Sequence[Dict[str, Any]],
     all_records: Sequence[Dict[str, Any]],
     bias_types: Sequence[str],
+    probe_families: Optional[Sequence[str]] = None,
     probe_construction: str = "auto",
     probe_example_weighting: str = "model_probability",
 ) -> Dict[str, Dict[str, Any]]:
@@ -225,10 +226,40 @@ def build_probe_record_sets(
         "neutral",
         *[str(bias_type or "").strip() for bias_type in bias_types if str(bias_type or "").strip()],
     }
+    if probe_families is None:
+        selected_prompt_families = [
+            family for family in wanted_prompt_families if family in enabled_prompt_families
+        ]
+    else:
+        requested_prompt_families = [
+            str(prompt_family or "").strip()
+            for prompt_family in probe_families
+            if str(prompt_family or "").strip()
+        ]
+        if not requested_prompt_families:
+            raise ValueError("At least one probe family is required.")
+        unknown_prompt_families = [
+            family for family in requested_prompt_families if family not in wanted_prompt_families
+        ]
+        if unknown_prompt_families:
+            raise ValueError(
+                f"Unknown or non-trainable probe families: {unknown_prompt_families}. "
+                f"Valid: {wanted_prompt_families}"
+            )
+        unavailable_prompt_families = [
+            family for family in requested_prompt_families if family not in enabled_prompt_families
+        ]
+        if unavailable_prompt_families:
+            raise ValueError(
+                "Probe families must be neutral or sampled by bias_types. "
+                f"Unavailable: {unavailable_prompt_families}"
+            )
+        requested_set = set(requested_prompt_families)
+        selected_prompt_families = [
+            family for family in wanted_prompt_families if family in requested_set
+        ]
     families: Dict[str, Dict[str, Any]] = {}
-    for prompt_family_id in wanted_prompt_families:
-        if prompt_family_id not in enabled_prompt_families:
-            continue
+    for prompt_family_id in selected_prompt_families:
         prompt_family = get_prompt_family(prompt_family_id)
         probe_name = probe_name_for_family(prompt_family_id)
         if not probe_name:

@@ -49,6 +49,9 @@ The canonical internal term is `prompt family`.
   - `incorrect_suggestion_strong`
   - `doubt_correct`
   - `doubt_correct_strong`
+  - `doubt_random`
+  - `doubt_random_strong`
+  - `random_all`
   - `suggest_correct`
   - `suggest_correct_strong`
   - `suggest_random`
@@ -58,10 +61,15 @@ The canonical internal term is `prompt family`.
 
 `suggest_random` is a suggestion-style control family for MC-derived runs. It chooses exactly one answer option uniformly from the available choices, including the correct option, and renders the option text rather than the option letter. The chosen suggestion is deterministic within a run given the run seed and question identity.
 
+`doubt_random` mirrors that same seeded random-option selection, but negates the chosen option instead of endorsing it. It is distinct from `doubt_correct`, which specifically negates the true answer.
+
+`random_all` is a seeded mixture family for MC-derived runs. For each question, it deterministically chooses one random answer option and then deterministically chooses whether to render that option with the weak `suggest_random` wording or the weak `doubt_random` wording. This lets the corresponding probe train on a fixed within-run mixture of both framings.
+
 `incorrect_suggestion_strong` reuses the same user-endorsed incorrect answer target as `incorrect_suggestion`, but changes the wording to a much stronger, more authoritative claim.
 
 The other core strong prompt families mirror that same idea:
 - `doubt_correct_strong` is the strong-confidence version of `doubt_correct`
+- `doubt_random_strong` is the strong-confidence version of `doubt_random`
 - `suggest_correct_strong` is the strong-confidence version of `suggest_correct`
 - `suggest_random_strong` is the strong-confidence version of `suggest_random`
 
@@ -240,7 +248,7 @@ Important flags:
 - `--device`: `auto`, `cpu`, `cuda`, or `mps`
 - `--benchmark_source`: `answer_json` for the existing `answer.jsonl` benchmark, or `ays_mc_single_turn` to derive a new single-turn benchmark from AYS multiple-choice source rows
 - `--input_jsonl`: `answer.jsonl` for the original pipeline, or `are_you_sure.jsonl` when using `--benchmark_source ays_mc_single_turn`
-- `--bias_types`: comma-separated subset of `incorrect_suggestion`, `incorrect_suggestion_strong`, `doubt_correct`, `doubt_correct_strong`, `suggest_correct`, `suggest_correct_strong`, `suggest_random`, `suggest_random_strong`. The default CLI behavior remains `incorrect_suggestion,doubt_correct,suggest_correct`, so all strong prompt families and `suggest_random` / `suggest_random_strong` are opt-in unless explicitly requested.
+- `--bias_types`: comma-separated subset of `incorrect_suggestion`, `incorrect_suggestion_strong`, `doubt_correct`, `doubt_correct_strong`, `doubt_random`, `doubt_random_strong`, `random_all`, `suggest_correct`, `suggest_correct_strong`, `suggest_random`, `suggest_random_strong`. By default the CLI uses every trainable non-neutral prompt family, so `random_all` is included automatically in the standard training and cross-family evaluation runs.
 - `--dataset_name` / `--dataset_type`: source dataset from `base.dataset` to keep, or `all` to use every dataset. For the current project, this will usually be `commonsense_qa` or `arc_challenge`.
 - `--ays_mc_datasets`: comma-separated AYS source datasets to derive in `ays_mc_single_turn` mode; default is `truthful_qa_mc,aqua_mc`, and it also supports normalized HF-backed sources such as `commonsense_qa` and `arc_challenge`. For the current project, the main settings are `commonsense_qa` and `arc_challenge`.
 - `--mc_mode`: `strict_mc` for the canonical benchmark path, or `mc_with_rationale` for the auxiliary rationale-preserving path

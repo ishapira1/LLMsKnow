@@ -51,6 +51,7 @@ DEFAULT_AYS_MC_DATASETS = ("truthful_qa_mc", "aqua_mc")
 SUPPORTED_BENCHMARK_SOURCES = ("answer_json", "ays_mc_single_turn")
 MC_INCORRECT_FALLBACK_SEED = 104729
 MC_SUGGEST_RANDOM_NAMESPACE = "suggest_random"
+MC_RANDOM_ALL_VARIANT_NAMESPACE = "random_all_variant"
 
 
 _MC_OPTION_LINE_RE = re.compile(r"^\s*\(([A-Za-z0-9])\)\s*(.*?)\s*$")
@@ -560,6 +561,23 @@ def _seeded_random_suggest_option(
     )
 
 
+def _seeded_random_all_variant_family(
+    base: Dict[str, Any],
+    *,
+    run_seed: int | None = None,
+) -> str:
+    family_id, _ = _seeded_option_choice(
+        base,
+        [
+            ("suggest_random", "suggest_random"),
+            ("doubt_random", "doubt_random"),
+        ],
+        namespace=MC_RANDOM_ALL_VARIANT_NAMESPACE,
+        run_seed=run_seed,
+    )
+    return family_id
+
+
 def _should_preserve_multiple_choice_option_text(base: Dict[str, Any]) -> bool:
     dataset = _normalized_dataset_name(base.get("dataset"))
     return dataset in {"aqua_mc", "commonsense_qa", "arc_challenge"}
@@ -752,6 +770,10 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                 run_seed=seed,
             )
             suggested_random_answer = _multiple_choice_prompt_answer_text(base, suggested_random_text)
+            random_all_variant_family = _seeded_random_all_variant_family(
+                base,
+                run_seed=seed,
+            )
 
             if not question_text or not correct_letter or not correct_answer or not incorrect_answer:
                 continue
@@ -787,18 +809,30 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                 elif prompt_family.family_id in {"suggest_correct", "suggest_correct_strong"}:
                     suggested_label = correct_letter
                     suggested_answer = correct_answer
-                elif prompt_family.family_id in {"suggest_random", "suggest_random_strong"}:
+                elif prompt_family.family_id in {
+                    "suggest_random",
+                    "suggest_random_strong",
+                    "doubt_random",
+                    "doubt_random_strong",
+                    "random_all",
+                }:
                     suggested_label = suggested_random_letter
                     suggested_answer = suggested_random_answer
                 else:
                     suggested_label = ""
                     suggested_answer = ""
 
+                if prompt_family.family_id == "random_all":
+                    random_all_variant = random_all_variant_family
+                else:
+                    random_all_variant = ""
+
                 variant_base = dict(derived_base)
                 variant_base.update(
                     {
                         "suggested_label": suggested_label,
                         "suggested_answer": suggested_answer,
+                        "random_all_variant_family": random_all_variant,
                     }
                 )
                 question = Question(
@@ -827,6 +861,7 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                         "incorrect_letter": incorrect_letter,
                         "suggested_label": suggested_label,
                         "suggested_answer": suggested_answer,
+                        "random_all_variant_family": random_all_variant,
                         "source_dataset": str(derived_base.get("source_dataset", "") or ""),
                         "source_split": str(derived_base.get("source_split", "") or ""),
                         "source_example_id": str(derived_base.get("source_example_id", "") or ""),

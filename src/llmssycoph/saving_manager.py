@@ -5,12 +5,12 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
 
 import numpy as np
 import pandas as pd
 
-from .data import family_for_probe_name, ordered_prompt_families, probe_name_for_family, prompt_id_for
+from .data import family_for_probe_name, ordered_prompt_families, probe_name_for_family, prompt_id_for, read_jsonl
 from .grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from .llm.sampling import normalize_sample_records
 from .logging_utils import build_warning_summary_payload, log_status
@@ -45,6 +45,7 @@ SAMPLED_RESPONSE_COLUMNS = [
     "correct_letter",
     "incorrect_letter",
     "suggested_label",
+    "random_all_variant_family",
     "prompt_template",
     "prompt_text",
     "response_raw",
@@ -356,6 +357,7 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
             "correct_letter": record.get("correct_letter", ""),
             "incorrect_letter": record.get("incorrect_letter", ""),
             "suggested_label": record.get("suggested_label", ""),
+            "random_all_variant_family": record.get("random_all_variant_family", ""),
             "prompt_template": record["prompt_template"],
             "prompt_text": record["prompt_text"],
             "response_raw": record["response_raw"],
@@ -2927,6 +2929,264 @@ def save_sampling_integrity_summary(
     return path
 
 
+def _load_json_if_exists(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _probe_family_entries(probes_meta: Mapping[str, Any]) -> list[tuple[str, Dict[str, Any]]]:
+    rows: list[tuple[str, Dict[str, Any]]] = []
+    for probe_name, payload in probes_meta.items():
+        if not isinstance(payload, dict):
+            continue
+        if not payload.get("chosen_probe_manifest"):
+            continue
+        rows.append((str(probe_name), dict(payload)))
+    return sorted(rows, key=lambda item: item[0])
+
+
+def _build_query_tables(
+    *,
+    run_dir: Path,
+    probes_meta: Mapping[str, Any],
+) -> Dict[str, pd.DataFrame | list[Dict[str, Any]]]:
+    registry_rows: list[Dict[str, Any]] = []
+    metric_rows: list[Dict[str, Any]] = []
+    cross_family_rows: list[Dict[str, Any]] = []
+    movement_summary_rows: list[Dict[str, Any]] = []
+    movement_item_rows: list[Dict[str, Any]] = []
+    paraphrase_coverage_rows: list[Dict[str, Any]] = []
+    artifact_catalog_rows: list[Dict[str, Any]] = []
+
+    for probe_name, payload in _probe_family_entries(probes_meta):
+        chosen_manifest_path = Path(str(payload.get("chosen_probe_manifest") or ""))
+        chosen_metrics_path = Path(str(payload.get("chosen_probe_metrics_path") or ""))
+        chosen_manifest = _load_json_if_exists(chosen_manifest_path)
+        chosen_metrics = _load_json_if_exists(chosen_metrics_path)
+        probe_training_template_type = str(chosen_manifest.get("template_type", "") or "")
+        chosen_layer = payload.get("best_layer")
+        movement_payload = dict(payload.get("movement", {}) or {})
+        cross_family_payload = dict(payload.get("cross_family", {}) or {})
+
+        registry_rows.append(
+            {
+                "probe_name": probe_name,
+                "probe_training_template_type": probe_training_template_type,
+                "chosen_layer": chosen_layer,
+                "manifest_path": str(chosen_manifest_path),
+                "metrics_path": str(chosen_metrics_path),
+                "movement_present": bool(movement_payload),
+                "cross_family_present": bool(cross_family_payload),
+            }
+        )
+
+        test_metrics = dict(chosen_metrics.get("splits", {}).get("test", {}) or {})
+        metric_rows.append(
+            {
+                "probe_name": probe_name,
+                "probe_training_template_type": probe_training_template_type,
+                "chosen_layer": chosen_layer,
+                "best_dev_auc": payload.get("best_dev_auc"),
+                "test_auc": test_metrics.get("auc"),
+                "test_accuracy": test_metrics.get("accuracy"),
+                "balanced_accuracy": test_metrics.get("balanced_accuracy"),
+                "positive_rate": test_metrics.get("positive_rate"),
+                "probe_construction": payload.get("feature_source", {}).get("probe_construction"),
+                "probe_example_weighting": payload.get("feature_source", {}).get("probe_example_weighting"),
+            }
+        )
+
+        cross_family_all_metrics_path = Path(
+            str(cross_family_payload.get("artifact_paths", {}).get("all_metrics_json", "") or "")
+        )
+        cross_family_all_metrics = _load_json_if_exists(cross_family_all_metrics_path)
+        for row in list(cross_family_all_metrics.get("rows", []) or []):
+            if isinstance(row, dict):
+                cross_family_rows.append(dict(row))
+        if cross_family_payload:
+            artifact_catalog_rows.append(
+                {
+                    "artifact_kind": "chosen_probe_cross_family",
+                    "probe_name": probe_name,
+                    "target_family": "",
+                    "path": str(cross_family_all_metrics_path),
+                    "row_count": len(list(cross_family_all_metrics.get("rows", []) or [])),
+                    "schema_version": cross_family_all_metrics.get("metric_schema_version"),
+                }
+            )
+
+        movement_summary_path = Path(str(movement_payload.get("artifact_paths", {}).get("all_summary_json", "") or ""))
+        movement_items_path = Path(str(movement_payload.get("artifact_paths", {}).get("all_items_jsonl", "") or ""))
+        movement_summary_payload_json = _load_json_if_exists(movement_summary_path)
+        for row in list(movement_summary_payload_json.get("summary_rows", []) or []):
+            if isinstance(row, dict):
+                movement_summary_rows.append(dict(row))
+        if movement_items_path.exists():
+            movement_item_rows.extend(read_jsonl(str(movement_items_path)))
+        if movement_payload:
+            coverage = dict(movement_payload.get("coverage", {}) or {})
+            paraphrase_coverage_rows.append(
+                {
+                    "probe_name": probe_name,
+                    "probe_training_template_type": probe_training_template_type,
+                    "probe_layer": movement_payload.get("probe_layer"),
+                    "source_record_count": coverage.get("source_record_count"),
+                    "expected_comparisons_upper_bound": coverage.get("expected_comparisons_upper_bound"),
+                    "computed_row_count": coverage.get("computed_row_count"),
+                    "summary_row_count": coverage.get("summary_row_count"),
+                    "missing_paraphrase": dict(coverage.get("exclusion_counts", {}) or {}).get("missing_paraphrase", 0),
+                    "invalid_paraphrase": dict(coverage.get("exclusion_counts", {}) or {}).get("invalid_paraphrase", 0),
+                    "paraphrase_artifact_path": coverage.get("paraphrase_artifact_path"),
+                }
+            )
+            artifact_catalog_rows.append(
+                {
+                    "artifact_kind": "chosen_probe_movement_summary",
+                    "probe_name": probe_name,
+                    "target_family": "",
+                    "path": str(movement_summary_path),
+                    "row_count": len(list(movement_summary_payload_json.get("summary_rows", []) or [])),
+                    "schema_version": movement_summary_payload_json.get("movement_schema_version"),
+                }
+            )
+            artifact_catalog_rows.append(
+                {
+                    "artifact_kind": "chosen_probe_movement_items",
+                    "probe_name": probe_name,
+                    "target_family": "",
+                    "path": str(movement_items_path),
+                    "row_count": movement_payload.get("n_item_rows"),
+                    "schema_version": movement_payload.get("movement_schema_version"),
+                }
+            )
+
+    return {
+        "chosen_probe_registry": pd.DataFrame(registry_rows),
+        "chosen_probe_metrics": pd.DataFrame(metric_rows),
+        "chosen_probe_cross_family_metrics": pd.DataFrame(cross_family_rows),
+        "chosen_probe_movement_summary": pd.DataFrame(movement_summary_rows),
+        "chosen_probe_movement_items": movement_item_rows,
+        "paraphrase_coverage": pd.DataFrame(paraphrase_coverage_rows),
+        "artifact_catalog": artifact_catalog_rows,
+    }
+
+
+def _write_query_tables(
+    *,
+    run_dir: Path,
+    query_tables: Mapping[str, pd.DataFrame | list[Dict[str, Any]]],
+) -> Dict[str, Path]:
+    path_map = {
+        "chosen_probe_registry": preferred_run_artifact_path(run_dir, "query_chosen_probe_registry"),
+        "chosen_probe_metrics": preferred_run_artifact_path(run_dir, "query_chosen_probe_metrics"),
+        "chosen_probe_cross_family_metrics": preferred_run_artifact_path(
+            run_dir,
+            "query_chosen_probe_cross_family_metrics",
+        ),
+        "chosen_probe_movement_summary": preferred_run_artifact_path(
+            run_dir,
+            "query_chosen_probe_movement_summary",
+        ),
+        "chosen_probe_movement_items": preferred_run_artifact_path(run_dir, "query_chosen_probe_movement_items"),
+        "paraphrase_coverage": preferred_run_artifact_path(run_dir, "query_paraphrase_coverage"),
+        "artifact_catalog": preferred_run_artifact_path(run_dir, "query_artifact_catalog"),
+    }
+    for path in path_map.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+    write_csv_atomic(path_map["chosen_probe_registry"], query_tables["chosen_probe_registry"])
+    write_csv_atomic(path_map["chosen_probe_metrics"], query_tables["chosen_probe_metrics"])
+    write_csv_atomic(
+        path_map["chosen_probe_cross_family_metrics"],
+        query_tables["chosen_probe_cross_family_metrics"],
+    )
+    write_csv_atomic(
+        path_map["chosen_probe_movement_summary"],
+        query_tables["chosen_probe_movement_summary"],
+    )
+    write_jsonl_atomic(path_map["chosen_probe_movement_items"], list(query_tables["chosen_probe_movement_items"]))
+    write_csv_atomic(path_map["paraphrase_coverage"], query_tables["paraphrase_coverage"])
+    write_jsonl_atomic(path_map["artifact_catalog"], list(query_tables["artifact_catalog"]))
+    return path_map
+
+
+def _git_commit_if_available(run_dir: Path) -> Optional[str]:
+    try:
+        import subprocess
+
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=run_dir,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    commit = str(proc.stdout or "").strip()
+    return commit or None
+
+
+def _build_run_manifest_payload(
+    *,
+    args: Any,
+    run_dir: Path,
+    probes_meta: Mapping[str, Any],
+    query_paths: Mapping[str, Path],
+) -> Dict[str, Any]:
+    has_paraphrase = False
+    has_random_baseline = False
+    chosen_probe_manifest = str(probes_meta.get("chosen_probe_manifest", "") or "")
+    for _, payload in _probe_family_entries(probes_meta):
+        movement_payload = dict(payload.get("movement", {}) or {})
+        if movement_payload:
+            if dict(movement_payload.get("coverage", {}) or {}).get("paraphrase_artifact_path"):
+                has_paraphrase = True
+            if movement_payload.get("n_item_rows"):
+                has_random_baseline = True
+                break
+    return {
+        "manifest_schema_version": 2,
+        "generated_at_utc": utc_now_iso(),
+        "run_identity": {
+            "run_name": run_dir.name,
+            "run_dir": str(run_dir),
+            "model_name": str(getattr(args, "model", "") or ""),
+            "dataset_name": str(getattr(args, "dataset_name", "") or ""),
+            "git_commit": _git_commit_if_available(run_dir),
+        },
+        "subtrees": {
+            "meta": str(preferred_run_artifact_path(run_dir, "meta_dir")),
+            "runtime_logs": str(preferred_run_artifact_path(run_dir, "runtime_logs_dir")),
+            "sampling": str(preferred_run_artifact_path(run_dir, "sampling_dir")),
+            "evaluation": str(preferred_run_artifact_path(run_dir, "evaluation_dir")),
+            "probes": str(preferred_run_artifact_path(run_dir, "probes_dir")),
+            "query": str(preferred_run_artifact_path(run_dir, "query_dir")),
+            "analysis": str(preferred_run_artifact_path(run_dir, "analysis_dir")),
+        },
+        "recommended_query_entrypoints": {
+            "chosen_probe_registry": str(query_paths["chosen_probe_registry"]),
+            "chosen_probe_metrics": str(query_paths["chosen_probe_metrics"]),
+            "chosen_probe_cross_family_metrics": str(query_paths["chosen_probe_cross_family_metrics"]),
+            "chosen_probe_movement_summary": str(query_paths["chosen_probe_movement_summary"]),
+            "chosen_probe_movement_items": str(query_paths["chosen_probe_movement_items"]),
+            "paraphrase_coverage": str(query_paths["paraphrase_coverage"]),
+        },
+        "chosen_probe_group_manifest": chosen_probe_manifest,
+        "query_table_paths": {key: str(value) for key, value in query_paths.items()},
+        "features": {
+            "paraphrase_movement_present": bool(has_paraphrase),
+            "random_baseline_geometry_present": bool(has_random_baseline),
+        },
+    }
+
+
 def save_run_results(
     *,
     args: Any,
@@ -2978,6 +3238,7 @@ def save_run_results(
     probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
     executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
     config_path = preferred_run_artifact_path(run_dir, "run_config")
+    run_manifest_path = preferred_run_artifact_path(run_dir, "run_manifest")
     mc_confusion_matrix_summary = reports_summary_payload.get("mc_confusion_matrix")
     mc_confusion_matrix_path = (
         preferred_run_artifact_path(run_dir, "mc_confusion_matrix")
@@ -2994,6 +3255,15 @@ def save_run_results(
     if mc_confusion_matrix_path is not None:
         write_csv_atomic(mc_confusion_matrix_path, mc_confusion_matrix_df)
     write_text_atomic(executive_summary_path, executive_summary_text)
+    query_tables = _build_query_tables(run_dir=run_dir, probes_meta=probes_meta)
+    query_paths = _write_query_tables(run_dir=run_dir, query_tables=query_tables)
+    run_manifest_payload = _build_run_manifest_payload(
+        args=args,
+        run_dir=run_dir,
+        probes_meta=probes_meta,
+        query_paths=query_paths,
+    )
+    write_json_atomic(run_manifest_path, run_manifest_payload)
 
     run_cfg = dict(vars(args))
     requested_device = str(getattr(args, "requested_device", getattr(args, "device", "")) or "")
@@ -3022,8 +3292,12 @@ def save_run_results(
     run_cfg["reports_summary_path"] = str(reports_summary_path)
     run_cfg["reports_summary_csv_path"] = str(reports_summary_csv_path)
     run_cfg["run_summary_path"] = str(run_summary_path)
+    run_cfg["run_manifest_path"] = str(run_manifest_path)
     run_cfg["probe_scores_by_prompt_path"] = str(probe_scores_by_prompt_path)
     run_cfg["executive_summary_path"] = str(executive_summary_path)
+    run_cfg["query_dir"] = str(preferred_run_artifact_path(run_dir, "query_dir"))
+    for key, path in query_paths.items():
+        run_cfg[f"{key}_path"] = str(path)
     if mc_confusion_matrix_path is not None:
         run_cfg["mc_confusion_matrix_path"] = str(mc_confusion_matrix_path)
     if probes_meta.get("all_probes_dir"):
@@ -3043,6 +3317,7 @@ def save_run_results(
         "probe_scores_by_prompt_path": probe_scores_by_prompt_path,
         "executive_summary_path": executive_summary_path,
         "config_path": config_path,
+        "run_manifest_path": run_manifest_path,
         "sampling_records_path": sampling_records_path,
         "sampling_manifest_path": sampling_manifest_path,
         "sampling_integrity_summary_path": sampling_integrity_summary_path,
@@ -3053,6 +3328,8 @@ def save_run_results(
     if warning_log_path is not None and warning_log_path.exists():
         saved_paths["warnings_log_path"] = warning_log_path
     for path in saved_paths.values():
+        log_status("saving_manager.py", f"saved artifact: {path}")
+    for path in query_paths.values():
         log_status("saving_manager.py", f"saved artifact: {path}")
     return saved_paths
 

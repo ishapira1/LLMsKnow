@@ -100,15 +100,15 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertTrue(run_dir.is_dir())
             self.assertEqual(
                 preferred_run_artifact_path(run_dir, "warnings_log"),
-                run_dir / "logs" / "warnings.log",
+                run_dir / "runtime" / "logs" / "warnings.log",
             )
             self.assertEqual(
                 preferred_run_artifact_path(run_dir, "reports_summary_csv"),
-                run_dir / "reports" / "summary.csv",
+                run_dir / "evaluation" / "run" / "summary.csv",
             )
             self.assertEqual(
                 preferred_run_artifact_path(run_dir, "warnings_summary"),
-                run_dir / "logs" / "warnings_summary.json",
+                run_dir / "runtime" / "logs" / "warnings_summary.json",
             )
 
             # Explicit run names are resume-friendly.
@@ -158,7 +158,7 @@ class RuntimeContractTests(unittest.TestCase):
 
             self.assertEqual(
                 preferred_run_artifact_path(run_dir, "sampled_responses"),
-                run_dir / "sampling" / "sampled_responses.csv",
+                run_dir / "sampling" / "flat" / "sampled_responses.csv",
             )
             self.assertEqual(resolve_run_artifact_path(run_dir, "final_tuples"), legacy_final_tuples)
             with self.assertRaises(KeyError):
@@ -248,6 +248,7 @@ class RuntimeContractTests(unittest.TestCase):
             args = make_args(
                 ays_mc_datasets="truthful_qa_mc, aqua_mc",
                 bias_types="incorrect_suggestion, doubt_correct, suggest_correct",
+                probe_families="neutral, incorrect_suggestion",
             )
             cfg_path = preferred_run_artifact_path(run_dir, "run_config")
             write_json_atomic(
@@ -256,6 +257,7 @@ class RuntimeContractTests(unittest.TestCase):
                     **{key: getattr(args, key, None) for key in RESUME_COMPAT_KEYS},
                     "ays_mc_datasets": ["truthful_qa_mc", "aqua_mc"],
                     "bias_types": ["incorrect_suggestion", "doubt_correct", "suggest_correct"],
+                    "probe_families": ["neutral", "incorrect_suggestion"],
                 },
             )
 

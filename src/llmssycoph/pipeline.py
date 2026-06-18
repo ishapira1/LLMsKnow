@@ -12,7 +12,14 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 import numpy as np
 from tqdm.auto import tqdm
 
-from .cli import build_parser, load_env_file, resolve_bias_types, resolve_device, resolve_hf_cache_dir
+from .cli import (
+    build_parser,
+    load_env_file,
+    resolve_bias_types,
+    resolve_device,
+    resolve_hf_cache_dir,
+    resolve_probe_families,
+)
 from .constants import (
     MC_MODE_STRICT,
     STRICT_MC_MAX_CAP_HIT_RATE,
@@ -1381,12 +1388,18 @@ def run_pipeline(args) -> None:
             )
         _warn_strict_mc_temperature_bookkeeping(args)
         planned_bias_types = resolve_bias_types(args.bias_types)
+        planned_probe_families = resolve_probe_families(
+            getattr(args, "probe_families", None),
+            planned_bias_types,
+        )
+        args.probe_families = ",".join(planned_probe_families)
         resolved_ays_mc_datasets = resolve_ays_mc_datasets(args.ays_mc_datasets)
         args.ays_mc_datasets = resolved_ays_mc_datasets
         log_status(
             "pipeline.py",
             f"execution plan: model={args.model} benchmark_source={args.benchmark_source} "
             f"bias_types={planned_bias_types} "
+            f"probe_families={planned_probe_families} "
             f"dataset_name={args.dataset_name} "
             f"draws={args.n_draws} temperature={args.temperature} top_p={args.top_p} "
             f"max_new_tokens={args.max_new_tokens} smoke_test={args.smoke_test} "
@@ -1828,6 +1841,7 @@ def run_pipeline(args) -> None:
 
         begin_stage(7, "probe selection, training, and scoring")
         probes_meta: Dict[str, Any] = {}
+        probes_meta["probe_families"] = list(planned_probe_families)
         if strict_mc_quality_report:
             probes_meta["strict_mc_quality"] = {
                 "summary": strict_mc_quality_report,
@@ -1899,12 +1913,16 @@ def run_pipeline(args) -> None:
                     test_records=test_records,
                     all_records=all_records,
                     bias_types=planned_bias_types,
+                    probe_families=planned_probe_families,
                     probe_construction=args.probe_construction,
                     probe_example_weighting=args.probe_example_weighting,
                 )
-                ordered_probe_bundles = [probe_record_sets["neutral"]] + [
-                    probe_record_sets[btype] for btype in planned_bias_types
+                missing_probe_families = [
+                    family for family in planned_probe_families if family not in probe_record_sets
                 ]
+                if missing_probe_families:
+                    raise RuntimeError(f"Probe record sets missing requested families: {missing_probe_families}")
+                ordered_probe_bundles = [probe_record_sets[family] for family in planned_probe_families]
                 paraphrase_lookup_payload = load_paraphrase_artifact_lookup(
                     getattr(args, "paraphrase_artifact_path", "")
                 )

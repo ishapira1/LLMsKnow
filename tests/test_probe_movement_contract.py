@@ -212,9 +212,24 @@ class ProbeMovementContractTests(unittest.TestCase):
 
         self.assertAlmostEqual(prompt_family_row["parallel_fraction_sq"], 1.0)
         self.assertAlmostEqual(prompt_family_row["orthogonal_fraction_sq"], 0.0)
+        self.assertAlmostEqual(
+            prompt_family_row["random_baseline_parallel_fraction_sq"]
+            + prompt_family_row["random_baseline_orthogonal_fraction_sq"],
+            1.0,
+        )
+        self.assertAlmostEqual(
+            prompt_family_row["random_baseline_parallel_l2_sq"]
+            + prompt_family_row["random_baseline_orthogonal_l2_sq"],
+            prompt_family_row["delta_l2_sq"],
+        )
         self.assertAlmostEqual(prompt_family_row["delta_probe_logit"], 1.0)
         self.assertAlmostEqual(paraphrase_row["parallel_fraction_sq"], 0.0)
         self.assertAlmostEqual(paraphrase_row["orthogonal_fraction_sq"], 1.0)
+        self.assertAlmostEqual(
+            paraphrase_row["random_baseline_parallel_fraction_sq"]
+            + paraphrase_row["random_baseline_orthogonal_fraction_sq"],
+            1.0,
+        )
         self.assertAlmostEqual(paraphrase_row["delta_probe_logit"], 0.0)
         self.assertAlmostEqual(paraphrase_row["delta_probe_score"], 0.0)
         self.assertFalse(prompt_family_row["non_finite_feature"])
@@ -224,6 +239,10 @@ class ProbeMovementContractTests(unittest.TestCase):
         overall_row = next(row for row in summary_rows if row["target_change_kind"] == "overall")
         self.assertEqual(overall_row["n_rows"], 2)
         self.assertEqual(overall_row["n_finite_rows"], 2)
+        self.assertTrue(math.isfinite(overall_row["mean_random_baseline_parallel_fraction_sq"]))
+        self.assertTrue(math.isfinite(overall_row["mean_random_baseline_orthogonal_fraction_sq"]))
+        self.assertTrue(math.isfinite(overall_row["mean_excess_parallel_fraction_sq"]))
+        self.assertTrue(math.isfinite(overall_row["mean_excess_orthogonal_fraction_sq"]))
 
         self.assertEqual(coverage["computed_row_count"], 2)
         self.assertEqual(coverage["exclusion_counts"], {"invalid_paraphrase": 1, "missing_target": 1})

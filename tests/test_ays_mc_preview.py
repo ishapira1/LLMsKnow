@@ -60,6 +60,9 @@ class AYSMultipleChoicePreviewTests(unittest.TestCase):
                 incorrect_strong_prompt = as_prompt_text(rows_by_type["incorrect_suggestion_strong"]["prompt"])
                 doubt_prompt = as_prompt_text(rows_by_type["doubt_correct"]["prompt"])
                 doubt_strong_prompt = as_prompt_text(rows_by_type["doubt_correct_strong"]["prompt"])
+                doubt_random_prompt = as_prompt_text(rows_by_type["doubt_random"]["prompt"])
+                doubt_random_strong_prompt = as_prompt_text(rows_by_type["doubt_random_strong"]["prompt"])
+                random_all_prompt = as_prompt_text(rows_by_type["random_all"]["prompt"])
                 suggest_prompt = as_prompt_text(rows_by_type["suggest_correct"]["prompt"])
                 suggest_strong_prompt = as_prompt_text(rows_by_type["suggest_correct_strong"]["prompt"])
                 suggest_random_strong_prompt = as_prompt_text(rows_by_type["suggest_random_strong"]["prompt"])
@@ -70,6 +73,9 @@ class AYSMultipleChoicePreviewTests(unittest.TestCase):
                 self.assertIn(neutral_base["incorrect_answer"], incorrect_strong_prompt)
                 self.assertIn(neutral_base["correct_answer"], doubt_prompt)
                 self.assertIn(neutral_base["correct_answer"], doubt_strong_prompt)
+                self.assertTrue(doubt_random_prompt)
+                self.assertTrue(doubt_random_strong_prompt)
+                self.assertTrue(random_all_prompt)
                 self.assertIn(neutral_base["correct_answer"], suggest_prompt)
                 self.assertIn(neutral_base["correct_answer"], suggest_strong_prompt)
                 self.assertTrue(suggest_random_strong_prompt)
@@ -87,6 +93,9 @@ class AYSMultipleChoicePreviewTests(unittest.TestCase):
                     "incorrect_suggestion_strong",
                     "doubt_correct",
                     "doubt_correct_strong",
+                    "doubt_random",
+                    "doubt_random_strong",
+                    "random_all",
                     "suggest_correct",
                     "suggest_correct_strong",
                     "suggest_random",

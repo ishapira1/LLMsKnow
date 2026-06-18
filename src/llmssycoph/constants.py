@@ -74,6 +74,7 @@ RESUME_COMPAT_KEYS = [
     "top_p",
     "max_new_tokens",
     "sampling_only",
+    "probe_families",
     "probe_feature_mode",
     "probe_construction",
     "probe_example_weighting",

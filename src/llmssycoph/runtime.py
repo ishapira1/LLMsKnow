@@ -15,28 +15,48 @@ from .constants import RESUME_COMPAT_KEYS
 
 
 CORE_PIPELINE_ARTIFACT_PATHS: Mapping[str, Path] = {
-    "run_log": Path("logs") / "run.log",
-    "warnings_log": Path("logs") / "warnings.log",
-    "warnings_summary": Path("logs") / "warnings_summary.json",
-    "run_config": Path("run_config.json"),
-    "status": Path("status.json"),
-    "sampling_records": Path("logs") / "sampling_records.jsonl",
-    "sampling_manifest": Path("logs") / "sampling_manifest.json",
-    "sampling_integrity_summary": Path("logs") / "sampling_integrity_summary.json",
-    "sampled_responses": Path("sampling") / "sampled_responses.csv",
-    "reports_summary": Path("reports") / "summary.json",
-    "reports_summary_csv": Path("reports") / "summary.csv",
-    "mc_confusion_matrix": Path("reports") / "confusion_matrix_predicted_letter_x_true_letter.csv",
-    "run_summary": Path("run_summary.json"),
-    "probe_scores_by_prompt": Path("probes") / "probe_scores_by_prompt.csv",
-    "executive_summary": Path("reports") / "executive_summary.md",
+    "meta_dir": Path("meta"),
+    "runtime_dir": Path("runtime"),
+    "runtime_logs_dir": Path("runtime") / "logs",
+    "sampling_dir": Path("sampling"),
+    "sampling_raw_dir": Path("sampling") / "raw",
+    "sampling_flat_dir": Path("sampling") / "flat",
+    "evaluation_dir": Path("evaluation"),
+    "evaluation_run_dir": Path("evaluation") / "run",
+    "query_dir": Path("query"),
+    "run_log": Path("runtime") / "logs" / "run.log",
+    "warnings_log": Path("runtime") / "logs" / "warnings.log",
+    "warnings_summary": Path("runtime") / "logs" / "warnings_summary.json",
+    "run_config": Path("meta") / "run_config.json",
+    "status": Path("meta") / "status.json",
+    "run_summary": Path("meta") / "run_summary.json",
+    "run_manifest": Path("meta") / "run_manifest.json",
+    "sampling_records": Path("sampling") / "raw" / "sampling_records.jsonl",
+    "sampling_manifest": Path("sampling") / "raw" / "sampling_manifest.json",
+    "sampling_integrity_summary": Path("sampling") / "raw" / "sampling_integrity_summary.json",
+    "sampled_responses": Path("sampling") / "flat" / "sampled_responses.csv",
+    "reports_summary": Path("evaluation") / "run" / "summary.json",
+    "reports_summary_csv": Path("evaluation") / "run" / "summary.csv",
+    "mc_confusion_matrix": Path("evaluation") / "run" / "confusion_matrix_predicted_letter_x_true_letter.csv",
+    "probe_scores_by_prompt": Path("query") / "probe_scores_by_prompt.csv",
+    "executive_summary": Path("evaluation") / "run" / "executive_summary.md",
+    "query_artifact_catalog": Path("query") / "artifact_catalog.jsonl",
+    "query_chosen_probe_registry": Path("query") / "chosen_probe_registry.csv",
+    "query_chosen_probe_metrics": Path("query") / "chosen_probe_metrics.csv",
+    "query_chosen_probe_cross_family_metrics": Path("query") / "chosen_probe_cross_family_metrics.csv",
+    "query_chosen_probe_movement_summary": Path("query") / "chosen_probe_movement_summary.csv",
+    "query_chosen_probe_movement_items": Path("query") / "chosen_probe_movement_items.jsonl",
+    "query_paraphrase_coverage": Path("query") / "paraphrase_coverage.csv",
 }
 
 OPTIONAL_PROBE_ARTIFACT_PATHS: Mapping[str, Path] = {
-    "all_probes_dir": Path("probes") / "all_probes",
-    "all_probes_manifest": Path("probes") / "all_probes" / "manifest.json",
-    "chosen_probe_dir": Path("probes") / "chosen_probe",
-    "chosen_probe_manifest": Path("probes") / "chosen_probe" / "manifest.json",
+    "probes_dir": Path("probes"),
+    "candidate_probe_families_dir": Path("probes") / "candidates" / "families",
+    "chosen_probe_families_dir": Path("probes") / "chosen" / "families",
+    "all_probes_dir": Path("probes") / "candidates",
+    "all_probes_manifest": Path("probes") / "candidates" / "manifest.json",
+    "chosen_probe_dir": Path("probes") / "chosen",
+    "chosen_probe_manifest": Path("probes") / "chosen" / "manifest.json",
 }
 
 DERIVED_RUN_ARTIFACT_PATHS: Mapping[str, Path] = {
@@ -65,45 +85,74 @@ READ_COMPATIBILITY_ARTIFACT_ALIASES: Mapping[str, Sequence[Path]] = {
         Path("warnings.log"),
     ),
     "warnings_summary": (
+        Path("runtime") / "logs" / "warnings_summary.json",
         Path("reports") / "warnings_summary.json",
     ),
     "run_config": (
+        Path("run_config.json"),
+        Path("meta") / "run_config.json",
         Path("internal") / "run_config.json",
     ),
     "status": (
+        Path("status.json"),
+        Path("meta") / "status.json",
         Path("internal") / "status.json",
     ),
     "sampling_records": (
+        Path("sampling") / "raw" / "sampling_records.jsonl",
         Path("sampling_records.jsonl"),
         Path("internal") / "sampling_records.jsonl",
     ),
     "sampling_manifest": (
+        Path("sampling") / "raw" / "sampling_manifest.json",
         Path("sampling_manifest.json"),
         Path("internal") / "sampling_manifest.json",
     ),
     "sampling_integrity_summary": (
+        Path("sampling") / "raw" / "sampling_integrity_summary.json",
         Path("sampling_integrity_summary.json"),
         Path("internal") / "sampling_integrity_summary.json",
     ),
     "sampled_responses": (
+        Path("sampling") / "flat" / "sampled_responses.csv",
+        Path("sampling") / "sampled_responses.csv",
         Path("sampled_responses.csv"),
     ),
     "reports_summary": (
+        Path("evaluation") / "run" / "summary.json",
         Path("internal") / "run_summary.json",
         Path("analysis") / "run_summary.json",
     ),
     "run_summary": (
+        Path("run_summary.json"),
+        Path("meta") / "run_summary.json",
         Path("analysis") / "run_summary.json",
         Path("internal") / "run_summary.json",
     ),
+    "run_manifest": (),
     "executive_summary": (
+        Path("evaluation") / "run" / "executive_summary.md",
         Path("summary") / "executive_summary.md",
     ),
     "all_probes_dir": (
+        Path("probes") / "candidates",
         Path("all_probes"),
     ),
     "chosen_probe_dir": (
+        Path("probes") / "chosen",
         Path("chosen_probe"),
+    ),
+    "all_probes_manifest": (
+        Path("probes") / "candidates" / "manifest.json",
+        Path("probes") / "all_probes" / "manifest.json",
+    ),
+    "chosen_probe_manifest": (
+        Path("probes") / "chosen" / "manifest.json",
+        Path("probes") / "chosen_probe" / "manifest.json",
+    ),
+    "probe_scores_by_prompt": (
+        Path("query") / "probe_scores_by_prompt.csv",
+        Path("probes") / "probe_scores_by_prompt.csv",
     ),
     "final_tuples": (
         Path("analysis") / "final_tuples.csv",
@@ -319,7 +368,15 @@ def _canonical_resume_value(key: str, value: Any, payload: Optional[Mapping[str,
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
 
-    if key not in {"ays_mc_datasets", "bias_types"}:
+    if key == "probe_families" and value is None:
+        bias_types = []
+        if isinstance(payload, Mapping):
+            bias_types = _canonical_resume_value("bias_types", payload.get("bias_types"), payload)
+        if bias_types:
+            return ["neutral", *bias_types]
+        return []
+
+    if key not in {"ays_mc_datasets", "bias_types", "probe_families"}:
         return value
 
     if value is None:

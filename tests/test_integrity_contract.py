@@ -321,6 +321,33 @@ class IntegrityContractTests(unittest.TestCase):
                 },
             },
         )
+        write_json_atomic(
+            preferred_run_artifact_path(run_dir, "run_manifest"),
+            {
+                "manifest_schema_version": 2,
+                "run_identity": {"run_name": run_dir.name},
+            },
+        )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_chosen_probe_registry"),
+            pd.DataFrame(columns=["probe_name", "probe_training_template_type", "chosen_layer"]),
+        )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_chosen_probe_metrics"),
+            pd.DataFrame(columns=["probe_name", "test_auc"]),
+        )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_chosen_probe_cross_family_metrics"),
+            pd.DataFrame(columns=["probe_name", "target_template_type", "test_auc"]),
+        )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_chosen_probe_movement_summary"),
+            pd.DataFrame(columns=["probe_name", "target_change_kind", "target_template_type"]),
+        )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_paraphrase_coverage"),
+            pd.DataFrame(columns=["probe_name", "source_record_count"]),
+        )
 
         if not sampling_only:
             all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")
@@ -339,14 +366,20 @@ class IntegrityContractTests(unittest.TestCase):
                     "probe_names": ["probe_bias_incorrect_suggestion", "probe_no_bias"],
                 },
             )
-            write_json_atomic(all_probes_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
             write_json_atomic(
-                all_probes_dir / "probe_bias_incorrect_suggestion" / "manifest.json",
+                all_probes_dir / "families" / "probe_no_bias" / "manifest.json",
+                {"probe_name": "probe_no_bias"},
+            )
+            write_json_atomic(
+                all_probes_dir / "families" / "probe_bias_incorrect_suggestion" / "manifest.json",
                 {"probe_name": "probe_bias_incorrect_suggestion"},
             )
-            write_json_atomic(chosen_probe_dir / "probe_no_bias" / "manifest.json", {"probe_name": "probe_no_bias"})
             write_json_atomic(
-                chosen_probe_dir / "probe_bias_incorrect_suggestion" / "manifest.json",
+                chosen_probe_dir / "families" / "probe_no_bias" / "manifest.json",
+                {"probe_name": "probe_no_bias"},
+            )
+            write_json_atomic(
+                chosen_probe_dir / "families" / "probe_bias_incorrect_suggestion" / "manifest.json",
                 {"probe_name": "probe_bias_incorrect_suggestion"},
             )
 

@@ -9,7 +9,7 @@ import pandas as pd
 
 from .data import prompt_id_for, probe_name_for_family
 from .logging_utils import warn_status
-from .runtime import build_run_dir_path, resolve_run_artifact_path
+from .runtime import build_run_dir_path, preferred_run_artifact_path, resolve_run_artifact_path
 from .saving_manager import (
     P_CORRECT_COLUMN,
     P_SELECTED_COLUMN,
@@ -28,6 +28,15 @@ REQUIRED_ARTIFACT_KEYS = (
     "reports_summary",
     "probe_scores_by_prompt",
     "executive_summary",
+)
+
+V2_ONLY_REQUIRED_ARTIFACT_KEYS = (
+    "run_manifest",
+    "query_chosen_probe_registry",
+    "query_chosen_probe_metrics",
+    "query_chosen_probe_cross_family_metrics",
+    "query_chosen_probe_movement_summary",
+    "query_paraphrase_coverage",
 )
 
 ALLOWED_REQUESTED_DEVICE_VALUES = {"auto", "cpu", "cuda", "mps"}
@@ -260,6 +269,10 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
     required_artifact_paths.extend(
         resolve_run_artifact_path(run_dir, artifact_key) for artifact_key in REQUIRED_ARTIFACT_KEYS
     )
+    if preferred_run_artifact_path(run_dir, "run_config").exists():
+        required_artifact_paths.extend(
+            resolve_run_artifact_path(run_dir, artifact_key) for artifact_key in V2_ONLY_REQUIRED_ARTIFACT_KEYS
+        )
     for artifact_path in required_artifact_paths:
         if not artifact_path.exists():
             issues.append(f"missing artifact: {artifact_path}")
@@ -713,21 +726,21 @@ def check_run_integrity(run_dir: Path) -> Dict[str, Any]:
         if all_probes_dir.exists():
             all_manifest_path = all_probes_dir / "manifest.json"
             if not all_manifest_path.exists():
-                issues.append("all_probes/manifest.json is missing")
+                issues.append("probes/candidates/manifest.json is missing")
         if chosen_probe_dir.exists():
             chosen_manifest_path = chosen_probe_dir / "manifest.json"
             if not chosen_manifest_path.exists():
-                issues.append("chosen_probe/manifest.json is missing")
+                issues.append("probes/chosen/manifest.json is missing")
 
         for probe_name in sorted(expected_probe_names):
             if all_probes_dir.exists():
-                family_manifest = all_probes_dir / probe_name / "manifest.json"
+                family_manifest = all_probes_dir / "families" / probe_name / "manifest.json"
                 if not family_manifest.exists():
-                    issues.append(f"all_probes manifest is missing for {probe_name}")
+                    issues.append(f"candidate probe manifest is missing for {probe_name}")
             if chosen_probe_dir.exists():
-                family_manifest = chosen_probe_dir / probe_name / "manifest.json"
+                family_manifest = chosen_probe_dir / "families" / probe_name / "manifest.json"
                 if not family_manifest.exists():
-                    issues.append(f"chosen_probe manifest is missing for {probe_name}")
+                    issues.append(f"chosen probe manifest is missing for {probe_name}")
 
     if issues:
         raise RuntimeError("\n".join(issues))

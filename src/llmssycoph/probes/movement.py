@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -84,6 +85,31 @@ def _probe_weight_vector(clf) -> np.ndarray:
     if float(np.dot(weight_vec, weight_vec)) <= 0.0:
         raise ValueError("Probe weight vector must have positive norm.")
     return weight_vec
+
+
+def _stable_seed(*parts: Any) -> int:
+    payload = "||".join(_as_text(part) for part in parts).encode("utf-8")
+    return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big")
+
+
+def _random_same_norm_delta(
+    delta_vec: np.ndarray,
+    *,
+    seed: int,
+) -> np.ndarray:
+    delta_arr = np.asarray(delta_vec, dtype=float)
+    delta_l2_sq = float(np.dot(delta_arr, delta_arr))
+    if delta_l2_sq <= _ZERO_DELTA_EPS:
+        return np.zeros_like(delta_arr)
+
+    rng = np.random.default_rng(int(seed))
+    random_vec = rng.standard_normal(delta_arr.shape)
+    random_norm = float(np.linalg.norm(random_vec))
+    if not np.isfinite(random_norm) or random_norm <= 0.0:
+        random_vec = np.ones_like(delta_arr, dtype=float)
+        random_norm = float(np.linalg.norm(random_vec))
+    target_norm = float(np.sqrt(delta_l2_sq))
+    return (target_norm / random_norm) * random_vec
 
 
 def _probe_logit(clf, feature_vec: np.ndarray) -> float:
@@ -302,6 +328,10 @@ def _movement_row_base(
         "orthogonal_l2_sq": float("nan"),
         "parallel_fraction_sq": float("nan"),
         "orthogonal_fraction_sq": float("nan"),
+        "random_baseline_parallel_l2_sq": float("nan"),
+        "random_baseline_orthogonal_l2_sq": float("nan"),
+        "random_baseline_parallel_fraction_sq": float("nan"),
+        "random_baseline_orthogonal_fraction_sq": float("nan"),
         "probe_score_source": float("nan"),
         "probe_score_target": float("nan"),
         "delta_probe_score": float("nan"),
@@ -363,6 +393,7 @@ def _build_computed_row(
     source_logit: float,
     target_logit: float,
     target_prompt_id: str,
+    random_seed: int,
 ) -> Dict[str, Any]:
     row = dict(row_base)
     row["target_prompt_id"] = target_prompt_id
@@ -373,12 +404,20 @@ def _build_computed_row(
 
     delta_vec = np.asarray(target_feature, dtype=float) - np.asarray(source_feature, dtype=float)
     geometry = decompose_probe_delta(delta_vec, probe_weights)
+    random_geometry = decompose_probe_delta(
+        _random_same_norm_delta(delta_vec, seed=random_seed),
+        probe_weights,
+    )
     row["cosine_similarity"] = _cosine_similarity(source_feature, target_feature)
     row["delta_l2_sq"] = float(geometry["delta_l2_sq"])
     row["parallel_l2_sq"] = float(geometry["parallel_l2_sq"])
     row["orthogonal_l2_sq"] = float(geometry["orthogonal_l2_sq"])
     row["parallel_fraction_sq"] = float(geometry["parallel_fraction_sq"])
     row["orthogonal_fraction_sq"] = float(geometry["orthogonal_fraction_sq"])
+    row["random_baseline_parallel_l2_sq"] = float(random_geometry["parallel_l2_sq"])
+    row["random_baseline_orthogonal_l2_sq"] = float(random_geometry["orthogonal_l2_sq"])
+    row["random_baseline_parallel_fraction_sq"] = float(random_geometry["parallel_fraction_sq"])
+    row["random_baseline_orthogonal_fraction_sq"] = float(random_geometry["orthogonal_fraction_sq"])
     row["delta_probe_logit"] = float(geometry["delta_probe_logit"])
     row["zero_delta"] = bool(geometry["zero_delta"])
     if row["zero_delta"]:
@@ -447,6 +486,22 @@ def _summarize_rows(
                 "mean_delta_l2_sq": _mean("delta_l2_sq"),
                 "mean_parallel_fraction_sq": _mean("parallel_fraction_sq"),
                 "mean_orthogonal_fraction_sq": _mean("orthogonal_fraction_sq"),
+                "mean_random_baseline_parallel_fraction_sq": _mean("random_baseline_parallel_fraction_sq"),
+                "mean_random_baseline_orthogonal_fraction_sq": _mean("random_baseline_orthogonal_fraction_sq"),
+                "mean_excess_parallel_fraction_sq": (
+                    None
+                    if _mean("parallel_fraction_sq") is None or _mean("random_baseline_parallel_fraction_sq") is None
+                    else float(_mean("parallel_fraction_sq") - _mean("random_baseline_parallel_fraction_sq"))
+                ),
+                "mean_excess_orthogonal_fraction_sq": (
+                    None
+                    if _mean("orthogonal_fraction_sq") is None
+                    or _mean("random_baseline_orthogonal_fraction_sq") is None
+                    else float(
+                        _mean("orthogonal_fraction_sq")
+                        - _mean("random_baseline_orthogonal_fraction_sq")
+                    )
+                ),
                 "mean_delta_probe_score": _mean("delta_probe_score"),
                 "mean_abs_delta_probe_score": _mean_abs("delta_probe_score"),
                 "mean_delta_probe_logit": _mean("delta_probe_logit"),
@@ -646,6 +701,15 @@ def evaluate_probe_prompt_movement(
                     source_logit=source_logit,
                     target_logit=target_logit,
                     target_prompt_id=_as_text(target_record.get("prompt_id")),
+                    random_seed=_stable_seed(
+                        probe_name,
+                        probe_training_template_type,
+                        _as_text(source_record.get("split")),
+                        _as_text(source_record.get("question_id")),
+                        int(source_record.get("draw_idx", 0) or 0),
+                        "prompt_family",
+                        target_template_type,
+                    ),
                 )
             )
 
@@ -723,6 +787,15 @@ def evaluate_probe_prompt_movement(
                                 source_logit=source_logit,
                                 target_logit=target_logit,
                                 target_prompt_id=f"paraphrase::{_as_text(source_record.get('prompt_id'))}",
+                                random_seed=_stable_seed(
+                                    probe_name,
+                                    probe_training_template_type,
+                                    _as_text(source_record.get("split")),
+                                    _as_text(source_record.get("question_id")),
+                                    int(source_record.get("draw_idx", 0) or 0),
+                                    "paraphrase",
+                                    _as_text(source_record.get("template_type")),
+                                ),
                             )
                         )
 

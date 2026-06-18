@@ -53,7 +53,7 @@ def _resolve_stored_path(value: str, workspace_root: Path) -> str:
 
 def _logical_run_root_from_config_path(run_config_path: Path) -> Path:
     parent = run_config_path.parent
-    if parent.name == "internal":
+    if parent.name in {"internal", "meta"}:
         return parent.parent
     return parent
 

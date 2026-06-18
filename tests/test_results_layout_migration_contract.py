@@ -14,6 +14,7 @@ from llmssycoph.results_layout_migration import (
     infer_dataset_dir,
     verify_manifest,
 )
+from llmssycoph.runtime import resolve_run_artifact_path
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -257,20 +258,22 @@ class ResultsLayoutMigrationContractTests(unittest.TestCase):
             self.assertFalse(source_run.exists())
             self.assertTrue(destination_run.exists())
 
-            run_config = json.loads((destination_run / "run_config.json").read_text(encoding="utf-8"))
+            run_config = json.loads(resolve_run_artifact_path(destination_run, "run_config").read_text(encoding="utf-8"))
             self.assertEqual(
                 run_config["run_dir"],
                 "results/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/aqua_mc/run_to_move",
             )
             self.assertEqual(run_config["out_dir"], "results/sycophancy_bias_probe")
 
-            status = json.loads((destination_run / "status.json").read_text(encoding="utf-8"))
+            status = json.loads(resolve_run_artifact_path(destination_run, "status").read_text(encoding="utf-8"))
             self.assertEqual(
                 status["run_dir"],
                 "results/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/aqua_mc/run_to_move",
             )
 
-            sampling_manifest = json.loads((destination_run / "sampling_manifest.json").read_text(encoding="utf-8"))
+            sampling_manifest = json.loads(
+                resolve_run_artifact_path(destination_run, "sampling_manifest").read_text(encoding="utf-8")
+            )
             self.assertEqual(
                 sampling_manifest["source_cache_run_dir"],
                 "results/sycophancy_bias_probe/mistralai_Mistral_7B_Instruct_v0_2/aqua_mc/run_to_move",
@@ -332,7 +335,9 @@ class ResultsLayoutMigrationContractTests(unittest.TestCase):
             execute_manifest(manifest, workspace_root=workspace_root)
             self.assertEqual(verify_manifest(manifest, workspace_root=workspace_root), [])
 
-            sampling_manifest = json.loads((run_root / "sampling_manifest.json").read_text(encoding="utf-8"))
+            sampling_manifest = json.loads(
+                resolve_run_artifact_path(run_root, "sampling_manifest").read_text(encoding="utf-8")
+            )
             self.assertEqual(sampling_manifest["source_cache_run_dir"], canonical_run_dir)
 
             notebook_text = (run_root / "analysis" / "analysis_full_mc_report.ipynb").read_text(encoding="utf-8")
