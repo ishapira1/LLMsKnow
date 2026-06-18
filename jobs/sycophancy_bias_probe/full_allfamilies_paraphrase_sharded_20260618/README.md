@@ -21,6 +21,9 @@ Same-family paraphrase movement evaluation is enabled by default through:
 
 `data/ad_hoc/paraphrase_robustness_test_stems_v1`
 
+The new run-level external paraphrase evaluation is also enabled by default, but only in the
+sampling-only stage so it runs once per `dataset x model` run rather than once per probe shard.
+
 ## Files
 
 - `sampling_array.sbatch`: sampling-only array over the 4 dataset/model combinations

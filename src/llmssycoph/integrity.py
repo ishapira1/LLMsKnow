@@ -37,6 +37,10 @@ V2_ONLY_REQUIRED_ARTIFACT_KEYS = (
     "query_chosen_probe_cross_family_metrics",
     "query_chosen_probe_movement_summary",
     "query_paraphrase_coverage",
+    "query_external_pair_metrics",
+    "query_external_pair_summary",
+    "query_external_paraphrase_metrics",
+    "query_external_paraphrase_summary",
 )
 
 ALLOWED_REQUESTED_DEVICE_VALUES = {"auto", "cpu", "cuda", "mps"}

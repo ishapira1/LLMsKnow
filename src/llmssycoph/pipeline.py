@@ -49,6 +49,7 @@ from .data import (
     split_groups_train_val_test,
     unique_dataset_names,
 )
+from .external_paraphrase import annotate_records_with_neutral_references, evaluate_external_paraphrases
 from .grading import add_empirical_t, build_probe_record_sets, refresh_sample_records_for_groups
 from .logging_utils import (
     build_warning_summary_payload,
@@ -1358,6 +1359,7 @@ def run_pipeline(args) -> None:
     sampling_integrity_summary: Dict[str, Any] = {}
     sampling_integrity_summary_path = preferred_run_artifact_path(run_dir, "sampling_integrity_summary")
     probe_candidate_score_rows: List[Dict[str, Any]] = []
+    external_paraphrase_payload: Dict[str, Any] = {}
     saved_paths: Dict[str, Path] = {}
     try:
         assert_resume_compatible(run_dir, args)
@@ -1802,6 +1804,19 @@ def run_pipeline(args) -> None:
             )
 
         add_empirical_t(all_records)
+        annotate_records_with_neutral_references(all_records)
+        persist_sampling_state(
+            stage="sampling_enriched_with_neutral_reference",
+            split_states=split_records,
+            split_stats=split_sampling_stats,
+            expected_all_keys=expected_all_keys,
+            expected_total_records=expected_total_records,
+            sampling_records_path=sampling_records_path,
+            sampling_manifest_path=sampling_manifest_path,
+            sampling_hash=sampling_hash,
+            sampling_spec=sampling_spec,
+            cached_source_run=cached_source_run,
+        )
         log_status(
             "pipeline.py",
             f"sampling results: train_records={len(train_records)} val_records={len(val_records)} "
@@ -1837,6 +1852,36 @@ def run_pipeline(args) -> None:
             warn_status("pipeline.py", "strict_mc_quality_gate", issue)
         for warning in strict_mc_behavior_warnings:
             warn_status("pipeline.py", warning["code"], warning["message"])
+        if bool(getattr(args, "evaluate_external_paraphrases", False)):
+            paraphrase_lookup_payload = load_paraphrase_artifact_lookup(
+                getattr(args, "paraphrase_artifact_path", "")
+            )
+            paraphrase_rows_by_key = dict(paraphrase_lookup_payload.get("rows_by_key", {}) or {})
+            if not paraphrase_rows_by_key:
+                warn_status(
+                    "pipeline.py",
+                    "external_paraphrase_eval_skipped",
+                    "external paraphrase evaluation was requested, but no paraphrase rows were loaded; "
+                    f"path={getattr(args, 'paraphrase_artifact_path', '')!r}",
+                )
+            else:
+                external_paraphrase_payload = evaluate_external_paraphrases(
+                    llm=llm,
+                    test_records=test_records,
+                    paraphrase_lookup=paraphrase_rows_by_key,
+                    paraphrase_artifact_path=getattr(args, "paraphrase_artifact_path", ""),
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    max_new_tokens=args.max_new_tokens,
+                    sample_batch_size=args.sample_batch_size,
+                    start_id=_next_record_id(train_records, val_records, test_records),
+                )
+                log_status(
+                    "pipeline.py",
+                    "external paraphrase eval completed: "
+                    f"rows={len(list(external_paraphrase_payload.get('item_rows', []) or []))} "
+                    f"summary_rows={len(list(external_paraphrase_payload.get('summary_rows', []) or []))}",
+                )
         finish_stage()
 
         begin_stage(7, "probe selection, training, and scoring")
@@ -2259,6 +2304,7 @@ def run_pipeline(args) -> None:
             probe_candidate_score_rows=probe_candidate_score_rows,
             bias_types=planned_bias_types,
             probes_meta=probes_meta,
+            external_paraphrase_payload=external_paraphrase_payload,
             run_timing=runtime_timing_snapshot("running"),
         )
         neutral_accuracy_warning = _strict_mc_neutral_below_chance_warning(all_records)

@@ -96,6 +96,18 @@ class ProbeMovementContractTests(unittest.TestCase):
                 "response_raw": "A",
                 "correctness": 1,
                 "usable_for_metrics": True,
+                "neutral_source_record_id": 1,
+                "neutral_source_prompt_id": "q_1__neutral",
+                "neutral_source_response": "A",
+                "neutral_source_correctness": 1,
+                "neutral_source_is_correct": True,
+                "neutral_source_usable_for_metrics": True,
+                "neutral_question_total_draws": 1,
+                "neutral_question_usable_draws": 1,
+                "neutral_question_correct_draw_count": 1,
+                "neutral_question_accuracy": 1.0,
+                "neutral_question_any_correct": True,
+                "neutral_question_all_correct": True,
             },
             {
                 "record_id": 2,
@@ -127,6 +139,18 @@ class ProbeMovementContractTests(unittest.TestCase):
                 "response_raw": "B",
                 "correctness": 0,
                 "usable_for_metrics": True,
+                "neutral_source_record_id": 2,
+                "neutral_source_prompt_id": "q_2__neutral",
+                "neutral_source_response": "B",
+                "neutral_source_correctness": 0,
+                "neutral_source_is_correct": False,
+                "neutral_source_usable_for_metrics": True,
+                "neutral_question_total_draws": 1,
+                "neutral_question_usable_draws": 1,
+                "neutral_question_correct_draw_count": 0,
+                "neutral_question_accuracy": 0.0,
+                "neutral_question_any_correct": False,
+                "neutral_question_all_correct": False,
             },
         ]
         cross_family_records = {
@@ -223,6 +247,8 @@ class ProbeMovementContractTests(unittest.TestCase):
             prompt_family_row["delta_l2_sq"],
         )
         self.assertAlmostEqual(prompt_family_row["delta_probe_logit"], 1.0)
+        self.assertEqual(prompt_family_row["neutral_source_prompt_id"], "q_1__neutral")
+        self.assertTrue(prompt_family_row["neutral_source_is_correct"])
         self.assertAlmostEqual(paraphrase_row["parallel_fraction_sq"], 0.0)
         self.assertAlmostEqual(paraphrase_row["orthogonal_fraction_sq"], 1.0)
         self.assertAlmostEqual(

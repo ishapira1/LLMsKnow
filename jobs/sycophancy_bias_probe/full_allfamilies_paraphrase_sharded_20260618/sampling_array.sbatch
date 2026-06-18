@@ -82,9 +82,14 @@ MAX_QUESTIONS="${MAX_QUESTIONS:-}"
 DEVICE_MAP_AUTO="${DEVICE_MAP_AUTO:-0}"
 ALLOW_STALE_LOCK_CLEANUP="${ALLOW_STALE_LOCK_CLEANUP:-0}"
 TASK_FILTER="${TASK_FILTER:-}"
+PARAPHRASE_ARTIFACT_PATH="${PARAPHRASE_ARTIFACT_PATH:-data/ad_hoc/paraphrase_robustness_test_stems_v1}"
 
 if [[ -z "$BIAS_TYPES_CSV" ]]; then
   printf '%s\n' "No trainable non-neutral prompt families resolved." >&2
+  exit 1
+fi
+if [[ ! -d "$PARAPHRASE_ARTIFACT_PATH" && ! -f "$PARAPHRASE_ARTIFACT_PATH" ]]; then
+  printf '%s\n' "Missing paraphrase artifact path: $PARAPHRASE_ARTIFACT_PATH" >&2
   exit 1
 fi
 
@@ -174,6 +179,11 @@ required = [
     run_dir / "runtime" / "logs" / "run.log",
     run_dir / "sampling" / "raw" / "sampling_manifest.json",
     run_dir / "sampling" / "flat" / "sampled_responses.csv",
+    run_dir / "query" / "external_pair_metrics.csv",
+    run_dir / "query" / "external_pair_summary.csv",
+    run_dir / "query" / "external_paraphrase_metrics.csv",
+    run_dir / "query" / "external_paraphrase_summary.csv",
+    run_dir / "evaluation" / "external_paraphrase" / "coverage.json",
 ]
 missing = [str(path) for path in required if not path.exists()]
 if missing:
@@ -182,6 +192,7 @@ if missing:
 run_config = json.loads((run_dir / "meta" / "run_config.json").read_text(encoding="utf-8"))
 status = json.loads((run_dir / "meta" / "status.json").read_text(encoding="utf-8"))
 run_summary = json.loads((run_dir / "meta" / "run_summary.json").read_text(encoding="utf-8"))
+run_manifest = json.loads((run_dir / "meta" / "run_manifest.json").read_text(encoding="utf-8"))
 sampling_manifest = json.loads((run_dir / "sampling" / "raw" / "sampling_manifest.json").read_text(encoding="utf-8"))
 
 if status.get("status") != "completed":
@@ -194,9 +205,14 @@ if probe_training_status not in {"skipped_by_sampling_only", "skipped"}:
         "sampling shard expected probe_training_status to indicate skipped probe stage, "
         f"got {probe_training_status!r}"
     )
+features = dict(run_manifest.get("features", {}) or {})
+if not bool(features.get("external_paraphrase_present", False)):
+    raise SystemExit("run_manifest reports external_paraphrase_present=false")
 
 with (run_dir / "sampling" / "flat" / "sampled_responses.csv").open(newline="", encoding="utf-8") as handle:
     sample_rows = sum(1 for _ in csv.DictReader(handle))
+with (run_dir / "query" / "external_paraphrase_metrics.csv").open(newline="", encoding="utf-8") as handle:
+    external_paraphrase_rows = sum(1 for _ in csv.DictReader(handle))
 expected_records = int(sampling_manifest.get("expected_records", sample_rows) or sample_rows)
 if sample_rows != expected_records:
     raise SystemExit(
@@ -207,6 +223,7 @@ print(
     "[postcheck] sampling_ok"
     f" run_dir={run_dir}"
     f" sample_rows={sample_rows}"
+    f" external_paraphrase_rows={external_paraphrase_rows}"
     f" expected_records={expected_records}"
     f" run_manifest={run_dir / 'meta' / 'run_manifest.json'}"
 )
@@ -243,6 +260,8 @@ cmd=(
   --seed "$SEED"
   --probe_seed "$PROBE_SEED"
   --max_new_tokens "$MAX_NEW_TOKENS"
+  --paraphrase_artifact_path "$PARAPHRASE_ARTIFACT_PATH"
+  --evaluate_external_paraphrases
   --sampling_only
   --run_name "$RUN_NAME"
   --out_dir "$OUT_DIR"
@@ -262,6 +281,7 @@ printf '[%s] slurm job_id=%s array_job_id=%s array_task_id=%s cpus=%s mem_per_no
   "$SCRIPT_TAG" "${SLURM_JOB_ID:-local}" "${SLURM_ARRAY_JOB_ID:-local}" "${SLURM_ARRAY_TASK_ID:-0}" \
   "${SLURM_CPUS_PER_TASK:-unknown}" "${SLURM_MEM_PER_NODE:-unknown}"
 printf '[%s] bias_types=%s\n' "$SCRIPT_TAG" "$BIAS_TYPES_CSV"
+printf '[%s] paraphrase_artifact_path=%s\n' "$SCRIPT_TAG" "$PARAPHRASE_ARTIFACT_PATH"
 printf '[%s] run_name=%s\n' "$SCRIPT_TAG" "$RUN_NAME"
 printf '[%s] run_dir=%s\n' "$SCRIPT_TAG" "$RUN_DIR"
 printf '[%s] structured_stdout=%s\n' "$SCRIPT_TAG" "$STRUCTURED_STDOUT"

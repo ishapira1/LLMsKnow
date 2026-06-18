@@ -11,6 +11,12 @@ import numpy as np
 import pandas as pd
 
 from .data import family_for_probe_name, ordered_prompt_families, probe_name_for_family, prompt_id_for, read_jsonl
+from .external_paraphrase import (
+    NEUTRAL_REFERENCE_FIELDS,
+    annotate_records_with_neutral_references,
+    build_external_pair_metrics_rows,
+    summarize_external_pair_metrics_rows,
+)
 from .grading import record_is_usable_for_metrics as _record_is_usable_for_metrics
 from .llm.sampling import normalize_sample_records
 from .logging_utils import build_warning_summary_payload, log_status
@@ -66,6 +72,7 @@ SAMPLED_RESPONSE_COLUMNS = [
     "T_prompt",
     "probe_x",
     "probe_xprime",
+    *NEUTRAL_REFERENCE_FIELDS,
 ]
 
 P_CORRECT_COLUMN = "P(correct)"
@@ -383,6 +390,20 @@ def to_samples_df(records: List[Dict[str, Any]], model_name: str) -> pd.DataFram
             "T_prompt": float(record["T_prompt"]),
             "probe_x": record.get("probe_x", np.nan),
             "probe_xprime": record.get("probe_xprime", np.nan),
+            "neutral_source_record_id": record.get("neutral_source_record_id", np.nan),
+            "neutral_source_prompt_id": str(record.get("neutral_source_prompt_id", "") or ""),
+            "neutral_source_response": str(record.get("neutral_source_response", "") or ""),
+            "neutral_source_correctness": record.get("neutral_source_correctness", np.nan),
+            "neutral_source_is_correct": bool(record.get("neutral_source_is_correct", False)),
+            "neutral_source_usable_for_metrics": bool(record.get("neutral_source_usable_for_metrics", False)),
+            "neutral_question_total_draws": int(record.get("neutral_question_total_draws", 0) or 0),
+            "neutral_question_usable_draws": int(record.get("neutral_question_usable_draws", 0) or 0),
+            "neutral_question_correct_draw_count": int(
+                record.get("neutral_question_correct_draw_count", 0) or 0
+            ),
+            "neutral_question_accuracy": record.get("neutral_question_accuracy", np.nan),
+            "neutral_question_any_correct": bool(record.get("neutral_question_any_correct", False)),
+            "neutral_question_all_correct": bool(record.get("neutral_question_all_correct", False)),
         }
         probabilities_raw = record.get("choice_probabilities", {})
         if isinstance(probabilities_raw, dict):
@@ -2954,6 +2975,9 @@ def _build_query_tables(
     *,
     run_dir: Path,
     probes_meta: Mapping[str, Any],
+    all_records: Sequence[Dict[str, Any]],
+    bias_types: Sequence[str],
+    external_paraphrase_payload: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, pd.DataFrame | list[Dict[str, Any]]]:
     registry_rows: list[Dict[str, Any]] = []
     metric_rows: list[Dict[str, Any]] = []
@@ -2962,6 +2986,11 @@ def _build_query_tables(
     movement_item_rows: list[Dict[str, Any]] = []
     paraphrase_coverage_rows: list[Dict[str, Any]] = []
     artifact_catalog_rows: list[Dict[str, Any]] = []
+    external_pair_rows = build_external_pair_metrics_rows(all_records, bias_types=bias_types)
+    external_pair_summary_rows = summarize_external_pair_metrics_rows(external_pair_rows)
+    external_paraphrase_payload = dict(external_paraphrase_payload or {})
+    external_paraphrase_rows = list(external_paraphrase_payload.get("item_rows", []) or [])
+    external_paraphrase_summary_rows = list(external_paraphrase_payload.get("summary_rows", []) or [])
 
     for probe_name, payload in _probe_family_entries(probes_meta):
         chosen_manifest_path = Path(str(payload.get("chosen_probe_manifest") or ""))
@@ -3065,6 +3094,47 @@ def _build_query_tables(
                 }
             )
 
+    artifact_catalog_rows.append(
+        {
+            "artifact_kind": "external_pair_metrics",
+            "probe_name": "",
+            "target_family": "",
+            "path": str(preferred_run_artifact_path(run_dir, "query_external_pair_metrics")),
+            "row_count": int(len(external_pair_rows)),
+            "schema_version": 1,
+        }
+    )
+    artifact_catalog_rows.append(
+        {
+            "artifact_kind": "external_pair_summary",
+            "probe_name": "",
+            "target_family": "",
+            "path": str(preferred_run_artifact_path(run_dir, "query_external_pair_summary")),
+            "row_count": int(len(external_pair_summary_rows)),
+            "schema_version": 1,
+        }
+    )
+    artifact_catalog_rows.append(
+        {
+            "artifact_kind": "external_paraphrase_metrics",
+            "probe_name": "",
+            "target_family": "",
+            "path": str(preferred_run_artifact_path(run_dir, "query_external_paraphrase_metrics")),
+            "row_count": int(len(external_paraphrase_rows)),
+            "schema_version": external_paraphrase_payload.get("schema_version", 1),
+        }
+    )
+    artifact_catalog_rows.append(
+        {
+            "artifact_kind": "external_paraphrase_summary",
+            "probe_name": "",
+            "target_family": "",
+            "path": str(preferred_run_artifact_path(run_dir, "query_external_paraphrase_summary")),
+            "row_count": int(len(external_paraphrase_summary_rows)),
+            "schema_version": external_paraphrase_payload.get("schema_version", 1),
+        }
+    )
+
     return {
         "chosen_probe_registry": pd.DataFrame(registry_rows),
         "chosen_probe_metrics": pd.DataFrame(metric_rows),
@@ -3072,6 +3142,10 @@ def _build_query_tables(
         "chosen_probe_movement_summary": pd.DataFrame(movement_summary_rows),
         "chosen_probe_movement_items": movement_item_rows,
         "paraphrase_coverage": pd.DataFrame(paraphrase_coverage_rows),
+        "external_pair_metrics": pd.DataFrame(external_pair_rows),
+        "external_pair_summary": pd.DataFrame(external_pair_summary_rows),
+        "external_paraphrase_metrics": pd.DataFrame(external_paraphrase_rows),
+        "external_paraphrase_summary": pd.DataFrame(external_paraphrase_summary_rows),
         "artifact_catalog": artifact_catalog_rows,
     }
 
@@ -3094,6 +3168,10 @@ def _write_query_tables(
         ),
         "chosen_probe_movement_items": preferred_run_artifact_path(run_dir, "query_chosen_probe_movement_items"),
         "paraphrase_coverage": preferred_run_artifact_path(run_dir, "query_paraphrase_coverage"),
+        "external_pair_metrics": preferred_run_artifact_path(run_dir, "query_external_pair_metrics"),
+        "external_pair_summary": preferred_run_artifact_path(run_dir, "query_external_pair_summary"),
+        "external_paraphrase_metrics": preferred_run_artifact_path(run_dir, "query_external_paraphrase_metrics"),
+        "external_paraphrase_summary": preferred_run_artifact_path(run_dir, "query_external_paraphrase_summary"),
         "artifact_catalog": preferred_run_artifact_path(run_dir, "query_artifact_catalog"),
     }
     for path in path_map.values():
@@ -3110,6 +3188,10 @@ def _write_query_tables(
     )
     write_jsonl_atomic(path_map["chosen_probe_movement_items"], list(query_tables["chosen_probe_movement_items"]))
     write_csv_atomic(path_map["paraphrase_coverage"], query_tables["paraphrase_coverage"])
+    write_csv_atomic(path_map["external_pair_metrics"], query_tables["external_pair_metrics"])
+    write_csv_atomic(path_map["external_pair_summary"], query_tables["external_pair_summary"])
+    write_csv_atomic(path_map["external_paraphrase_metrics"], query_tables["external_paraphrase_metrics"])
+    write_csv_atomic(path_map["external_paraphrase_summary"], query_tables["external_paraphrase_summary"])
     write_jsonl_atomic(path_map["artifact_catalog"], list(query_tables["artifact_catalog"]))
     return path_map
 
@@ -3133,15 +3215,58 @@ def _git_commit_if_available(run_dir: Path) -> Optional[str]:
     return commit or None
 
 
+def _load_existing_external_paraphrase_payload(run_dir: Path) -> Dict[str, Any]:
+    metrics_path = preferred_run_artifact_path(run_dir, "external_paraphrase_metrics_json")
+    summary_path = preferred_run_artifact_path(run_dir, "external_paraphrase_summary_json")
+    coverage_path = preferred_run_artifact_path(run_dir, "external_paraphrase_coverage_json")
+
+    item_rows: list[Dict[str, Any]] = []
+    summary_rows: list[Dict[str, Any]] = []
+    coverage: Dict[str, Any] = {}
+    if metrics_path.exists():
+        try:
+            payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+            if isinstance(payload, list):
+                item_rows = [dict(row) for row in payload if isinstance(row, dict)]
+        except Exception:
+            item_rows = []
+    if summary_path.exists():
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            if isinstance(payload, list):
+                summary_rows = [dict(row) for row in payload if isinstance(row, dict)]
+        except Exception:
+            summary_rows = []
+    if coverage_path.exists():
+        try:
+            payload = json.loads(coverage_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                coverage = dict(payload)
+        except Exception:
+            coverage = {}
+    schema_version = coverage.get("schema_version", 1)
+    return {
+        "schema_version": schema_version,
+        "item_rows": item_rows,
+        "summary_rows": summary_rows,
+        "coverage": coverage,
+    }
+
+
 def _build_run_manifest_payload(
     *,
     args: Any,
     run_dir: Path,
     probes_meta: Mapping[str, Any],
     query_paths: Mapping[str, Path],
+    external_paraphrase_payload: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     has_paraphrase = False
     has_random_baseline = False
+    has_external_paraphrase = bool(
+        external_paraphrase_payload
+        and len(list(dict(external_paraphrase_payload).get("item_rows", []) or [])) > 0
+    )
     chosen_probe_manifest = str(probes_meta.get("chosen_probe_manifest", "") or "")
     for _, payload in _probe_family_entries(probes_meta):
         movement_payload = dict(payload.get("movement", {}) or {})
@@ -3170,6 +3295,27 @@ def _build_run_manifest_payload(
             "query": str(preferred_run_artifact_path(run_dir, "query_dir")),
             "analysis": str(preferred_run_artifact_path(run_dir, "analysis_dir")),
         },
+        "evaluation_artifact_paths": {
+            "external_pair_metrics_json": str(preferred_run_artifact_path(run_dir, "external_pair_metrics_json")),
+            "external_pair_metrics_csv": str(preferred_run_artifact_path(run_dir, "external_pair_metrics_csv")),
+            "external_pair_summary_json": str(preferred_run_artifact_path(run_dir, "external_pair_summary_json")),
+            "external_pair_summary_csv": str(preferred_run_artifact_path(run_dir, "external_pair_summary_csv")),
+            "external_paraphrase_metrics_json": str(
+                preferred_run_artifact_path(run_dir, "external_paraphrase_metrics_json")
+            ),
+            "external_paraphrase_metrics_csv": str(
+                preferred_run_artifact_path(run_dir, "external_paraphrase_metrics_csv")
+            ),
+            "external_paraphrase_summary_json": str(
+                preferred_run_artifact_path(run_dir, "external_paraphrase_summary_json")
+            ),
+            "external_paraphrase_summary_csv": str(
+                preferred_run_artifact_path(run_dir, "external_paraphrase_summary_csv")
+            ),
+            "external_paraphrase_coverage_json": str(
+                preferred_run_artifact_path(run_dir, "external_paraphrase_coverage_json")
+            ),
+        },
         "recommended_query_entrypoints": {
             "chosen_probe_registry": str(query_paths["chosen_probe_registry"]),
             "chosen_probe_metrics": str(query_paths["chosen_probe_metrics"]),
@@ -3177,12 +3323,18 @@ def _build_run_manifest_payload(
             "chosen_probe_movement_summary": str(query_paths["chosen_probe_movement_summary"]),
             "chosen_probe_movement_items": str(query_paths["chosen_probe_movement_items"]),
             "paraphrase_coverage": str(query_paths["paraphrase_coverage"]),
+            "external_pair_metrics": str(query_paths["external_pair_metrics"]),
+            "external_pair_summary": str(query_paths["external_pair_summary"]),
+            "external_paraphrase_metrics": str(query_paths["external_paraphrase_metrics"]),
+            "external_paraphrase_summary": str(query_paths["external_paraphrase_summary"]),
         },
         "chosen_probe_group_manifest": chosen_probe_manifest,
         "query_table_paths": {key: str(value) for key, value in query_paths.items()},
         "features": {
             "paraphrase_movement_present": bool(has_paraphrase),
             "random_baseline_geometry_present": bool(has_random_baseline),
+            "neutral_source_flags_present": True,
+            "external_paraphrase_present": bool(has_external_paraphrase),
         },
     }
 
@@ -3202,8 +3354,15 @@ def save_run_results(
     probe_candidate_score_rows: List[Dict[str, Any]],
     bias_types: Sequence[str],
     probes_meta: Dict[str, Any],
+    external_paraphrase_payload: Optional[Mapping[str, Any]] = None,
     run_timing: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
+    annotate_records_with_neutral_references(all_records)
+    effective_external_paraphrase_payload = dict(external_paraphrase_payload or {})
+    if not list(effective_external_paraphrase_payload.get("item_rows", []) or []):
+        existing_payload = _load_existing_external_paraphrase_payload(run_dir)
+        if list(existing_payload.get("item_rows", []) or []):
+            effective_external_paraphrase_payload = existing_payload
     tuple_rows = build_tuple_rows(all_records, model_name=args.model, bias_types=bias_types)
     tuples_df = to_tuples_df(tuple_rows)
     samples_df = to_samples_df(all_records, model_name=args.model)
@@ -3237,6 +3396,17 @@ def save_run_results(
     run_summary_path = preferred_run_artifact_path(run_dir, "run_summary")
     probe_scores_by_prompt_path = preferred_run_artifact_path(run_dir, "probe_scores_by_prompt")
     executive_summary_path = preferred_run_artifact_path(run_dir, "executive_summary")
+    external_pair_metrics_json_path = preferred_run_artifact_path(run_dir, "external_pair_metrics_json")
+    external_pair_metrics_csv_path = preferred_run_artifact_path(run_dir, "external_pair_metrics_csv")
+    external_pair_summary_json_path = preferred_run_artifact_path(run_dir, "external_pair_summary_json")
+    external_pair_summary_csv_path = preferred_run_artifact_path(run_dir, "external_pair_summary_csv")
+    external_paraphrase_metrics_json_path = preferred_run_artifact_path(run_dir, "external_paraphrase_metrics_json")
+    external_paraphrase_metrics_csv_path = preferred_run_artifact_path(run_dir, "external_paraphrase_metrics_csv")
+    external_paraphrase_summary_json_path = preferred_run_artifact_path(run_dir, "external_paraphrase_summary_json")
+    external_paraphrase_summary_csv_path = preferred_run_artifact_path(run_dir, "external_paraphrase_summary_csv")
+    external_paraphrase_coverage_json_path = preferred_run_artifact_path(
+        run_dir, "external_paraphrase_coverage_json"
+    )
     config_path = preferred_run_artifact_path(run_dir, "run_config")
     run_manifest_path = preferred_run_artifact_path(run_dir, "run_manifest")
     mc_confusion_matrix_summary = reports_summary_payload.get("mc_confusion_matrix")
@@ -3255,13 +3425,44 @@ def save_run_results(
     if mc_confusion_matrix_path is not None:
         write_csv_atomic(mc_confusion_matrix_path, mc_confusion_matrix_df)
     write_text_atomic(executive_summary_path, executive_summary_text)
-    query_tables = _build_query_tables(run_dir=run_dir, probes_meta=probes_meta)
+    query_tables = _build_query_tables(
+        run_dir=run_dir,
+        probes_meta=probes_meta,
+        all_records=all_records,
+        bias_types=bias_types,
+        external_paraphrase_payload=effective_external_paraphrase_payload,
+    )
+    write_json_atomic(
+        external_pair_metrics_json_path,
+        query_tables["external_pair_metrics"].to_dict(orient="records"),
+    )
+    write_csv_atomic(external_pair_metrics_csv_path, query_tables["external_pair_metrics"])
+    write_json_atomic(
+        external_pair_summary_json_path,
+        query_tables["external_pair_summary"].to_dict(orient="records"),
+    )
+    write_csv_atomic(external_pair_summary_csv_path, query_tables["external_pair_summary"])
+    write_json_atomic(
+        external_paraphrase_metrics_json_path,
+        query_tables["external_paraphrase_metrics"].to_dict(orient="records"),
+    )
+    write_csv_atomic(external_paraphrase_metrics_csv_path, query_tables["external_paraphrase_metrics"])
+    write_json_atomic(
+        external_paraphrase_summary_json_path,
+        query_tables["external_paraphrase_summary"].to_dict(orient="records"),
+    )
+    write_csv_atomic(external_paraphrase_summary_csv_path, query_tables["external_paraphrase_summary"])
+    write_json_atomic(
+        external_paraphrase_coverage_json_path,
+        _json_ready(dict(effective_external_paraphrase_payload.get("coverage", {}) or {})),
+    )
     query_paths = _write_query_tables(run_dir=run_dir, query_tables=query_tables)
     run_manifest_payload = _build_run_manifest_payload(
         args=args,
         run_dir=run_dir,
         probes_meta=probes_meta,
         query_paths=query_paths,
+        external_paraphrase_payload=effective_external_paraphrase_payload,
     )
     write_json_atomic(run_manifest_path, run_manifest_payload)
 
@@ -3295,6 +3496,15 @@ def save_run_results(
     run_cfg["run_manifest_path"] = str(run_manifest_path)
     run_cfg["probe_scores_by_prompt_path"] = str(probe_scores_by_prompt_path)
     run_cfg["executive_summary_path"] = str(executive_summary_path)
+    run_cfg["external_pair_metrics_json_path"] = str(external_pair_metrics_json_path)
+    run_cfg["external_pair_metrics_csv_path"] = str(external_pair_metrics_csv_path)
+    run_cfg["external_pair_summary_json_path"] = str(external_pair_summary_json_path)
+    run_cfg["external_pair_summary_csv_path"] = str(external_pair_summary_csv_path)
+    run_cfg["external_paraphrase_metrics_json_path"] = str(external_paraphrase_metrics_json_path)
+    run_cfg["external_paraphrase_metrics_csv_path"] = str(external_paraphrase_metrics_csv_path)
+    run_cfg["external_paraphrase_summary_json_path"] = str(external_paraphrase_summary_json_path)
+    run_cfg["external_paraphrase_summary_csv_path"] = str(external_paraphrase_summary_csv_path)
+    run_cfg["external_paraphrase_coverage_json_path"] = str(external_paraphrase_coverage_json_path)
     run_cfg["query_dir"] = str(preferred_run_artifact_path(run_dir, "query_dir"))
     for key, path in query_paths.items():
         run_cfg[f"{key}_path"] = str(path)
@@ -3316,6 +3526,15 @@ def save_run_results(
         "run_summary_path": run_summary_path,
         "probe_scores_by_prompt_path": probe_scores_by_prompt_path,
         "executive_summary_path": executive_summary_path,
+        "external_pair_metrics_json_path": external_pair_metrics_json_path,
+        "external_pair_metrics_csv_path": external_pair_metrics_csv_path,
+        "external_pair_summary_json_path": external_pair_summary_json_path,
+        "external_pair_summary_csv_path": external_pair_summary_csv_path,
+        "external_paraphrase_metrics_json_path": external_paraphrase_metrics_json_path,
+        "external_paraphrase_metrics_csv_path": external_paraphrase_metrics_csv_path,
+        "external_paraphrase_summary_json_path": external_paraphrase_summary_json_path,
+        "external_paraphrase_summary_csv_path": external_paraphrase_summary_csv_path,
+        "external_paraphrase_coverage_json_path": external_paraphrase_coverage_json_path,
         "config_path": config_path,
         "run_manifest_path": run_manifest_path,
         "sampling_records_path": sampling_records_path,

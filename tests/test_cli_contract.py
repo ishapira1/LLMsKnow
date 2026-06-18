@@ -147,6 +147,10 @@ class CliContractTests(unittest.TestCase):
         self.assertFalse(parse_args([]).sampling_only)
         self.assertTrue(parse_args(["--sampling_only"]).sampling_only)
 
+    def test_external_paraphrase_eval_flag_defaults_false_and_parses_true(self):
+        self.assertFalse(parse_args([]).evaluate_external_paraphrases)
+        self.assertTrue(parse_args(["--evaluate_external_paraphrases"]).evaluate_external_paraphrases)
+
 
 if __name__ == "__main__":
     unittest.main()

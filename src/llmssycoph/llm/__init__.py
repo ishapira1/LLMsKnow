@@ -33,6 +33,7 @@ from .sampling import (
     sample_record_key,
     sample_record_key_values,
     sample_records_for_groups,
+    sample_records_for_tasks,
     sampling_spec_hash,
     sort_sample_records,
 )
@@ -68,6 +69,7 @@ __all__ = [
     "sample_record_key",
     "sample_record_key_values",
     "sample_records_for_groups",
+    "sample_records_for_tasks",
     "sampling_spec_hash",
     "score_logprob_answer",
     "score_choices",

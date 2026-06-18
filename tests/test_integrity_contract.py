@@ -348,6 +348,22 @@ class IntegrityContractTests(unittest.TestCase):
             preferred_run_artifact_path(run_dir, "query_paraphrase_coverage"),
             pd.DataFrame(columns=["probe_name", "source_record_count"]),
         )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_external_pair_metrics"),
+            pd.DataFrame(columns=["bias_type", "correctness_x", "correctness_xprime"]),
+        )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_external_pair_summary"),
+            pd.DataFrame(columns=["bias_type", "subset_condition", "accuracy_x", "accuracy_xprime"]),
+        )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_external_paraphrase_metrics"),
+            pd.DataFrame(columns=["template_type", "original_correctness", "paraphrase_correctness"]),
+        )
+        write_csv_atomic(
+            preferred_run_artifact_path(run_dir, "query_external_paraphrase_summary"),
+            pd.DataFrame(columns=["template_type", "subset_condition", "original_accuracy", "paraphrase_accuracy"]),
+        )
 
         if not sampling_only:
             all_probes_dir = preferred_run_artifact_path(run_dir, "all_probes_dir")

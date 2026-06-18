@@ -84,7 +84,7 @@ def _materialize_sample_record(
     return {
         "record_id": record_id,
         "question_id": task["question_id"],
-        "prompt_id": prompt_id_for(task["question_id"], task["template_type"]),
+        "prompt_id": str(task.get("prompt_id") or prompt_id_for(task["question_id"], task["template_type"])),
         "split": task["split_name"],
         "dataset": task["dataset"],
         "template_type": task["template_type"],
@@ -693,6 +693,203 @@ def sample_records_for_groups(
     log_status(
         "sampling.py",
         f"completed split={split_name}: total_records={len(out_records)}/{expected_total} "
+        f"coverage={coverage:.1%} reused={reused} generated={generated} remaining={remaining}",
+    )
+    return out_records, stats
+
+
+def sample_records_for_tasks(
+    llm,
+    tasks: Sequence[Dict[str, Any]],
+    *,
+    temperature: float,
+    top_p: float,
+    max_new_tokens: int,
+    sample_batch_size: int,
+    existing_records: Optional[Sequence[Dict[str, Any]]] = None,
+    checkpoint_every: int = 0,
+    progress_callback: Optional[Callable[[List[Dict[str, Any]], Dict[str, int]], None]] = None,
+    start_id: int = 0,
+    progress_name: str = "sampling prepared tasks",
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    records_by_key: Dict[Tuple[str, str, str, int], Dict[str, Any]] = {}
+    max_existing_record_id = start_id - 1
+    for record in existing_records or []:
+        if not isinstance(record, dict):
+            continue
+        normalized_record = dict(record)
+        normalized_record.setdefault(
+            "prompt_id",
+            prompt_id_for(normalized_record.get("question_id", ""), normalized_record.get("template_type", "")),
+        )
+        try:
+            key = sample_record_key(normalized_record)
+        except Exception:
+            continue
+        records_by_key[key] = normalized_record
+        try:
+            max_existing_record_id = max(max_existing_record_id, int(normalized_record.get("record_id", -1)))
+        except Exception:
+            pass
+
+    rec_id = max(start_id, max_existing_record_id + 1)
+    reused = 0
+    generated = 0
+    expected_total = 0
+    generated_since_checkpoint = 0
+    pending_tasks: List[Dict[str, Any]] = []
+    use_openai_parallelism = _llm_backend_name(llm) == "openai" and int(sample_batch_size) > 1
+
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        split_name = str(task.get("split_name", "") or "")
+        question_id = str(task.get("question_id", "") or "")
+        template_type = str(task.get("template_type", "") or "")
+        missing_draws = [int(draw_idx) for draw_idx in list(task.get("missing_draws", []) or [])]
+        if not split_name or not question_id or not template_type or not missing_draws:
+            continue
+        task_copy = dict(task)
+        unresolved_draws: List[int] = []
+        for draw_idx in missing_draws:
+            key = sample_record_key_values(split_name, question_id, template_type, draw_idx)
+            expected_total += 1
+            if key in records_by_key:
+                reused += 1
+            else:
+                unresolved_draws.append(draw_idx)
+        if not unresolved_draws:
+            continue
+        task_copy["missing_draws"] = unresolved_draws
+        task_copy["record_ids"] = list(range(rec_id, rec_id + len(unresolved_draws)))
+        rec_id += len(unresolved_draws)
+        pending_tasks.append(task_copy)
+
+    progress_desc = tqdm_desc("sampling.py", progress_name)
+
+    def _checkpoint_if_needed() -> None:
+        nonlocal generated_since_checkpoint
+        if (
+            progress_callback is not None
+            and checkpoint_every > 0
+            and generated_since_checkpoint >= checkpoint_every
+        ):
+            progress_callback(
+                sort_sample_records(records_by_key.values()),
+                {
+                    "split": "mixed",
+                    "expected_records": expected_total,
+                    "reused_records": reused,
+                    "generated_records": generated,
+                    "total_records": len(records_by_key),
+                },
+            )
+            generated_since_checkpoint = 0
+
+    if use_openai_parallelism and pending_tasks:
+        log_status(
+            "sampling.py",
+            f"OpenAI parallel sampling enabled for prepared tasks with max_workers={sample_batch_size}",
+        )
+        with ThreadPoolExecutor(max_workers=int(sample_batch_size), thread_name_prefix="openai-sampling") as executor:
+            task_iter = iter(pending_tasks)
+            future_to_task: Dict[Future[List[Dict[str, Any]]], Dict[str, Any]] = {}
+
+            def _submit_next() -> bool:
+                try:
+                    task = next(task_iter)
+                except StopIteration:
+                    return False
+                future = executor.submit(
+                    _execute_sampling_task,
+                    llm,
+                    task,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_new_tokens=max_new_tokens,
+                    sample_batch_size=sample_batch_size,
+                )
+                future_to_task[future] = task
+                return True
+
+            initial = min(int(sample_batch_size), len(pending_tasks))
+            for _ in range(initial):
+                _submit_next()
+
+            with tqdm(total=len(pending_tasks), desc=progress_desc, unit="prompt") as task_bar:
+                while future_to_task:
+                    done, _ = wait(list(future_to_task), return_when=FIRST_COMPLETED)
+                    for future in done:
+                        task = future_to_task.pop(future)
+                        task_outputs = future.result()
+                        for output in task_outputs:
+                            draw_idx = int(output["draw_idx"])
+                            key = sample_record_key_values(
+                                task["split_name"],
+                                task["question_id"],
+                                task["template_type"],
+                                draw_idx,
+                            )
+                            records_by_key[key] = _materialize_sample_record(
+                                task,
+                                draw_idx=draw_idx,
+                                record_id=int(output["record_id"]),
+                                generation_record=output["generation_record"],
+                                grading=output["grading"],
+                            )
+                            generated += 1
+                            generated_since_checkpoint += 1
+                            _checkpoint_if_needed()
+                        task_bar.update(1)
+                        _submit_next()
+    else:
+        for task in tqdm(
+            pending_tasks,
+            desc=progress_desc,
+            unit="prompt",
+        ):
+            task_outputs = _execute_sampling_task(
+                llm,
+                task,
+                temperature=temperature,
+                top_p=top_p,
+                max_new_tokens=max_new_tokens,
+                sample_batch_size=sample_batch_size,
+            )
+            for output in task_outputs:
+                draw_idx = int(output["draw_idx"])
+                key = sample_record_key_values(
+                    task["split_name"],
+                    task["question_id"],
+                    task["template_type"],
+                    draw_idx,
+                )
+                records_by_key[key] = _materialize_sample_record(
+                    task,
+                    draw_idx=draw_idx,
+                    record_id=int(output["record_id"]),
+                    generation_record=output["generation_record"],
+                    grading=output["grading"],
+                )
+                generated += 1
+                generated_since_checkpoint += 1
+                _checkpoint_if_needed()
+
+    out_records = sort_sample_records(records_by_key.values())
+    stats = {
+        "split": "mixed",
+        "expected_records": expected_total,
+        "reused_records": reused,
+        "generated_records": generated,
+        "total_records": len(out_records),
+    }
+    if progress_callback is not None:
+        progress_callback(out_records, stats)
+    remaining = max(0, expected_total - len(out_records))
+    coverage = 0.0 if expected_total <= 0 else len(out_records) / expected_total
+    log_status(
+        "sampling.py",
+        f"completed prepared-task sampling: total_records={len(out_records)}/{expected_total} "
         f"coverage={coverage:.1%} reused={reused} generated={generated} remaining={remaining}",
     )
     return out_records, stats

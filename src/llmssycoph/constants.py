@@ -84,5 +84,7 @@ RESUME_COMPAT_KEYS = [
     "probe_seed",
     "probe_selection_max_samples",
     "probe_train_max_samples",
+    "paraphrase_artifact_path",
+    "evaluate_external_paraphrases",
     "seed",
 ]

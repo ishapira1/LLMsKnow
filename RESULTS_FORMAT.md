@@ -106,7 +106,11 @@ results/sycophancy_bias_probe/<model_slug>/<dataset_dir>/<run_name>/
 │   ├── chosen_probe_cross_family_metrics.csv
 │   ├── chosen_probe_movement_summary.csv
 │   ├── chosen_probe_movement_items.jsonl
-│   └── paraphrase_coverage.csv
+│   ├── paraphrase_coverage.csv
+│   ├── external_pair_metrics.csv
+│   ├── external_pair_summary.csv
+│   ├── external_paraphrase_metrics.csv
+│   └── external_paraphrase_summary.csv
 ├── sampling_backfills/                             # optional derived subtree
 └── analysis/                                       # optional derived subtree
     ├── analysis_notebook_status.json
@@ -164,6 +168,16 @@ These are written by the base pipeline itself.
   - human-readable markdown overview
 - `query/probe_scores_by_prompt.csv`
   - prompt-level probe readout table
+- `evaluation/external_pairs/metrics.{json,csv}`
+  - neutral-versus-family external paired comparisons
+- `evaluation/external_pairs/summary.{json,csv}`
+  - grouped summaries for external paired comparisons
+- `evaluation/external_paraphrase/metrics.{json,csv}`
+  - item-level original-versus-paraphrase external behavior rows
+- `evaluation/external_paraphrase/summary.{json,csv}`
+  - grouped summaries for external paraphrase evaluation
+- `evaluation/external_paraphrase/coverage.json`
+  - coverage and exclusion counts for external paraphrase evaluation
 
 ## Optional Probe Outputs
 
@@ -206,6 +220,14 @@ The `query/` directory contains stable denormalized tables for direct questions.
   - one row per movement comparison
 - `paraphrase_coverage.csv`
   - one row per chosen probe family with paraphrase-coverage counts
+- `external_pair_metrics.csv`
+  - one row per neutral-versus-family external paired comparison
+- `external_pair_summary.csv`
+  - grouped external paired summaries, including `subset_condition=neutral_source_is_correct`
+- `external_paraphrase_metrics.csv`
+  - one row per same-family original-versus-paraphrase external comparison
+- `external_paraphrase_summary.csv`
+  - grouped external paraphrase summaries, including `subset_condition=neutral_source_is_correct`
 
 These query files are the preferred way to answer questions such as:
 

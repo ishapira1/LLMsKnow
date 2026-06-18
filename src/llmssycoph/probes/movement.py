@@ -237,6 +237,7 @@ def _record_base_metadata(record: Mapping[str, Any]) -> Dict[str, Any]:
         "incorrect_letter": _as_text(record.get("incorrect_letter")),
         "suggested_label": _as_text(record.get("suggested_label")),
         "suggested_answer": _as_text(record.get("suggested_answer")),
+        "random_all_variant_family": _as_text(record.get("random_all_variant_family")),
         "letters": _as_text(record.get("letters")),
         "answers": answer_options,
         "answer_options": answer_options,
@@ -315,6 +316,22 @@ def _movement_row_base(
         "source_record_id": source_record.get("record_id"),
         "source_template_type": _as_text(source_record.get("template_type")),
         "source_example_id": _as_text(source_record.get("source_example_id")),
+        "neutral_source_record_id": source_record.get("neutral_source_record_id"),
+        "neutral_source_prompt_id": _as_text(source_record.get("neutral_source_prompt_id")),
+        "neutral_source_response": _as_text(source_record.get("neutral_source_response")),
+        "neutral_source_correctness": _safe_int(source_record.get("neutral_source_correctness")),
+        "neutral_source_is_correct": bool(source_record.get("neutral_source_is_correct", False)),
+        "neutral_source_usable_for_metrics": bool(
+            source_record.get("neutral_source_usable_for_metrics", False)
+        ),
+        "neutral_question_total_draws": int(source_record.get("neutral_question_total_draws", 0) or 0),
+        "neutral_question_usable_draws": int(source_record.get("neutral_question_usable_draws", 0) or 0),
+        "neutral_question_correct_draw_count": int(
+            source_record.get("neutral_question_correct_draw_count", 0) or 0
+        ),
+        "neutral_question_accuracy": source_record.get("neutral_question_accuracy"),
+        "neutral_question_any_correct": bool(source_record.get("neutral_question_any_correct", False)),
+        "neutral_question_all_correct": bool(source_record.get("neutral_question_all_correct", False)),
         "target_change_kind": target_change_kind,
         "target_template_type": target_template_type,
         "target_record_id": target_record_id,

@@ -407,6 +407,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     io_group.add_argument(
+        "--evaluate_external_paraphrases",
+        action="store_true",
+        help=(
+            "Run test-only same-family external paraphrase evaluation for all sampled prompt families. "
+            "This is separate from teacher-forced chosen-probe movement evaluation and measures whether "
+            "generated model accuracy changes under frozen offline stem paraphrases."
+        ),
+    )
+    io_group.add_argument(
         "--fresh_run",
         action="store_true",
         help=(
