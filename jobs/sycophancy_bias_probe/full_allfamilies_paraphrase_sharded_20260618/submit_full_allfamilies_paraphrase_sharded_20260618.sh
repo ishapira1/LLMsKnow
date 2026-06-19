@@ -6,7 +6,17 @@ JOB_DATE_TAG="20260618"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
 
-LOG_ROOT="jobs/sycophancy_bias_probe/logs/${BUNDLE_NAME}"
+if [[ ! -f .env ]]; then
+  printf '%s\n' "Missing .env in $ROOT_DIR" >&2
+  exit 1
+fi
+set -a
+source .env
+set +a
+
+source jobs/sycophancy_bias_probe/storage_common.sh
+configure_sycophancy_bias_storage "$BUNDLE_NAME"
+
 SLURM_LOG_ROOT="$LOG_ROOT/slurm"
 SAMPLING_SLURM_LOG_DIR="$SLURM_LOG_ROOT/sampling"
 PROBE_SLURM_LOG_DIR="$SLURM_LOG_ROOT/probes"
@@ -51,6 +61,9 @@ iso_now() {
 }
 
 log_line "[submit-${JOB_DATE_TAG}] submit_log_file=$SUBMIT_LOG_FILE"
+while IFS= read -r storage_line; do
+  log_line "$storage_line"
+done < <(sycophancy_bias_print_storage_env "[submit-${JOB_DATE_TAG}]")
 
 ENV_PYTHON_FOR_REGISTRY="${ENV_PYTHON_FOR_REGISTRY:-python}"
 DEFAULT_PROBE_FAMILIES_CSV="$(PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}" "$ENV_PYTHON_FOR_REGISTRY" -c 'from llmssycoph.data import trainable_prompt_families; print(",".join(trainable_prompt_families(include_neutral=True)))')"
@@ -84,7 +97,6 @@ RUN_SLUGS=(
 TASK_FILTER="${TASK_FILTER:-}"
 PROBE_FAMILY_FILTER="${PROBE_FAMILY_FILTER:-}"
 PARAPHRASE_ARTIFACT_PATH="${PARAPHRASE_ARTIFACT_PATH:-data/ad_hoc/paraphrase_robustness_test_stems_v1}"
-OUT_DIR="${OUT_DIR:-results/sycophancy_bias_probe}"
 DRY_RUN="${DRY_RUN:-0}"
 SUBMIT_PROBES_ONLY="${SUBMIT_PROBES_ONLY:-0}"
 SAMPLING_JOB_ID="${SAMPLING_JOB_ID:-}"
@@ -141,6 +153,7 @@ export PROBE_FAMILY_FILTER
 export PROBE_FAMILIES_CSV
 export PARAPHRASE_ARTIFACT_PATH
 export OUT_DIR
+export LOG_ROOT
 
 printf 'array_task\ttask_label\tdataset_name\tmodel_id\trun_name\trun_dir\n' > "$SAMPLING_TASK_MATRIX"
 sampling_task_index=0
@@ -243,7 +256,12 @@ fi
   printf 'BUNDLE_NAME=%q\n' "$BUNDLE_NAME"
   printf 'SUBMITTED_AT=%q\n' "$(iso_now)"
   printf 'ROOT_DIR=%q\n' "$ROOT_DIR"
+  printf 'SYCOPHANCY_STORAGE_ROOT=%q\n' "$SYCOPHANCY_STORAGE_ROOT"
   printf 'LOG_ROOT=%q\n' "$LOG_ROOT"
+  printf 'SLURM_LOG_ROOT=%q\n' "$SLURM_LOG_ROOT"
+  printf 'SAMPLING_SLURM_LOG_DIR=%q\n' "$SAMPLING_SLURM_LOG_DIR"
+  printf 'PROBE_SLURM_LOG_DIR=%q\n' "$PROBE_SLURM_LOG_DIR"
+  printf 'STRUCTURED_LOG_ROOT=%q\n' "$STRUCTURED_LOG_ROOT"
   printf 'SUBMIT_LOG_FILE=%q\n' "$SUBMIT_LOG_FILE"
   printf 'SAMPLING_TASK_MATRIX=%q\n' "$SAMPLING_TASK_MATRIX"
   printf 'PROBE_TASK_MATRIX=%q\n' "$PROBE_TASK_MATRIX"
@@ -254,6 +272,20 @@ fi
   printf 'PROBE_FAMILIES_CSV=%q\n' "$PROBE_FAMILIES_CSV"
   printf 'PARAPHRASE_ARTIFACT_PATH=%q\n' "$PARAPHRASE_ARTIFACT_PATH"
   printf 'OUT_DIR=%q\n' "$OUT_DIR"
+  printf 'HF_HUB_CACHE=%q\n' "$HF_HUB_CACHE"
+  printf 'HUGGINGFACE_HUB_CACHE=%q\n' "$HUGGINGFACE_HUB_CACHE"
+  printf 'TRANSFORMERS_CACHE=%q\n' "$TRANSFORMERS_CACHE"
+  printf 'HF_DATASETS_CACHE=%q\n' "$HF_DATASETS_CACHE"
+  printf 'HF_HOME=%q\n' "$HF_HOME"
+  printf 'TRITON_CACHE_DIR=%q\n' "$TRITON_CACHE_DIR"
+  printf 'WANDB_DIR=%q\n' "$WANDB_DIR"
+  printf 'WANDB_CACHE_DIR=%q\n' "$WANDB_CACHE_DIR"
+  printf 'WANDB_CONFIG_DIR=%q\n' "$WANDB_CONFIG_DIR"
+  printf 'WANDB_DATA_DIR=%q\n' "$WANDB_DATA_DIR"
+  printf 'TMPDIR=%q\n' "$TMPDIR"
+  printf 'MPLCONFIGDIR=%q\n' "$MPLCONFIGDIR"
+  printf 'TORCH_HOME=%q\n' "$TORCH_HOME"
+  printf 'XDG_CACHE_HOME=%q\n' "$XDG_CACHE_HOME"
   printf 'DRY_RUN=%q\n' "$DRY_RUN"
 } > "$SUBMISSION_ENV_FILE"
 cp "$SUBMISSION_ENV_FILE" "$LATEST_SUBMISSION_ENV_FILE"

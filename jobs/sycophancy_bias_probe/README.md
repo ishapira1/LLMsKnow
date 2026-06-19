@@ -9,7 +9,7 @@ Partition defaults in this directory:
 
 Log organization convention for new or updated Slurm bundles:
 
-- Keep logs under `jobs/sycophancy_bias_probe/logs/<bundle_name>/`.
+- Keep logs under a bundle-specific `LOG_ROOT`; for large parallel bundles on the Harvard cluster, default `LOG_ROOT` to non-home lab storage.
 - Put submitter output under `submit/`.
 - Put raw Slurm stdout/stderr under stage folders such as `slurm/sampling/` and `slurm/probes/`.
 - Tee each array task into a canonical browseable path such as `by_task/<dataset_model>/<stage_or_probe_family>/job_<job_id>/task_<array_task>.out`.
@@ -47,6 +47,7 @@ Log organization convention for new or updated Slurm bundles:
 - `probe_displacement_mini_qwen25_7b_20260602_seas.sbatch`: mini analysis job for the new neutral-probe displacement decomposition on the canonical `Qwen/Qwen2.5-7B-Instruct` `arc_challenge` run. By default it analyzes the `test` split with `probe_no_bias` on the first `64` paired neutral-correct questions and writes notebook-friendly CSV artifacts under `analysis/probe_displacement_decomposition_mini_q64/` inside the saved run directory. Override `MAX_QUESTIONS`, `OUTPUT_DIR`, `RUN_DIR`, `PROBE_NAME`, `DEVICE`, or `USE_DEVICE_MAP_AUTO=1` via the environment when submitting.
 - `submit_probe_displacement_mini_qwen25_7b_20260602_seas.sh`: submits the mini Qwen2.5 ARC probe-displacement job. Set `DRY_RUN=1` to print the final `sbatch` command without submitting.
 - `full_allfamilies_paraphrase_sharded_20260618/`: current recommended full local-model experiment bundle. It keeps the proven two-stage sharded pattern from the `20260616` bundle, but adds clearer submission metadata, task matrices, a status helper, and stricter post-run artifact verification for both sampling and probe-family shards. Same-family paraphrase movement evaluation is enabled by default, and the run-level external paraphrase evaluation now runs once in the sampling stage for each dataset/model pair.
+  The bundle defaults heavy results, submit logs, Slurm logs, task logs, temp files, and model/dataset caches to `/n/holystore01/LABS/barak_lab/Users/ishapira` so parallel shards do not exhaust the `/n/home12` quota.
 - `full_allfamilies_paraphrase_sharded_20260616/`: previous recommended full local-model experiment bundle. It remains a good reference and fallback, but the `20260618` bundle is easier to manage during long full runs.
 - `full_refresh_20260614/`: legacy dated fresh-run batch bundle. It is useful for reading the old per-dataset/model setup, but it is no longer the recommended full experiment path because full all-family probe/eval work can timeout or fail expensively inside one monolithic job.
 - `full_allfamilies_paraphrase_20260614/`: one-submission Slurm array bundle for the full intended experiment: both main datasets, both main local models, all supported trainable bias families resolved from the prompt-family registry, automatic cross-family chosen-probe evaluation across the enabled family set, and same-family paraphrase movement evaluation by default via `data/ad_hoc/paraphrase_robustness_test_stems_v1`. It uses stable run names by default so interrupted attempts can reuse sampling checkpoints; set `FRESH_RUN=1` for isolated reruns.
@@ -66,8 +67,8 @@ All jobs:
 - activate `conda` env `itai_ml_env`
 - source `.env`
 - prepend `$REPO_DIR/src` to `PYTHONPATH` so `llmssycoph` resolves without an install step
-- enforce `HUGGINGFACE_HUB_CACHE` is set and not under `/home`
-- set HF cache env vars so model/tokenizer/dataset cache uses lab storage
+- set or normalize HF cache env vars so model/tokenizer/dataset cache uses non-home lab storage
+- for the 20260618 full sharded bundle, default results and logs to Holystore rather than the repo checkout under `/n/home12`
 - set `#SBATCH --mail-type=END,FAIL` and `#SBATCH --mail-user=itaishapira@g.harvard.edu`
 
 Submit examples:

@@ -5,7 +5,14 @@ BUNDLE_NAME="full_allfamilies_paraphrase_sharded_20260618"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
 
-LOG_ROOT="jobs/sycophancy_bias_probe/logs/${BUNDLE_NAME}"
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
+source jobs/sycophancy_bias_probe/storage_common.sh
+configure_sycophancy_bias_storage "$BUNDLE_NAME"
+
 SUBMIT_LOG_DIR="$LOG_ROOT/submit"
 SUBMISSION_ENV_FILE="${1:-$SUBMIT_LOG_DIR/latest_submission.env}"
 
@@ -20,6 +27,8 @@ set +a
 
 printf '[status-20260618] bundle=%s\n' "$BUNDLE_NAME"
 printf '[status-20260618] submission_env=%s\n' "$SUBMISSION_ENV_FILE"
+printf '[status-20260618] log_root=%s\n' "$LOG_ROOT"
+printf '[status-20260618] storage_root=%s\n' "$SYCOPHANCY_STORAGE_ROOT"
 printf '[status-20260618] submitted_at=%s\n' "${SUBMITTED_AT:-unknown}"
 printf '[status-20260618] sampling_job_id=%s probe_job_id=%s\n' "${SAMPLING_JOB_ID:-unknown}" "${PROBE_JOB_ID:-unknown}"
 printf '[status-20260618] sampling_task_matrix=%s\n' "${SAMPLING_TASK_MATRIX:-missing}"

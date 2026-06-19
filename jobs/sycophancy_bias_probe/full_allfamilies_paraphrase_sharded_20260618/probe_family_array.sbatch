@@ -6,8 +6,8 @@
 #SBATCH --mem=100G
 #SBATCH --time=24:00:00
 #SBATCH --array=0-47
-#SBATCH --output=jobs/sycophancy_bias_probe/logs/full_allfamilies_paraphrase_sharded_20260618/slurm/probes/%x.%A_%a.out
-#SBATCH --error=jobs/sycophancy_bias_probe/logs/full_allfamilies_paraphrase_sharded_20260618/slurm/probes/%x.%A_%a.err
+#SBATCH --output=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260618/slurm/probes/%x.%A_%a.out
+#SBATCH --error=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260618/slurm/probes/%x.%A_%a.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=itaishapira@g.harvard.edu
 
@@ -16,7 +16,6 @@ set -euo pipefail
 BUNDLE_NAME="full_allfamilies_paraphrase_sharded_20260618"
 SCRIPT_TAG="probe-family-sharded-20260618"
 REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
-LOG_ROOT="jobs/sycophancy_bias_probe/logs/${BUNDLE_NAME}"
 
 cd "$REPO_DIR"
 
@@ -43,28 +42,24 @@ set -a
 source .env
 set +a
 
-HF_CACHE_DIR="${HUGGINGFACE_HUB_CACHE:-${HF_HUB_CACHE:-}}"
-if [[ -z "$HF_CACHE_DIR" ]]; then
-  printf '%s\n' "HUGGINGFACE_HUB_CACHE or HF_HUB_CACHE must be set in .env" >&2
-  exit 1
-fi
-if [[ "$HF_CACHE_DIR" == /home/* ]]; then
-  printf '%s\n' "Refusing to run: HF cache points to /home ($HF_CACHE_DIR)" >&2
-  exit 1
-fi
-
-HF_DATASETS_DIR="${HF_DATASETS_CACHE:-${HF_CACHE_DIR}/datasets}"
-HF_HOME_DIR="${HF_HOME:-$(dirname "$HF_CACHE_DIR")/hf_home}"
-export HF_HUB_CACHE="$HF_CACHE_DIR"
-export HUGGINGFACE_HUB_CACHE="$HF_CACHE_DIR"
-export TRANSFORMERS_CACHE="$HF_CACHE_DIR"
-export HF_DATASETS_CACHE="$HF_DATASETS_DIR"
-export HF_HOME="$HF_HOME_DIR"
+source jobs/sycophancy_bias_probe/storage_common.sh
+configure_sycophancy_bias_storage "$BUNDLE_NAME"
+HF_CACHE_DIR="$HF_HUB_CACHE"
 
 mkdir -p \
   "$HF_HUB_CACHE" \
   "$HF_DATASETS_CACHE" \
   "$HF_HOME" \
+  "$TRITON_CACHE_DIR" \
+  "$WANDB_DIR" \
+  "$WANDB_CACHE_DIR" \
+  "$WANDB_CONFIG_DIR" \
+  "$WANDB_DATA_DIR" \
+  "$TMPDIR" \
+  "$MPLCONFIGDIR" \
+  "$TORCH_HOME" \
+  "$XDG_CACHE_HOME" \
+  "$OUT_DIR" \
   "$LOG_ROOT" \
   "$LOG_ROOT/slurm/probes" \
   "$LOG_ROOT/by_task"
@@ -80,7 +75,6 @@ fi
 PARAPHRASE_ARTIFACT_PATH="${PARAPHRASE_ARTIFACT_PATH:-data/ad_hoc/paraphrase_robustness_test_stems_v1}"
 SAMPLE_BATCH_SIZE="${SAMPLE_BATCH_SIZE:-1}"
 DEVICE="${DEVICE:-auto}"
-OUT_DIR="${OUT_DIR:-results/sycophancy_bias_probe}"
 SPLIT_SEED="${SPLIT_SEED:-5}"
 SEED="${SEED:-5}"
 PROBE_SEED="${PROBE_SEED:-5}"
@@ -331,6 +325,7 @@ printf '[%s] run_name=%s\n' "$SCRIPT_TAG" "$RUN_NAME"
 printf '[%s] run_dir=%s\n' "$SCRIPT_TAG" "$RUN_DIR"
 printf '[%s] structured_stdout=%s\n' "$SCRIPT_TAG" "$STRUCTURED_STDOUT"
 printf '[%s] structured_stderr=%s\n' "$SCRIPT_TAG" "$STRUCTURED_STDERR"
+sycophancy_bias_print_storage_env "[$SCRIPT_TAG]"
 printf '[%s] memory_env: SAMPLE_BATCH_SIZE=%s OMP_NUM_THREADS=%s MALLOC_ARENA_MAX=%s TOKENIZERS_PARALLELISM=%s PYTORCH_CUDA_ALLOC_CONF=%s\n' \
   "$SCRIPT_TAG" "$SAMPLE_BATCH_SIZE" "$OMP_NUM_THREADS" "$MALLOC_ARENA_MAX" "$TOKENIZERS_PARALLELISM" "$PYTORCH_CUDA_ALLOC_CONF"
 if command -v nvidia-smi >/dev/null 2>&1; then

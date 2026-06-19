@@ -43,6 +43,14 @@ Dry run:
 DRY_RUN=1 bash jobs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260618/submit_full_allfamilies_paraphrase_sharded_20260618.sh
 ```
 
+By default on the Harvard cluster, this bundle keeps heavy outputs off the home quota filesystem:
+
+- results: `/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/sycophancy_bias_probe`
+- submit, Slurm, and task logs: `/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260618`
+- HF, Triton, W&B, Torch, Matplotlib, XDG, and temp caches: under the resolved `SYCOPHANCY_STORAGE_ROOT`
+
+Override `SYCOPHANCY_STORAGE_ROOT`, `OUT_DIR`, or `LOG_ROOT` only if you are pointing to non-home storage. The wrappers reject result/log/cache paths under `/home` or `/n/home`.
+
 ## Status
 
 ```bash
@@ -59,9 +67,9 @@ That status helper reads the latest submission metadata by default and reports:
 
 ## Logs
 
-All logs live under:
+By default, all logs live under:
 
-`jobs/sycophancy_bias_probe/logs/full_allfamilies_paraphrase_sharded_20260618/`
+`/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_bias_probe/full_allfamilies_paraphrase_sharded_20260618/`
 
 Important subtrees:
 
