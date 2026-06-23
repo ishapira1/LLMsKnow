@@ -10,6 +10,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..logging_utils import log_status
 from .agreement_biases import get_agreement_bias
+from .anti_sycophancy import (
+    anti_sycophancy_request_text,
+    canonical_anti_sycophancy_request_name,
+)
 from .instruction_policies import (
     get_instruction_policy,
 )
@@ -440,6 +444,7 @@ def render_ays_mc_prompt_text(
     incorrect_answer: str,
     mc_mode: str = MC_MODE_STRICT,
     instruction_policy: str | None = None,
+    anti_sycophancy_request: str | None = None,
 ) -> str:
     question_text = render_ays_mc_question_text(base, mc_mode=mc_mode)
     question = Question(
@@ -453,6 +458,7 @@ def render_ays_mc_prompt_text(
         question=question,
         agreement_bias=get_agreement_bias(template_type),
         instruction_policy=get_instruction_policy(instruction_policy or mc_mode),
+        anti_sycophancy_request=anti_sycophancy_request or "none",
     ).prompt_text
 
 
@@ -679,6 +685,7 @@ class BenchmarkDatasetAdapter:
         instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
         seed: int | None = None,
+        anti_sycophancy_request: str | None = None,
     ) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
@@ -699,8 +706,11 @@ class AnswerJsonDataset(BenchmarkDatasetAdapter):
         instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
         seed: int | None = None,
+        anti_sycophancy_request: str | None = None,
     ) -> List[Dict[str, Any]]:
         del selected_bias_types, selected_ays_mc_datasets, instruction_policy, mc_mode, seed
+        anti_request = canonical_anti_sycophancy_request_name(anti_sycophancy_request)
+        anti_request_text = anti_sycophancy_request_text(anti_request)
         prepared: List[Dict[str, Any]] = []
         for row in rows:
             if not isinstance(row, dict):
@@ -712,6 +722,10 @@ class AnswerJsonDataset(BenchmarkDatasetAdapter):
             if question_text:
                 base.setdefault("question_text", question_text)
                 metadata.setdefault("question_text", question_text)
+            base.setdefault("anti_sycophancy_request", anti_request)
+            base.setdefault("anti_sycophancy_request_text", anti_request_text)
+            metadata.setdefault("anti_sycophancy_request", anti_request)
+            metadata.setdefault("anti_sycophancy_request_text", anti_request_text)
             metadata.setdefault("bias_construction_mode", self.bias_construction_mode)
             normalized["base"] = base
             normalized["metadata"] = metadata
@@ -737,9 +751,12 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
         instruction_policy: str | None = None,
         mc_mode: str = MC_MODE_STRICT,
         seed: int | None = None,
+        anti_sycophancy_request: str | None = None,
     ) -> List[Dict[str, Any]]:
         prompt_families = resolve_prompt_families(selected_bias_types, include_neutral=True)
         resolved_instruction_policy = get_instruction_policy(instruction_policy or mc_mode)
+        anti_request = canonical_anti_sycophancy_request_name(anti_sycophancy_request)
+        anti_request_text = anti_sycophancy_request_text(anti_request)
         legacy_mc_mode = resolved_instruction_policy.legacy_mc_mode
         response_prefix = resolved_instruction_policy.response_prefix
         wanted_datasets = set(selected_ays_mc_datasets or DEFAULT_AYS_MC_DATASETS)
@@ -792,6 +809,8 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                     "answers_list": answers_list,
                     "task_format": "multiple_choice",
                     "instruction_policy": resolved_instruction_policy.name,
+                    "anti_sycophancy_request": anti_request,
+                    "anti_sycophancy_request_text": anti_request_text,
                     "mc_mode": legacy_mc_mode,
                     "response_prefix": response_prefix,
                     "answer_channel": "letter",
@@ -845,10 +864,13 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                 variant = get_agreement_bias(prompt_family.family_id).build_prompt_variant(
                     question,
                     instruction_policy=resolved_instruction_policy,
+                    anti_sycophancy_request=anti_request,
                     bias_construction_mode=self.bias_construction_mode,
                     metadata={
                         "dataset": dataset,
                         "instruction_policy": resolved_instruction_policy.name,
+                        "anti_sycophancy_request": anti_request,
+                        "anti_sycophancy_request_text": anti_request_text,
                         "mc_mode": legacy_mc_mode,
                         "response_prefix": response_prefix,
                         "answer_channel": "letter",
@@ -879,6 +901,7 @@ def materialize_ays_mc_single_turn_rows(
     instruction_policy: str | None = None,
     mc_mode: str = MC_MODE_STRICT,
     seed: int | None = None,
+    anti_sycophancy_request: str | None = None,
 ) -> List[Dict[str, Any]]:
     adapter = AysMcSingleTurnDataset()
     return adapter.prepare_rows(
@@ -888,6 +911,7 @@ def materialize_ays_mc_single_turn_rows(
         instruction_policy=instruction_policy,
         mc_mode=mc_mode,
         seed=seed,
+        anti_sycophancy_request=anti_sycophancy_request,
     )
 
 
@@ -909,6 +933,7 @@ def prepare_benchmark_rows(
     instruction_policy: str | None = None,
     mc_mode: str = MC_MODE_STRICT,
     seed: int | None = None,
+    anti_sycophancy_request: str | None = None,
 ) -> List[Dict[str, Any]]:
     adapter = dataset_adapter_for_benchmark(benchmark_source)
     adapter.validate_input_jsonl(input_jsonl)
@@ -919,6 +944,7 @@ def prepare_benchmark_rows(
         instruction_policy=instruction_policy,
         mc_mode=mc_mode,
         seed=seed,
+        anti_sycophancy_request=anti_sycophancy_request,
     )
 
 

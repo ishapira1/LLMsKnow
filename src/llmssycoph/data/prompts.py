@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .instruction_policies import get_instruction_policy
+from .anti_sycophancy import anti_sycophancy_request_text
 from .prompt_families import (
     PROMPT_TEMPLATE_BY_FAMILY,
     get_prompt_family,
@@ -25,7 +26,7 @@ from .prompt_instructions import (
     output_instruction_for_mode,
 )
 
-PROMPT_SPEC_VERSION = 4
+PROMPT_SPEC_VERSION = 5
 GRADING_SPEC_VERSION = 3
 STRICT_OUTPUT_CONTRACT = "answer_line_letter_only"
 
@@ -77,6 +78,7 @@ class PromptBuilder:
         incorrect_answer: str,
         mc_mode: str = MC_MODE_STRICT,
         instruction_policy: str | None = None,
+        anti_sycophancy_request: str | None = None,
     ) -> str:
         question_text = str(question_text or "").strip()
         if not question_text:
@@ -91,10 +93,13 @@ class PromptBuilder:
             incorrect_answer=incorrect_answer,
         )
         bias_text = get_prompt_family(prompt_family_id).render_bias_text(question)
+        request_text = anti_sycophancy_request_text(anti_sycophancy_request)
         instruction_text = get_instruction_policy(instruction_policy or mc_mode).render_instruction(question)
         prompt_parts = [question_text]
         if str(bias_text or "").strip():
             prompt_parts.append(str(bias_text).strip())
+        if str(request_text or "").strip():
+            prompt_parts.append(str(request_text).strip())
         if str(instruction_text or "").strip():
             prompt_parts.append(str(instruction_text).strip())
         return "\n\n".join(prompt_parts)

@@ -1473,13 +1473,15 @@ def run_pipeline(args) -> None:
             instruction_policy=args.instruction_policy,
             mc_mode=args.mc_mode,
             seed=args.seed,
+            anti_sycophancy_request=args.anti_sycophancy_request,
         )
         if args.benchmark_source == "ays_mc_single_turn":
             log_status(
                 "pipeline.py",
                 f"materialized AYS MC rows: source_rows={len(rows_raw)} derived_rows={len(prepared_rows)} "
                 f"ays_mc_datasets={resolved_ays_mc_datasets} "
-                f"instruction_policy={args.instruction_policy} mc_mode={args.mc_mode}",
+                f"instruction_policy={args.instruction_policy} mc_mode={args.mc_mode} "
+                f"anti_sycophancy_request={args.anti_sycophancy_request}",
             )
 
         rows = deduplicate_rows(prepared_rows)

@@ -17,6 +17,15 @@ from .agreement_biases import (
     get_agreement_bias,
     resolve_agreement_biases,
 )
+from .anti_sycophancy import (
+    ANTI_SYCOPHANCY_REQUEST_NONE,
+    ANTI_SYCOPHANCY_REQUEST_STRONG,
+    ANTI_SYCOPHANCY_REQUEST_TEXT_BY_NAME,
+    ANTI_SYCOPHANCY_REQUEST_WEAK,
+    VISIBLE_ANTI_SYCOPHANCY_REQUEST_NAMES,
+    anti_sycophancy_request_text,
+    canonical_anti_sycophancy_request_name,
+)
 from .datasets import (
     ALL_AYS_MC_DATASETS,
     DEFAULT_AYS_MC_DATASETS,
@@ -138,6 +147,10 @@ from .types import (
 __all__ = [
     "AGREEMENT_BIAS_REGISTRY",
     "AGREEMENT_BIAS_TYPES",
+    "ANTI_SYCOPHANCY_REQUEST_NONE",
+    "ANTI_SYCOPHANCY_REQUEST_STRONG",
+    "ANTI_SYCOPHANCY_REQUEST_TEXT_BY_NAME",
+    "ANTI_SYCOPHANCY_REQUEST_WEAK",
     "ALL_AYS_MC_DATASETS",
     "ALL_BIAS_CONSTRUCTION_MODES",
     "ALL_BIAS_TYPES",
@@ -203,9 +216,11 @@ __all__ = [
     "SYCOPHANCY_FILES",
     "SYCOPHANCY_HF_DATASET",
     "as_prompt_text",
+    "anti_sycophancy_request_text",
     "build_question_groups",
     "BriefAnswerPolicy",
     "canonical_instruction_policy_name",
+    "canonical_anti_sycophancy_request_name",
     "dataset_adapter_for_benchmark",
     "dataset_name",
     "deduplicate_rows",
@@ -255,4 +270,5 @@ __all__ = [
     "unique_dataset_names",
     "user_selectable_bias_families",
     "VISIBLE_INSTRUCTION_POLICY_NAMES",
+    "VISIBLE_ANTI_SYCOPHANCY_REQUEST_NAMES",
 ]

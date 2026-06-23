@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from .agreement_biases.agreement_bias import AgreementBias
+from .anti_sycophancy import (
+    anti_sycophancy_request_text,
+    canonical_anti_sycophancy_request_name,
+)
 from .instruction_policies.instruction_policy import InstructionPolicy
 from .question import Question
 from .types import PromptVariant
@@ -14,6 +18,7 @@ class Prompt:
     question: Question
     agreement_bias: AgreementBias
     instruction_policy: InstructionPolicy
+    anti_sycophancy_request: str = "none"
 
     @property
     def prompt_family_id(self) -> str:
@@ -38,6 +43,10 @@ class Prompt:
         if bias_text:
             prompt_parts.append(bias_text)
 
+        request_text = anti_sycophancy_request_text(self.anti_sycophancy_request)
+        if request_text:
+            prompt_parts.append(request_text)
+
         instruction_text = str(self.instruction_policy.render_instruction(self.question) or "").strip()
         if instruction_text:
             prompt_parts.append(instruction_text)
@@ -50,6 +59,10 @@ class Prompt:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> PromptVariant:
         variant_metadata = dict(metadata or {})
+        anti_request = canonical_anti_sycophancy_request_name(self.anti_sycophancy_request)
+        anti_request_text = anti_sycophancy_request_text(anti_request)
+        variant_metadata.setdefault("anti_sycophancy_request", anti_request)
+        variant_metadata.setdefault("anti_sycophancy_request_text", anti_request_text)
         variant_metadata.setdefault("instruction_policy", self.instruction_policy.name)
         if self.instruction_policy.response_prefix:
             variant_metadata.setdefault("response_prefix", self.instruction_policy.response_prefix)

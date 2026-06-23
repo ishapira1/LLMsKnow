@@ -13,9 +13,11 @@ from .constants import (
     GRADING_SPEC_VERSION,
     PROMPT_SPEC_VERSION,
     SUPPORTED_BENCHMARK_SOURCES,
+    VISIBLE_ANTI_SYCOPHANCY_REQUEST_NAMES,
     VISIBLE_INSTRUCTION_POLICY_NAMES,
 )
 from .data import (
+    canonical_anti_sycophancy_request_name,
     canonical_instruction_policy_name,
     legacy_mc_mode_for_instruction_policy,
     trainable_prompt_families,
@@ -172,6 +174,16 @@ def build_parser() -> argparse.ArgumentParser:
             "answer_with_reasoning requires the answer line and then allows brief reasoning.\n"
             "The legacy --mc_mode flag still works and accepts strict_mc / mc_with_rationale aliases.\n"
             "This mainly matters for --benchmark_source=ays_mc_single_turn."
+        ),
+    )
+    benchmark_group.add_argument(
+        "--anti_sycophancy_request",
+        type=str,
+        default="none",
+        metavar="{" + ",".join(VISIBLE_ANTI_SYCOPHANCY_REQUEST_NAMES) + "}",
+        help=(
+            "Optional anti-sycophancy instruction appended after the prompt-family text "
+            "and before the answer-format instruction. Use 'none' for the existing prompt."
         ),
     )
 
@@ -438,6 +450,8 @@ def _validate_cli_dependencies(ap: argparse.ArgumentParser, args: argparse.Names
         ap.error("--benchmark_source=answer_json requires --input_jsonl=answer.jsonl.")
     if args.benchmark_source == "ays_mc_single_turn" and args.input_jsonl != "are_you_sure.jsonl":
         ap.error("--benchmark_source=ays_mc_single_turn requires --input_jsonl=are_you_sure.jsonl.")
+    if args.benchmark_source != "ays_mc_single_turn" and args.anti_sycophancy_request != "none":
+        ap.error("--anti_sycophancy_request weak/strong requires --benchmark_source=ays_mc_single_turn.")
     try:
         bias_types = resolve_bias_types(args.bias_types)
         probe_families = resolve_probe_families(args.probe_families, bias_types)
@@ -458,6 +472,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     args = ap.parse_args(argv)
     try:
         args.instruction_policy = canonical_instruction_policy_name(args.instruction_policy)
+    except ValueError as exc:
+        ap.error(str(exc))
+    try:
+        args.anti_sycophancy_request = canonical_anti_sycophancy_request_name(args.anti_sycophancy_request)
     except ValueError as exc:
         ap.error(str(exc))
     args.mc_mode = legacy_mc_mode_for_instruction_policy(args.instruction_policy)

@@ -91,6 +91,8 @@ def _materialize_sample_record(
         "task_format": task["task_format"],
         "mc_mode": task["mc_mode"],
         "instruction_policy": task.get("instruction_policy", ""),
+        "anti_sycophancy_request": task.get("anti_sycophancy_request", "none"),
+        "anti_sycophancy_request_text": task.get("anti_sycophancy_request_text", ""),
         "response_prefix": task.get("response_prefix", ""),
         "answer_channel": task["answer_channel"],
         "prompt_spec_version": task["prompt_spec_version"],
@@ -312,6 +314,8 @@ def build_sampling_spec(
         "model_backend": str(getattr(args, "model_backend", "huggingface") or "huggingface"),
         "benchmark_source": str(getattr(args, "benchmark_source", "answer_json") or "answer_json"),
         "mc_mode": str(getattr(args, "mc_mode", "") or ""),
+        "instruction_policy": str(getattr(args, "instruction_policy", "") or ""),
+        "anti_sycophancy_request": str(getattr(args, "anti_sycophancy_request", "none") or "none"),
         "prompt_spec_version": int(getattr(args, "prompt_spec_version", 0) or 0),
         "grading_spec_version": int(getattr(args, "grading_spec_version", 0) or 0),
         "generation_spec_version": int(getattr(args, "generation_spec_version", 0) or 0),
@@ -509,6 +513,8 @@ def sample_records_for_groups(
             task_format = str(base.get("task_format", "") or "")
             mc_mode = str(base.get("mc_mode", "") or "")
             instruction_policy = str(base.get("instruction_policy", "") or "")
+            anti_sycophancy_request = str(base.get("anti_sycophancy_request", "none") or "none")
+            anti_sycophancy_request_text = str(base.get("anti_sycophancy_request_text", "") or "")
             response_prefix = str(base.get("response_prefix", "") or "")
             answer_channel = str(base.get("answer_channel", "") or "")
             prompt_spec_version = base.get("prompt_spec_version")
@@ -553,6 +559,8 @@ def sample_records_for_groups(
                     "task_format": task_format,
                     "mc_mode": mc_mode,
                     "instruction_policy": instruction_policy,
+                    "anti_sycophancy_request": anti_sycophancy_request,
+                    "anti_sycophancy_request_text": anti_sycophancy_request_text,
                     "response_prefix": response_prefix,
                     "answer_channel": answer_channel,
                     "prompt_spec_version": prompt_spec_version,

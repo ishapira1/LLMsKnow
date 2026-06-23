@@ -38,6 +38,7 @@ class AgreementBias(ABC):
         instruction_policy: InstructionPolicy | str | None = None,
         *,
         mc_mode: str | None = None,
+        anti_sycophancy_request: str | None = None,
     ) -> str:
         from ..prompt import Prompt
 
@@ -46,6 +47,7 @@ class AgreementBias(ABC):
             question=question,
             agreement_bias=self,
             instruction_policy=resolved_policy,
+            anti_sycophancy_request=anti_sycophancy_request or "none",
         ).prompt_text
 
     def build_prompt_variant(
@@ -54,6 +56,7 @@ class AgreementBias(ABC):
         *,
         instruction_policy: InstructionPolicy | str | None = None,
         mc_mode: str | None = None,
+        anti_sycophancy_request: str | None = None,
         bias_construction_mode: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> PromptVariant:
@@ -64,6 +67,7 @@ class AgreementBias(ABC):
             question=question,
             agreement_bias=self,
             instruction_policy=resolved_policy,
+            anti_sycophancy_request=anti_sycophancy_request or "none",
         ).to_prompt_variant(
             bias_construction_mode=bias_construction_mode,
             metadata=metadata,

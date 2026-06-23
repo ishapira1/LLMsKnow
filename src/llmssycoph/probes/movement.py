@@ -245,6 +245,8 @@ def _record_base_metadata(record: Mapping[str, Any]) -> Dict[str, Any]:
         "task_format": _as_text(record.get("task_format")),
         "mc_mode": _as_text(record.get("mc_mode")),
         "instruction_policy": _as_text(record.get("instruction_policy")),
+        "anti_sycophancy_request": _as_text(record.get("anti_sycophancy_request") or "none"),
+        "anti_sycophancy_request_text": _as_text(record.get("anti_sycophancy_request_text")),
         "response_prefix": _as_text(record.get("response_prefix")),
         "answer_channel": _as_text(record.get("answer_channel")),
         "prompt_spec_version": record.get("prompt_spec_version"),
@@ -277,6 +279,7 @@ def build_same_family_paraphrase_prompt_messages(
         question,
         instruction_policy=_as_text(source_record.get("instruction_policy")) or None,
         mc_mode=_as_text(source_record.get("mc_mode")) or None,
+        anti_sycophancy_request=_as_text(source_record.get("anti_sycophancy_request") or "none"),
     )
     return {
         "prompt_text": prompt_text,
@@ -315,6 +318,7 @@ def _movement_row_base(
         "draw_idx": int(source_record.get("draw_idx", 0) or 0),
         "source_record_id": source_record.get("record_id"),
         "source_template_type": _as_text(source_record.get("template_type")),
+        "source_anti_sycophancy_request": _as_text(source_record.get("anti_sycophancy_request") or "none"),
         "source_example_id": _as_text(source_record.get("source_example_id")),
         "neutral_source_record_id": source_record.get("neutral_source_record_id"),
         "neutral_source_prompt_id": _as_text(source_record.get("neutral_source_prompt_id")),
@@ -377,6 +381,7 @@ def _build_exclusion_row(
         "draw_idx": int(source_record.get("draw_idx", 0) or 0),
         "source_record_id": source_record.get("record_id"),
         "source_template_type": _as_text(source_record.get("template_type")),
+        "source_anti_sycophancy_request": _as_text(source_record.get("anti_sycophancy_request") or "none"),
         "source_example_id": _as_text(source_record.get("source_example_id")),
         "target_change_kind": target_change_kind,
         "target_template_type": target_template_type,

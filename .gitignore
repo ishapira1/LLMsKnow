@@ -2,6 +2,10 @@
 output/
 wandb/
 notebooks/
+cluster_pull_*/
+
+# Local source-note drafts
+sources/*.md
 
 # Large local datasets
 data/triviaqa-unfiltered/
