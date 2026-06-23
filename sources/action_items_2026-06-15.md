@@ -1,11 +1,11 @@
-# Current Action Items: June 15, 2026
+# Historical Action Items: June 15, 2026
 
 Canonical detail lives in `meeting_notes_2026-06-15.md`.
 
+These action items are historical. The main experiment grid was rerun on June 20, 2026; current empirical claims should be taken from `current_empirical_summary_2026-06-20.md`.
+
 1. **Run the full experiment pipeline.**
-   - Diagnose the cluster errors first.
-   - Then run all datasets, all models, and all prompt families.
-   - Include the rephrasing experiments.
+   - Completed in the June 20 rerun for the main empirical summary.
 
 2. **Rerun the pruning experiment with Hadas's code.**
    - Integrate the code she sends into this codebase.

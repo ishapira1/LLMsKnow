@@ -14,7 +14,11 @@ Our goal is to distinguish uncertainty-driven sycophancy from policy-override sy
 
 ## Current working notes
 
-The current near-term action items are tracked in [meeting_notes_2026-06-15.md](meeting_notes_2026-06-15.md). As of June 15, 2026, the priorities are to complete the full experiment pipeline after diagnosing cluster errors, rerun the pruning experiment using Hadas's code, develop the possible connection to in-context learning and mechanistic interpretability, and read the collected papers more carefully.
+The current empirical anchor is [current_empirical_summary_2026-06-20.md](current_empirical_summary_2026-06-20.md). The main experiment grid was rerun on June 20, 2026, and older result-number files in `sources/` have been retired or removed so future AI-assisted summaries do not reuse stale numbers.
+
+The June 15 action items in [meeting_notes_2026-06-15.md](meeting_notes_2026-06-15.md) are now historical context. After the June 20 rerun, the priorities are to write from the updated empirical summary, keep probe claims calibrated as hidden-knowledge-like rather than causal proof, and plan intervention work such as patching or steering for stronger causal evidence.
+
+The current near-term planning source is [meeting_notes_2026-06-22.md](meeting_notes_2026-06-22.md). The June 22 action items prioritize running Hadas's pruning script, testing probing-based and mean-difference interventions for reducing sycophancy, reviewing intervention literature, and adding a simple "do not be sycophantic" prompt baseline.
 
 ## Working definitions
 

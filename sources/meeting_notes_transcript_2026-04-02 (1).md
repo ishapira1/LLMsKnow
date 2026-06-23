@@ -1,5 +1,7 @@
 # Meeting Notes and Transcript
 
+**Historical note:** This transcript is retained for discussion history only. Do not use quantitative empirical claims from this transcript as current project results unless they are repeated in `current_empirical_summary_2026-06-20.md`. The main experiment grid was rerun on June 20, 2026.
+
 **Title:** R1 Sycophancy hidden knowledge  
 **Date:** April 2, 2026 *(inferred from the filename `02-04-26`; the date format is not fully certain, but this is the most likely interpretation)*  
 **Audio file:** `R1 Sychopancy hidden knowledge 02-04-26.m4a`  

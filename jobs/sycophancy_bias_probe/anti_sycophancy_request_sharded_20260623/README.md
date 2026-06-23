@@ -58,6 +58,7 @@ Useful overrides:
 - `SUMMARY_EMAIL_TO=you@example.edu`
 - `SUMMARY_EMAIL_SUBJECT="Anti-sycophancy request results"`
 - `SEND_SUMMARY_EMAIL=0` to write summary files without sending mail
+- `SUMMARY_PARTITION=sapphire,shared` for the CPU-only summary email job
 
 Per-task baseline override variable names use uppercase task labels:
 

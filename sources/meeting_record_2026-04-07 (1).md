@@ -1,5 +1,7 @@
 # Meeting Record: April 7, 2026
 
+**Historical note:** This file is retained for discussion history only. Do not use quantitative empirical claims from this meeting record as current project results unless they are repeated in `current_empirical_summary_2026-06-20.md`. The main experiment grid was rerun on June 20, 2026.
+
 ## Meta information
 
 - **Date:** 2026-04-07
@@ -554,4 +556,3 @@ If the work needs to be prioritized tightly, the three highest-priority next ste
 1. **Rephrasing robustness check**  
 2. **Framing-agnostic mixed probe training**  
 3. **Polished external writeup centered on friction, movement, and matched-confidence \(c\)-vs-\(d\) comparisons**
-

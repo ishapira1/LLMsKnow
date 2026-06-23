@@ -49,14 +49,14 @@ It does **not** mean the probe has found a framing-agnostic truth feature.
 
 A within-family probe may still rely partly on framing-specific shortcuts. In particular, in stance-bearing prompts the probe may exploit properties of the user suggestion itself rather than a stable truth representation.
 
-### What we think we have now
+### Current June 20 status
 
 **Claim 1 is supported.**
 
-That is one of the clearest results in the current package.
+That is one of the clearest results in the June 20 rerun.
 
 - matched-family probes perform well in their own framing
-- truth is strongly decodable within neutral, incorrect-suggestion, suggest-correct, and doubt-correct families
+- truth is strongly decodable within prompt families
 - this means there is real correctness signal in the hidden state under each framing
 
 So the current experiments clearly support within-family decodability.
@@ -93,22 +93,17 @@ A probe can still pick the correct answer often enough to look useful while its 
 
 So Claim 2 is a **transfer** claim, not an **invariance** claim.
 
-### What we think we have now
+### Current June 20 status
 
-**Claim 2 is supported only in a weaker sense.**
+**Claim 2 is supported in a meaningful but incomplete sense.**
 
-The current neutral-trained probe still has nontrivial cross-framing signal:
+The June 20 rerun shows real cross-family transfer, but also a meaningful transfer penalty. The safest summary is:
 
-- it works well on neutral
-- it degrades on incorrect-suggestion and doubt-correct
-- it improves on suggest-correct
-- it stays relatively stable on the congruent-suggestion control
+- matched train/eval is clearly stronger than off-diagonal train/eval
+- `random_all` is the best overall trained probe in the current grid
+- random/doubt-style training families appear most framing-stable
 
-So the same readout does not completely collapse under framing change. That is real.
-
-But the drop is too large to call it a stable readout in a strong sense. The current evidence supports **partial cross-framing transfer**, not robust same-readout stability.
-
-The congruent-suggestion control is especially useful here. It suggests that not all degradation is mere prompt distribution shift. When the new structure is aligned with the model's prior answer, the neutral probe behaves much more stably than it does under incorrect suggestion. That supports the idea that at least part of the drop is due to a real framing effect, not just out-of-distribution probe brittleness.
+So the readout does not collapse under framing change, but it is not perfectly invariant. The current evidence supports **substantial cross-framing transfer with a transfer penalty**, not a fully stable same-readout story.
 
 ---
 
@@ -149,26 +144,26 @@ A strong claim-3 result would look like this:
 
 In other words, Claim 3 is an **invariance** claim, not just a **transfer** claim.
 
-### What we think we have now
+### Current June 20 status
 
-**Claim 3 is not established.**
+**Claim 3 is supported as hidden-knowledge-like evidence, but not as causal proof.**
 
-This is the most important current conclusion.
+This is the most important current calibration.
 
-The current results argue against a strong framing-agnostic truth detector:
+The June 20 rerun shows that, especially for `random_all`, a substantial correct-answer signal remains decodable even when the external model flips under strong wrong-user pressure. That is good evidence for a hidden-truth signal.
 
-- the same neutral probe changes substantially across framings
-- the same candidate's score moves a lot under incorrect suggestion and doubt-correct
-- the correct answer score often moves down when the user leans against it
-- the endorsed wrong answer score often moves up when the user leans toward it
+But this should not be overstated as a proven causal internal truth mechanism:
 
-At the same time, the matched-family probes still do very well. That means truth remains **decodable within framing**, but it does not look like the same framing-agnostic readout survives unchanged.
+- cross-family transfer is real but imperfect
+- paraphrases are mostly stable but not perfectly invariant
+- activation movement is small-angle and structured, but the current package does not support every desired baseline
+- intervention evidence such as patching or steering is still needed for the stronger causal claim
 
 The best current interpretation is:
 
-- truth is still present in the activations to a meaningful extent
-- but the representation or readout geometry shifts with framing
-- so the current probes look more like **framing-conditioned truth readouts** than a universal truth detector
+- truth remains decodable to a meaningful extent across biased framings
+- `random_all` provides the clearest current hidden-knowledge-like evidence
+- the project should still describe the result as evidence, not proof, of a hidden truth signal
 
 ## How the three claims relate to each other
 
@@ -198,30 +193,32 @@ The current evidence supports the following picture:
 The external story is already fairly strong.
 
 - behavioral sycophancy is real and targeted toward the user-backed wrong answer
-- the friction hypothesis is supported as a **movement** claim rather than only a flip claim
-- weakly committed items move more toward the user-backed wrong answer under the same incorrect-suggestion intervention
+- strong prompts make the external accuracy drop much larger
+- high neutral confidence acts like friction against movement
+- when errors happen, they are heavily targeted toward the user-backed wrong answer
 
-This external result matters because it says sycophancy is not just a boundary-crossing artifact. It is a graded movement phenomenon.
+This external result matters because it says sycophancy is not just random prompt sensitivity. It is targeted pressure toward the user's wrong answer.
 
 ### Internal side
 
 The internal story is more nuanced.
 
 - there is clear within-family decodability
-- there is partial same-readout transfer
-- there is not yet strong evidence for framing-agnostic truth detection
+- there is substantial cross-family transfer with a penalty
+- `random_all` preserves a strong correct-answer signal even in many cases where the external model flips
+- there is not yet causal proof that this signal drives or could control the final answer
 
-So the probe story is not empty, but it is also not yet the strong “truth machine” story.
+So the probe story is strong enough to support hidden-knowledge-like evidence, but it is not yet an intervention-backed mechanism story.
 
 ## Best current interpretation
 
 The most defensible interpretation right now is:
 
-1. **Neutral hidden knowledge exists**, but it is partial and most visible on model-error items.
-2. **The same neutral readout usually does not survive biased framing cleanly.**
-3. **Truth remains strongly decodable within framing**, especially with matched-family probes.
-4. **The best interpretation is representation shift or re-encoding**, not full erasure and not broad stable override.
-5. **A small override-like slice may exist**, but it is not the dominant regime in the current results.
+1. **External answers are highly sycophancy-sensitive**, especially under strong wrong-user pressure.
+2. **Errors are targeted toward the user-backed wrong answer**, not randomly distributed.
+3. **Neutral confidence acts like friction**, making confident correct answers harder to move.
+4. **Truth remains substantially decodable**, especially through the `random_all` probe.
+5. **The strongest causal claim still needs intervention evidence**, such as patching or steering.
 
 So the project should currently avoid saying:
 
@@ -229,7 +226,7 @@ So the project should currently avoid saying:
 
 Instead, the safer statement is:
 
-> we have evidence for within-family truth decodability and partial cross-framing transfer, but not yet for a robust framing-agnostic truth readout.
+> we have hidden-knowledge-like evidence that a correct-answer signal remains decodable across biased framings, especially with `random_all`, but the causal claim requires intervention work.
 
 ## Why this framework is useful for future conversations
 
@@ -251,23 +248,16 @@ That will make it much easier to keep probe claims calibrated.
 
 The next experiments that matter most for Claim 3 are:
 
-1. **Hadas's benign distribution-shift control**
-   - neutral-trained probe on a new structure that should preserve labels and induce little real conflict
-   - helps separate generic OOD brittleness from sycophancy-specific degradation
+1. **Intervention work**
+   - patching, steering, or related causal tests that ask whether the decodable truth signal can change the final answer
 
-2. **Rephrasing robustness check**
-   - same semantics, different wording
-   - checks whether the probe is fragile to superficial variation
+2. **More baselines for activation movement**
+   - true random activation-pair cosine and same-family/different-question cosine if the artifacts support them in a future pull
 
-3. **Mixed-family probe training**
-   - train on a balanced mix of framing families where the user suggestion is not predictive of correctness
-   - tests whether a more framing-agnostic readout can be learned
+3. **Stress-test the stable probe families**
+   - especially `random_all`, `doubt_random_strong`, and `doubt_random`
 
-4. **Leave-one-family-out evaluation**
-   - train on several framing families and test on a held-out one
-   - strongest non-causal benchmark for framing-agnostic truth detection
-
-5. **More candidate-ranking analysis**
+4. **More candidate-ranking analysis**
    - stay aligned with the hidden-factual methodology by emphasizing ranking metrics over plausible wrong answers, not only top-1 correctness
 
 ## Bottom line
@@ -275,15 +265,16 @@ The next experiments that matter most for Claim 3 are:
 The current project has a good three-level story:
 
 - **Claim 1:** supported
-- **Claim 2:** partially supported, but only in a weaker transfer sense
-- **Claim 3:** attractive and important, but not established by current experiments
+- **Claim 2:** supported with a meaningful transfer penalty
+- **Claim 3:** supported as hidden-knowledge-like evidence, but not yet as causal proof
 
 This is not a failure. It is actually a useful clarification.
 
 It means the project has already learned something nontrivial:
 
 - truth is decodable within framing
-- framing changes the readout substantially
-- the remaining open problem is whether there exists a shared truth readout that is robust to framing rather than merely relearnable inside each framing
+- framing changes the readout but does not erase it
+- `random_all` is the strongest current probe family
+- the remaining open problem is whether the decodable signal is causally usable for steering the model back to truth
 
 That is the right target for the next stage of the project.

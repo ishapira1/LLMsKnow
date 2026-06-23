@@ -1,19 +1,21 @@
-# Meeting Notes: June 15, 2026
+# Historical Meeting Notes: June 15, 2026
 
 ## Meta information
 
 - **Date:** 2026-06-15
 - **Project:** R1: Sycophancy mechanistic interpretability
 - **Prepared as:** project bookkeeping note
-- **Status:** current action-item source as of June 15, 2026
+- **Status:** historical action-item source; superseded for empirical claims by the June 20, 2026 rerun summary
 
 ## Summary
 
 The June 15 discussion reset the near-term priorities around four threads: completing the full experiment pipeline after diagnosing cluster errors, rerunning the pruning experiment with Hadas's code, thinking more seriously about the connection to in-context learning, and reading the relevant papers more carefully.
 
+As of the June 20, 2026 rerun, this note should be treated as historical context. Current empirical claims should come from `current_empirical_summary_2026-06-20.md`.
+
 The main practical point is that the project should now move from partial runs and diagnostic slices toward the full dataset-by-model-by-prompt-family grid, including the rephrasing experiments. The pruning work also needs to be treated as a careful integration task rather than a simple rerun, because Hadas emphasized that the results are sensitive to implementation details.
 
-## Current action items
+## Historical action items
 
 1. **Fully run the experiment pipeline after analyzing the cluster errors.**
    - First diagnose the errors encountered on the cluster.
@@ -41,5 +43,5 @@ The main practical point is that the project should now move from partial runs a
 
 ## Bookkeeping
 
-- This note should be treated as the current June 15 action-item record.
-- The project brief should point here for the active near-term priorities.
+- This note should be treated as the June 15 action-item record, not as the current empirical source.
+- The project brief now points to the June 20 rerun summary for current empirical claims.

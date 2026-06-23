@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=syco_antisyc_mail_20260623
-#SBATCH --partition=gpu,seas_gpu,gpu_h200
+#SBATCH --partition=sapphire,shared
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --time=00:30:00

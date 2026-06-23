@@ -182,7 +182,7 @@ required = [
     run_dir / "meta" / "run_config.json",
     run_dir / "meta" / "status.json",
     run_dir / "sampling" / "raw" / "sampling_manifest.json",
-    run_dir / "sampling" / "raw" / "sampled_responses.jsonl",
+    run_dir / "sampling" / "raw" / "sampling_records.jsonl",
 ]
 missing = [str(path) for path in required if not path.exists()]
 if missing:
