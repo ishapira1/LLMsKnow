@@ -6,8 +6,10 @@ import wandb
 from transformers import set_seed, AutoModelForCausalLM, AutoTokenizer
 from eval_utils import generate_responses_for_harmful_requests, \
     strongreject_classifier, \
-    eval_zero_shot, eval_triviaqa, finetuning_attack, generate_responses_financial_advice, generate_responses_for_alpaca, \
-    judge_for_alpaca, judge_for_safety, coherency_judge, cohere_explanation_judge, eval_ppl_wikitext
+    eval_zero_shot, eval_triviaqa, finetuning_attack, generate_responses_financial_advice, \
+    generate_responses_for_alpaca, \
+    judge_for_alpaca, judge_for_safety, coherency_judge, cohere_explanation_judge, eval_ppl_wikitext, \
+    load_model_and_tokenizer, eval_output_harm, eval_explanations
 from prune_utils import prune_attribution_score, prune_attribution_score_set_difference, check_sparsity, \
     prune_from_indices, find_intersection_indices, log_pruning_distribution, \
     prune_attribution_score_set_difference_global, prune_attribution_score_set_difference_with_refusal
@@ -47,7 +49,8 @@ def parse_args():
                             "attribution_score_set_difference",
                             "attribution_score_set_difference_global",
                             "given_indices",
-                            "intersect_indices"
+                            "intersect_indices",
+                            "random"
                         ], default="attribution_score_set_difference", help="Pruning method to use"
                         )
     parser.add_argument("--layers", type=int, nargs="+", default=None, help="Layers to prune, 0-indexed. If not specified, prunes all layers.")
@@ -72,6 +75,8 @@ def parse_args():
     parser.add_argument("--use_saved_scores", action="store_true", help='Use the SNIP scores saved from a previous run with --dump_score')
     parser.add_argument("--freeze_first_top_q", action="store_true", help='Avoid pruning the first top q weights, and use the 2nd top q weights instead (still taking the difference from the top p preservation data).')
     parser.add_argument("--indices_path", type=str, default=None, help="To be used with given_indices prune_method, path to json file containing list of indices to prune for each layer.")
+    parser.add_argument("--match_bins", type=int, default=20,
+                        help="Number of magnitude bins for the random matched control.")
 
     # Saving configuration
     parser.add_argument("--save_model", action='store_true', help="Save pruned model.")
@@ -158,49 +163,6 @@ def parse_args():
     print(args)
     return args
 
-
-def get_llm(model_name, revision=None):
-    if model_name == "Qwen/Qwen3-32B":
-        model = AutoModelForCausalLM.from_pretrained(
-            "Qwen/Qwen3-32B",
-            # quantization_config=bnb_config,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-        )
-    if ('olmo' in model_name.lower()) and (revision is not None):
-        model = AutoModelForCausalLM.from_pretrained("allenai/Olmo-3-1025-7B", revision=revision,
-                                                     dtype=torch.bfloat16, device_map="auto")
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=True,
-            device_map="auto",
-        )
-
-    model.seqlen = 4096
-    return model
-
-
-def load_model_and_tokenizer(args):
-    print(f"loading llm model {args.model}")
-    if getattr(args, "after_attack_model_path", None) is not None:
-        model = get_llm(args.after_attack_model_path)
-        # wandb.config.update({"evaluated_model": args.after_attack_model_path})
-    elif args.model_path is not None:
-        model = get_llm(args.model_path)
-        # wandb.config.update({"evaluated_model": args.model_path})
-    else:
-        model = get_llm(args.model, revision=getattr(args, "after_attack_model_path", None))
-        # wandb.config.update({"evaluated_model": args.model})
-    model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.tokenizer if args.tokenizer is not None else args.model,  # use_fast=False
-    )
-
-    return model, tokenizer
-
-
 def save_model(args, model):
     abs_indicator = "abs" if not args.no_abs else "no_abs"
     if args.prune_method == "attribution_score_set_difference":
@@ -223,7 +185,7 @@ def prune(args, device, model, tokenizer):
         return
 
     print("pruning starts")
-    if args.prune_method in ["attribution_score_set_difference", "attribution_score_set_difference_global"]:
+    if args.prune_method in ["attribution_score_set_difference", "attribution_score_set_difference_global", "random"]:
         if args.use_saved_scores:
             if args.refusal_data is not None:
                 prune_attribution_score_set_difference_with_refusal(
@@ -232,7 +194,7 @@ def prune(args, device, model, tokenizer):
                     p=args.p,
                     q=args.q,
                 )
-            elif args.prune_method == "attribution_score_set_difference":
+            elif args.prune_method in ["attribution_score_set_difference", "random"]:
                 prune_attribution_score_set_difference(
                     args,
                     model,
@@ -285,7 +247,7 @@ def prune(args, device, model, tokenizer):
                 args.nsamples = old_nsamples
 
 
-            if args.prune_method == "attribution_score_set_difference":
+            if args.prune_method in ["attribution_score_set_difference", "random"]:
                 prune_attribution_score_set_difference(
                         args,
                         model,
@@ -349,49 +311,6 @@ def save_model_after_attack(args, model):
     model.save_pretrained(save_path)
     print("Saved model after attack:", save_path)
 
-
-def eval_output_harm(args, output):
-    harmfulness_scores = strongreject_classifier(output)
-    output['harmfulness'] = harmfulness_scores
-    wandb.summary["strongreject_mean_score"] = np.mean(harmfulness_scores)
-    if args.safety_llm_judge:
-        judge_score, full_judge_responses = judge_for_safety(output, prefilling="prefilling" in args.attack)
-        output["judge_score"] = judge_score
-        output["full_judge_responses"] = full_judge_responses
-        wandb.summary["safety_judge_score"] = np.mean([s for s in judge_score if s is not None])
-    if args.eval_coherency and not args.eval_harmfulness_explanation:
-        print("Running coherency evaluation on safety outputs...")
-        coherency_scores, coherency_reasoning = coherency_judge(output)
-        output['coherency_score'] = coherency_scores
-        output['coherency_reasoning'] = coherency_reasoning
-        valid_coherency = [s for s in coherency_scores if not np.isnan(s)]
-        if valid_coherency:
-            wandb.summary["safety_mean_coherency"] = np.mean(valid_coherency)
-            print(f"Safety mean coherency: {np.mean(valid_coherency):.3f}")
-
-    return output
-
-def eval_explanations(args, output):
-    print("Running explanation quality judge...")
-    explanation_scores, explanation_reasoning = cohere_explanation_judge(output)
-    output['explanation_score'] = explanation_scores
-    output['explanation_reasoning'] = explanation_reasoning
-    valid_scores = [s for s in explanation_scores if not np.isnan(s)]
-    if valid_scores:
-        wandb.summary["mean_explanation_score"] = np.mean(valid_scores)
-        print(f"Mean explanation score: {np.mean(valid_scores):.3f}")
-    if args.eval_coherency:
-        print("Running coherency evaluation on explanation outputs...")
-        expl_coherency_scores, expl_coherency_reasoning = coherency_judge(output)
-        output['explanation_coherency_score'] = expl_coherency_scores
-        output['explanation_coherency_reasoning'] = expl_coherency_reasoning
-        valid_expl_coherency = [s for s in expl_coherency_scores if not np.isnan(s)]
-        if valid_expl_coherency:
-            wandb.summary["explanation_mean_coherency"] = np.mean(valid_expl_coherency)
-            print(f"Explanation mean coherency: {np.mean(valid_expl_coherency):.3f}")
-
-    return output
-
 def main():
     args = parse_args()
     set_seed(args.seed)
@@ -443,10 +362,6 @@ def main():
     wandb.summary["wikitest_ppl"] = ppl_test
 
     print("*" * 30)
-
-    if args.eval_financial_advice:
-        output = generate_responses_financial_advice(model, tokenizer, args)
-        wandb.log({"output_financial_advice": wandb.Table(dataframe=output)})
 
     if args.eval_alpaca:
         output = generate_responses_for_alpaca(model, tokenizer, args, nsamples=args.alpaca_nsamples)

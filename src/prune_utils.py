@@ -855,7 +855,7 @@ def prune_attribution_score_set_difference(
                 else:
                     preserve_data = args.preserve_data
 
-                path = f"scores/{args.model.split('/')[-1]}/{args.prune_method}/seed_0/{preserve_data}/{abs_indicator_preserve}/nsamples_{args.nsamples}/W_metric_layer_{i}_name_model.layers.{i}.{name}_weight.pkl"
+                path = f"scores/{args.model.split('/')[-1]}/attribution_score_set_difference/seed_0/{preserve_data}/{abs_indicator_preserve}/nsamples_{args.nsamples}/W_metric_layer_{i}_name_model.layers.{i}.{name}_weight.pkl"
                 print("Loaded weight from ", path)
                 W_metric_preserve = smart_load(path)
             else:
@@ -866,7 +866,7 @@ def prune_attribution_score_set_difference(
                     prune_data = args.prune_data + "_pretrained_format"
                 else:
                     prune_data = args.prune_data
-                path = f"scores/{args.model.split('/')[-1]}/{args.prune_method}/seed_0/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}/W_metric_layer_{i}_name_model.layers.{i}.{name}_weight.pkl"
+                path = f"scores/{args.model.split('/')[-1]}/attribution_score_set_difference/seed_0/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}/W_metric_layer_{i}_name_model.layers.{i}.{name}_weight.pkl"
                 print("Loaded weight from ", path)
                 W_metric_prune = smart_load(path)
             else:
@@ -899,6 +899,14 @@ def prune_attribution_score_set_difference(
                 mask = ~torch.isin(unique_q, unique_p)
                 # Apply the mask to unique_q to get filtered_indices
                 filtered_indices = unique_q[mask]
+
+            if args.prune_method == "random":
+                filtered_indices = match_random_indices_by_magnitude(
+                    subset[name].weight.data,
+                    filtered_indices,
+                    n_bins=getattr(args, "match_bins", 20),
+                )
+
 
             weight_dim = subset[name].weight.data.shape[1]
             filtered_indices_rows = filtered_indices // weight_dim
@@ -1213,3 +1221,82 @@ def smart_load(path, device: torch.device | None = None):
     with open(path, 'rb') as f:
         return DeviceUnpickler(f).load()
 
+
+def match_random_indices_by_magnitude(
+        weight,
+        targeted_flat_indices,
+        n_bins=20,
+        subsample_for_edges=1_000_000,
+        verbose=True,
+):
+    """
+    Given a weight matrix and the flat indices a method selected to prune,
+    return a DISJOINT set of random flat indices of identical size whose
+    |W| histogram matches the targeted set's |W| histogram (per magnitude bin).
+
+    Relies on the global RNG, so seed once (torch.manual_seed) before calling.
+    """
+    device = weight.device
+    Wabs = weight.detach().abs().reshape(-1)
+    numel = Wabs.numel()
+    targeted_flat_indices = targeted_flat_indices.to(device)
+    n_target = targeted_flat_indices.numel()
+    if n_target == 0:
+        return torch.empty(0, dtype=torch.long, device=device)
+
+    # --- bin edges from a (sub)sample of the full magnitude distribution ---
+    # subsample because torch.quantile chokes on very large tensors.
+    if numel > subsample_for_edges:
+        sample_idx = torch.randint(0, numel, (subsample_for_edges,), device=device)
+        sample = Wabs[sample_idx]
+    else:
+        sample = Wabs
+    qs = torch.linspace(0, 1, n_bins + 1, device=device)
+    edges = torch.quantile(sample.float(), qs)
+    inner_edges = edges[1:-1].contiguous()            # interior cut points
+    bins = torch.bucketize(Wabs, inner_edges)         # each elem -> bin in [0, n_bins-1]
+
+    # how many targeted weights fall in each bin
+    need = torch.bincount(bins[targeted_flat_indices], minlength=n_bins)
+
+    # candidate pool = everything NOT targeted (guarantees disjointness)
+    is_targeted = torch.zeros(numel, dtype=torch.bool, device=device)
+    is_targeted[targeted_flat_indices] = True
+    cand_idx = (~is_targeted).nonzero(as_tuple=False).squeeze(1)
+    cand_bins = bins[cand_idx]
+
+    chosen = []
+    leftover = []
+    deficit = 0
+    for b in range(n_bins):
+        pool = cand_idx[cand_bins == b]
+        k = int(need[b].item())
+        if k <= 0:
+            leftover.append(pool)
+            continue
+        if pool.numel() <= k:                          # not enough in this bin
+            chosen.append(pool)
+            deficit += k - pool.numel()
+        else:
+            perm = torch.randperm(pool.numel(), device=device)
+            chosen.append(pool[perm[:k]])
+            leftover.append(pool[perm[k:]])
+
+    # fill any deficit from leftover candidates (nearest-bin spillover, simplified to global)
+    if deficit > 0:
+        leftover = torch.cat([p for p in leftover if p.numel() > 0]) \
+            if leftover else torch.empty(0, dtype=torch.long, device=device)
+        if leftover.numel() > 0:
+            perm = torch.randperm(leftover.numel(), device=device)
+            chosen.append(leftover[perm[:deficit]])
+
+    random_indices = torch.cat(chosen) if chosen else \
+        torch.empty(0, dtype=torch.long, device=device)
+
+    if verbose:
+        tgt_mean = Wabs[targeted_flat_indices].mean().item()
+        rnd_mean = Wabs[random_indices].mean().item() if random_indices.numel() else 0.0
+        print(f"    match: n_target={n_target} n_random={random_indices.numel()} "
+              f"deficit={deficit} | mean|W| target={tgt_mean:.4e} random={rnd_mean:.4e}")
+
+    return random_indices

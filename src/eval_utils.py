@@ -13,12 +13,8 @@ import torch.nn as nn
 import transformers
 import wandb
 from datasets import load_dataset
-from lm_eval import evaluator
-from lm_eval.models.huggingface import HFLM
-from peft import LoraConfig
 from tqdm import tqdm
 from transformers import TrainingArguments, AutoTokenizer, AutoModelForCausalLM, set_seed
-from trl import SFTTrainer, SFTConfig
 import cohere
 
 cohere_key = ""
@@ -271,6 +267,9 @@ def get_finetuning_data():
 
 def finetuning_attack(args, model, tokenizer, seed, lora_rank=128, lora_alpha=16, lora_dropout=0,
                       batch_size=5, grad_accum_steps=1, epochs=5, lr=2e-4, warmup_ratio=0.05, weight_decay=0.01):
+    from trl import SFTTrainer, SFTConfig
+    from peft import LoraConfig
+
     if args.after_attack_model_path is not None:
         return model
 
@@ -754,6 +753,8 @@ def eval_zero_shot(
         tokenizer,
         task_list=None,
 ):
+    from lm_eval import evaluator
+    from lm_eval.models.huggingface import HFLM
     if task_list is None:
         task_list = [
             "boolq",
@@ -1035,3 +1036,85 @@ def extract_score(r):
     if match:
         return int(match.group(1))
     return None
+
+def eval_output_harm(args, output):
+    harmfulness_scores = strongreject_classifier(output)
+    output['harmfulness'] = harmfulness_scores
+    wandb.summary["strongreject_mean_score"] = np.mean(harmfulness_scores)
+    if args.safety_llm_judge:
+        judge_score, full_judge_responses = judge_for_safety(output, prefilling="prefilling" in args.attack)
+        output["judge_score"] = judge_score
+        output["full_judge_responses"] = full_judge_responses
+        wandb.summary["safety_judge_score"] = np.mean([s for s in judge_score if s is not None])
+    if args.eval_coherency and not args.eval_harmfulness_explanation:
+        print("Running coherency evaluation on safety outputs...")
+        coherency_scores, coherency_reasoning = coherency_judge(output)
+        output['coherency_score'] = coherency_scores
+        output['coherency_reasoning'] = coherency_reasoning
+        valid_coherency = [s for s in coherency_scores if not np.isnan(s)]
+        if valid_coherency:
+            wandb.summary["safety_mean_coherency"] = np.mean(valid_coherency)
+            print(f"Safety mean coherency: {np.mean(valid_coherency):.3f}")
+
+    return output
+
+def eval_explanations(args, output):
+    print("Running explanation quality judge...")
+    explanation_scores, explanation_reasoning = cohere_explanation_judge(output)
+    output['explanation_score'] = explanation_scores
+    output['explanation_reasoning'] = explanation_reasoning
+    valid_scores = [s for s in explanation_scores if not np.isnan(s)]
+    if valid_scores:
+        wandb.summary["mean_explanation_score"] = np.mean(valid_scores)
+        print(f"Mean explanation score: {np.mean(valid_scores):.3f}")
+    if args.eval_coherency:
+        print("Running coherency evaluation on explanation outputs...")
+        expl_coherency_scores, expl_coherency_reasoning = coherency_judge(output)
+        output['explanation_coherency_score'] = expl_coherency_scores
+        output['explanation_coherency_reasoning'] = expl_coherency_reasoning
+        valid_expl_coherency = [s for s in expl_coherency_scores if not np.isnan(s)]
+        if valid_expl_coherency:
+            wandb.summary["explanation_mean_coherency"] = np.mean(valid_expl_coherency)
+            print(f"Explanation mean coherency: {np.mean(valid_expl_coherency):.3f}")
+
+    return output
+
+def get_llm(model_name, revision=None):
+    if model_name == "Qwen/Qwen3-32B":
+        model = AutoModelForCausalLM.from_pretrained(
+            "Qwen/Qwen3-32B",
+            # quantization_config=bnb_config,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+    if ('olmo' in model_name.lower()) and (revision is not None):
+        model = AutoModelForCausalLM.from_pretrained("allenai/Olmo-3-1025-7B", revision=revision,
+                                                     dtype=torch.bfloat16, device_map="auto")
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+            device_map="auto",
+        )
+
+    model.seqlen = 4096
+    return model
+
+def load_model_and_tokenizer(args):
+    print(f"loading llm model {args.model}")
+    if getattr(args, "after_attack_model_path", None) is not None:
+        model = get_llm(args.after_attack_model_path)
+        # wandb.config.update({"evaluated_model": args.after_attack_model_path})
+    elif getattr(args, "model_path", None) is not None:
+        model = get_llm(args.model_path)
+        # wandb.config.update({"evaluated_model": args.model_path})
+    else:
+        model = get_llm(args.model, revision=getattr(args, "after_attack_model_path", None))
+        # wandb.config.update({"evaluated_model": args.model})
+    model.eval()
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.tokenizer if args.tokenizer is not None else args.model,  # use_fast=False
+    )
+
+    return model, tokenizer

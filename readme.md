@@ -16,7 +16,6 @@ To install, do:
 `micromamba create -f environment.yml`
 `uv pip install -r requirements.txt`
 
-
 This works with conda as well.
 
 ## Basic pruning
@@ -138,7 +137,7 @@ Use the following flags:
 
 ### Eval emergent misalignment
 
-We use the same pipeline as [model-organisms-for-EM](https://github.com/clarifying-EM/model-organisms-for-EM) repository. First, create a new conda environment for fine-tuning:
+We use the same pipeline as [model-organisms-for-EM](https://github.com/clarifying-EM/model-organisms-for-EM) repository.
 First, clone model-organisms-for-EM into reference_repos/ and activate the conda environment specified in that repo's README.
 
 Then use the following script for fine-tuning:
