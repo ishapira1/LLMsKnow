@@ -5,6 +5,7 @@ from __future__ import print_function
 
 import argparse
 import json
+import os
 import platform
 import sys
 
@@ -21,7 +22,7 @@ EXPECTED_VERSIONS = {
     "tokenizers": "0.19.1",
     "torch": "2.2.0",
     "tqdm": "4.66.5",
-    "transformers": "4.42.3",
+    "transformers": "4.43.2",
     "wandb": "0.15.12",
 }
 
@@ -41,6 +42,22 @@ def _base_version(value):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--require-cuda", action="store_true")
+    parser.add_argument(
+        "--model-config",
+        action="append",
+        default=[],
+        help="Hugging Face model ID whose AutoConfig must load successfully.",
+    )
+    parser.add_argument(
+        "--hf-cache-dir",
+        default=None,
+        help="Optional Hugging Face Hub cache passed to AutoConfig.from_pretrained.",
+    )
+    parser.add_argument(
+        "--local-files-only",
+        action="store_true",
+        help="Require model-config checks to use files already present in the cache.",
+    )
     args = parser.parse_args()
 
     errors = []
@@ -80,6 +97,41 @@ def main():
     if args.require_cuda and not cuda_available:
         errors.append("CUDA is required for this stage, but torch.cuda.is_available() is false")
 
+    model_config_checks = []
+    if args.model_config:
+        try:
+            from transformers import AutoConfig
+        except Exception as error:  # noqa: BLE001
+            AutoConfig = None
+            errors.append("Transformers AutoConfig import failed: {}".format(error))
+        if AutoConfig is not None:
+            access_token = os.environ.get("HF_TOKEN") or os.environ.get(
+                "HUGGINGFACE_TOKEN"
+            )
+            for model_id in args.model_config:
+                check = {"model_id": model_id, "ok": False}
+                config_kwargs = {
+                    "cache_dir": args.hf_cache_dir,
+                    "local_files_only": bool(args.local_files_only),
+                }
+                if access_token:
+                    config_kwargs["token"] = access_token
+                try:
+                    config = AutoConfig.from_pretrained(model_id, **config_kwargs)
+                    check.update(
+                        {
+                            "ok": True,
+                            "config_class": type(config).__name__,
+                            "model_type": getattr(config, "model_type", None),
+                        }
+                    )
+                except Exception as error:  # noqa: BLE001
+                    check["error"] = "{}: {}".format(type(error).__name__, error)
+                    errors.append(
+                        "AutoConfig failed for {}: {}".format(model_id, error)
+                    )
+                model_config_checks.append(check)
+
     payload = {
         "ok": not errors,
         "python_executable": sys.executable,
@@ -91,6 +143,7 @@ def main():
         "torch_cuda_version": cuda_version,
         "cudnn_version": cudnn_version,
         "device_name": device_name,
+        "model_config_checks": model_config_checks,
         "errors": errors,
     }
     print("[runtime-contract] {}".format(json.dumps(payload, sort_keys=True)))

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 BUNDLE_NAME="random_all_interventions_sharded_20260722"
-JOB_DATE_TAG="20260722"
+JOB_DATE_TAG="20260723"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
 CALLER_ENV_PYTHON="${ENV_PYTHON:-}"
@@ -40,7 +40,7 @@ fi
 source jobs/sycophancy_bias_probe/storage_common.sh
 configure_sycophancy_bias_storage "$BUNDLE_NAME"
 
-RUNTIME_ENV_DIR="${RANDOM_ALL_INTERVENTION_ENV_DIR:-$SYCOPHANCY_STORAGE_ROOT/python_envs/llmsknow_py310_torch220_transformers4423}"
+RUNTIME_ENV_DIR="${RANDOM_ALL_INTERVENTION_ENV_DIR:-$SYCOPHANCY_STORAGE_ROOT/python_envs/llmsknow_py310_torch220_transformers4432}"
 ENV_PYTHON="${CALLER_ENV_PYTHON:-$RUNTIME_ENV_DIR/bin/python}"
 if [[ ! -x "$ENV_PYTHON" ]]; then
   printf '%s\n' \
@@ -102,6 +102,12 @@ MODEL_SLUGS=(
   meta_llama_Llama_3_1_8B_Instruct
   Qwen_Qwen2_5_7B_Instruct
 )
+MODEL_IDS=(
+  meta-llama/Llama-3.1-8B-Instruct
+  Qwen/Qwen2.5-7B-Instruct
+  meta-llama/Llama-3.1-8B-Instruct
+  Qwen/Qwen2.5-7B-Instruct
+)
 DATASET_NAMES=(commonsense_qa commonsense_qa arc_challenge arc_challenge)
 SOURCE_RUN_NAMES=(
   commonsense_qa_llama31_8b_allfamilies_probe_random_all_20260618
@@ -137,7 +143,32 @@ if [[ "${#SELECTED_INDICES[@]}" -eq 0 ]]; then
   printf '%s\n' "TASK_FILTER did not match a known task label or dataset: $TASK_FILTER" >&2
   exit 1
 fi
+DRY_RUN="${DRY_RUN:-0}"
+selected_count="${#SELECTED_INDICES[@]}"
+if [[ "$DRY_RUN" != "1" && "$selected_count" -ne 1 ]]; then
+  printf '%s\n' \
+    "Real submissions require exactly one task label so every model gets an independent dependency DAG. Set TASK_FILTER to one exact label; dataset-wide and comma-separated filters are dry-run only." >&2
+  exit 1
+fi
 SELECTED_BASE_INDICES_CSV="$(IFS=,; printf '%s' "${SELECTED_INDICES[*]}")"
+
+runtime_model_cmd=(
+  "$ENV_PYTHON"
+  "$RUNTIME_CONTRACT_PATH"
+  --hf-cache-dir "$HF_HUB_CACHE"
+  --local-files-only
+)
+for base_index in "${SELECTED_INDICES[@]}"; do
+  runtime_model_cmd+=(--model-config "${MODEL_IDS[$base_index]}")
+done
+log_command "[preflight] model configs: " "${runtime_model_cmd[@]}"
+if ! runtime_model_output="$("${runtime_model_cmd[@]}" 2>&1)"; then
+  printf '%s\n' "$runtime_model_output" | tee -a "$SUBMIT_LOG_FILE" >&2
+  printf '%s\n' \
+    "Model-config preflight failed; no Slurm jobs were submitted. Fix the runtime environment or Hugging Face cache." >&2
+  exit 1
+fi
+printf '%s\n' "$runtime_model_output" | tee -a "$SUBMIT_LOG_FILE"
 
 require_any_file() {
   local label="${1:?missing file label}"
@@ -233,7 +264,6 @@ if (( source_preflight_failed )); then
   exit 1
 fi
 
-DRY_RUN="${DRY_RUN:-0}"
 GPU_PARTITION="${GPU_PARTITION:-gpu,seas_gpu,gpu_h200}"
 CPU_PARTITION="${CPU_PARTITION:-shared,sapphire}"
 SBATCH_CPUS="${SBATCH_CPUS:-2}"
@@ -246,7 +276,6 @@ LOCALIZE_MEM="${LOCALIZE_MEM:-100G}"
 DOSE_TUNE_MEM="${DOSE_TUNE_MEM:-100G}"
 CONFIRM_MEM="${CONFIRM_MEM:-100G}"
 CPU_MEM="${CPU_MEM:-100G}"
-selected_count="${#SELECTED_INDICES[@]}"
 fit_array="0-$((selected_count - 1))"
 localize_array="0-$((selected_count * 31 - 1))"
 TOP_K_PATCH_LAYERS="${TOP_K_PATCH_LAYERS:-3}"

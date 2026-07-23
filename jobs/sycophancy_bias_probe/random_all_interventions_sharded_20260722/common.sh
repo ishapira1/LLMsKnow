@@ -44,7 +44,7 @@ fi
 source jobs/sycophancy_bias_probe/storage_common.sh
 configure_sycophancy_bias_storage "$BUNDLE_NAME"
 
-RUNTIME_ENV_DIR="${RANDOM_ALL_INTERVENTION_ENV_DIR:-$SYCOPHANCY_STORAGE_ROOT/python_envs/llmsknow_py310_torch220_transformers4423}"
+RUNTIME_ENV_DIR="${RANDOM_ALL_INTERVENTION_ENV_DIR:-$SYCOPHANCY_STORAGE_ROOT/python_envs/llmsknow_py310_torch220_transformers4432}"
 ENV_PYTHON="${SUBMITTED_ENV_PYTHON:-$RUNTIME_ENV_DIR/bin/python}"
 if [[ ! -x "$ENV_PYTHON" ]]; then
   printf '%s\n' "Missing validated intervention Python: $ENV_PYTHON" >&2

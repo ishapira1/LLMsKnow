@@ -25,7 +25,7 @@ configure_sycophancy_bias_storage "$BUNDLE_NAME"
 
 module load python/3.10.9-fasrc01
 BASE_PYTHON="${BASE_PYTHON:-python3}"
-RUNTIME_ENV_DIR="${RANDOM_ALL_INTERVENTION_ENV_DIR:-$SYCOPHANCY_STORAGE_ROOT/python_envs/llmsknow_py310_torch220_transformers4423}"
+RUNTIME_ENV_DIR="${RANDOM_ALL_INTERVENTION_ENV_DIR:-$SYCOPHANCY_STORAGE_ROOT/python_envs/llmsknow_py310_torch220_transformers4432}"
 RUNTIME_PYTHON="$RUNTIME_ENV_DIR/bin/python"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-$SYCOPHANCY_STORAGE_ROOT/pip_cache}"
 
@@ -45,6 +45,7 @@ fi
 
 "$RUNTIME_PYTHON" -m pip install --upgrade pip setuptools wheel
 "$RUNTIME_PYTHON" -m pip install --requirement "$ROOT_DIR/requirements.txt"
+"$RUNTIME_PYTHON" -m pip install --upgrade "transformers==4.43.2"
 "$RUNTIME_PYTHON" -m pip check
 "$RUNTIME_PYTHON" \
   "$ROOT_DIR/jobs/sycophancy_bias_probe/$BUNDLE_NAME/runtime_contract.py"

@@ -57,10 +57,10 @@ The central success pattern is:
 This bundle does not use the legacy `itai_ml_env` because it contains Python 3.8. It defaults to a pinned Python 3.10 environment on Holystore:
 
 ```text
-/n/holystore01/LABS/barak_lab/Users/ishapira/python_envs/llmsknow_py310_torch220_transformers4423/bin/python
+/n/holystore01/LABS/barak_lab/Users/ishapira/python_envs/llmsknow_py310_torch220_transformers4432/bin/python
 ```
 
-Create it once from the repository's exact `requirements.txt` pins:
+Create it once from the repository requirements plus the bundle's Llama-3.1-compatible Transformers pin:
 
 ```bash
 SYCOPHANCY_STORAGE_ROOT_OVERRIDE=/n/holystore01/LABS/barak_lab/Users/ishapira \
@@ -70,12 +70,17 @@ bash jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/create
 Then validate the actual CUDA runtime before submitting the experiment:
 
 ```bash
-export ENV_PYTHON=/n/holystore01/LABS/barak_lab/Users/ishapira/python_envs/llmsknow_py310_torch220_transformers4423/bin/python
+export ENV_PYTHON=/n/holystore01/LABS/barak_lab/Users/ishapira/python_envs/llmsknow_py310_torch220_transformers4432/bin/python
 srun --partition=gpu,seas_gpu,gpu_h200 --gres=gpu:1 --cpus-per-task=2 --mem=16G --time=00:10:00 \
-  "$ENV_PYTHON" jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/runtime_contract.py --require-cuda
+  "$ENV_PYTHON" jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/runtime_contract.py \
+  --require-cuda \
+  --hf-cache-dir /n/holystore01/LABS/barak_lab/Users/ishapira/hf_cache/hub \
+  --local-files-only \
+  --model-config meta-llama/Llama-3.1-8B-Instruct \
+  --model-config Qwen/Qwen2.5-7B-Instruct
 ```
 
-The validator requires Python >=3.10 and the pinned package versions, including PyTorch 2.2.0 and Transformers 4.42.3. Every GPU stage repeats the CUDA check before loading a model.
+The validator requires Python >=3.10 and the pinned package versions, including PyTorch 2.2.0 and Transformers 4.43.2. The model-config smoke test catches incompatible configuration parsers before the first `sbatch`, and every GPU stage repeats the CUDA check before loading a model.
 
 First validate shell syntax and the submission graph:
 
@@ -84,23 +89,30 @@ for file in jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722
 DRY_RUN=1 bash jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/submit_random_all_interventions_sharded_20260722.sh
 ```
 
-Then submit:
+Then submit one independent dependency DAG per model:
 
 ```bash
+TASK_FILTER=commonsense_qa_llama31_8b \
+EXPERIMENT_RUN_ID=random_all_csqa_llama_full_20260723_v4 \
+bash jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/submit_random_all_interventions_sharded_20260722.sh
+
+TASK_FILTER=commonsense_qa_qwen25_7b \
+EXPERIMENT_RUN_ID=random_all_csqa_qwen_full_20260723_v4 \
 bash jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/submit_random_all_interventions_sharded_20260722.sh
 ```
 
 Useful validation-pilot overrides are `TASK_FILTER`, `FIT_MAX_QUESTIONS`, and `VAL_MAX_QUESTIONS`. Empty max-question values mean the full split. A capped direction artifact is blocked from held-out confirmation, and there is deliberately no `TEST_MAX_QUESTIONS` option. Each submission gets a unique `EXPERIMENT_RUN_ID` output namespace, and writers refuse to overwrite an existing shard. `ALLOW_STALE_LOCK_CLEANUP` is intentionally not used; this bundle never removes source locks or mutates source probe runs.
 
-`TASK_FILTER` accepts a dataset name, one task label, or a comma-separated list. For example, if only the two CSQA source runs are present:
+`TASK_FILTER` accepts a dataset name, one task label, or a comma-separated list for dry runs. Real submissions require exactly one exact task label so failures remain isolated to one model's DAG. For example, a combined CSQA graph can still be inspected without submitting jobs:
 
 ```bash
+DRY_RUN=1 \
 TASK_FILTER=commonsense_qa \
-EXPERIMENT_RUN_ID=random_all_csqa_full_20260722_v2 \
+EXPERIMENT_RUN_ID=random_all_csqa_dry_run_20260723 \
 bash jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/submit_random_all_interventions_sharded_20260722.sh
 ```
 
-The submitter binds `REPO_DIR` and every Slurm `--chdir` to the exact checkout containing the submit script, records and verifies its Git commit in every task, and checks all required source-run/probe artifacts before the first `sbatch`. A missing source now fails before any jobs are submitted rather than cancelling a downstream DAG. Use a new `EXPERIMENT_RUN_ID` for every retry.
+The submitter binds `REPO_DIR` and every Slurm `--chdir` to the exact checkout containing the submit script, records and verifies its Git commit in every task, and checks the Python/package contract, model configurations, and required source-run/probe artifacts before the first `sbatch`. A failed preflight stops before submission. Use a new `EXPERIMENT_RUN_ID` for every retry. The previous successful Qwen fit used Transformers 4.42.3; rerun Qwen in the new namespace so both confirmatory cells share the same 4.43.2 runtime.
 
 ## Outputs
 
