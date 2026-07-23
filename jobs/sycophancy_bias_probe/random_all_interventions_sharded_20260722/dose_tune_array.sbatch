@@ -26,6 +26,7 @@ COMBO_OFFSET=$((TASK_ID / TOP_K))
 CANDIDATE_INDEX=$((TASK_ID % TOP_K))
 resolve_task_context "${SELECTED_INDICES[$COMBO_OFFSET]}"
 start_structured_task_log "dose_tune_candidate_$CANDIDATE_INDEX" probe_bias_random_all
+validate_runtime_contract --require-cuda
 
 LAYER_SELECTION="$CELL_ROOT/selected_patch_layers.json"
 test -s "$DIRECTIONS_PATH"

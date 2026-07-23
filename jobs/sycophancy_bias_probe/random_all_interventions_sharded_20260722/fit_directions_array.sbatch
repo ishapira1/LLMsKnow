@@ -22,6 +22,7 @@ if (( TASK_ID >= ${#SELECTED_INDICES[@]} )); then
 fi
 resolve_task_context "${SELECTED_INDICES[$TASK_ID]}"
 start_structured_task_log fit_directions probe_bias_random_all
+validate_runtime_contract --require-cuda
 
 FIT_MAX_QUESTIONS="${FIT_MAX_QUESTIONS:-}"
 FIT_SEED="${FIT_SEED:-5}"

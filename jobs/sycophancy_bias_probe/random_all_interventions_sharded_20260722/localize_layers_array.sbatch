@@ -31,6 +31,7 @@ if (( LAYER > NONTERMINAL_LAYER_COUNT )); then
   exit 0
 fi
 start_structured_task_log "localize_layer_$(printf '%03d' "$LAYER")" probe_bias_random_all
+validate_runtime_contract --require-cuda
 
 test -s "$DIRECTIONS_PATH"
 VAL_MAX_QUESTIONS="${VAL_MAX_QUESTIONS:-}"

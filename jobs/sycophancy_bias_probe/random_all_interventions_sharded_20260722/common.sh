@@ -5,6 +5,7 @@ set -euo pipefail
 BUNDLE_NAME="random_all_interventions_sharded_20260722"
 JOB_DATE_TAG="20260722"
 REPO_DIR="${REPO_DIR:-${SLURM_SUBMIT_DIR:-/n/home12/ishapira/LLMsKnow}}"
+SUBMITTED_ENV_PYTHON="${ENV_PYTHON:-}"
 
 cd "$REPO_DIR"
 if [[ ! -f "$REPO_DIR/run_random_all_intervention.py" ]]; then
@@ -25,12 +26,6 @@ export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 module load python/3.10.9-fasrc01
-
-ENV_PYTHON="${ENV_PYTHON:-/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python}"
-if [[ ! -x "$ENV_PYTHON" ]]; then
-  printf '%s\n' "Missing python interpreter: $ENV_PYTHON" >&2
-  exit 1
-fi
 if [[ ! -f .env ]]; then
   printf '%s\n' "Missing .env in $REPO_DIR" >&2
   exit 1
@@ -48,6 +43,18 @@ fi
 
 source jobs/sycophancy_bias_probe/storage_common.sh
 configure_sycophancy_bias_storage "$BUNDLE_NAME"
+
+RUNTIME_ENV_DIR="${RANDOM_ALL_INTERVENTION_ENV_DIR:-$SYCOPHANCY_STORAGE_ROOT/python_envs/llmsknow_py310_torch220_transformers4423}"
+ENV_PYTHON="${SUBMITTED_ENV_PYTHON:-$RUNTIME_ENV_DIR/bin/python}"
+if [[ ! -x "$ENV_PYTHON" ]]; then
+  printf '%s\n' "Missing validated intervention Python: $ENV_PYTHON" >&2
+  exit 1
+fi
+RUNTIME_CONTRACT_PATH="$REPO_DIR/jobs/sycophancy_bias_probe/$BUNDLE_NAME/runtime_contract.py"
+validate_runtime_contract() {
+  "$ENV_PYTHON" "$RUNTIME_CONTRACT_PATH" "$@"
+}
+validate_runtime_contract
 
 SOURCE_RESULTS_ROOT="${SOURCE_RESULTS_ROOT:-$SYCOPHANCY_BIAS_RESULTS_DIR}"
 EXPERIMENT_RUN_ID="${EXPERIMENT_RUN_ID:-manual_20260722}"
@@ -208,4 +215,5 @@ print_command() {
 }
 
 export REPO_DIR SUBMISSION_GIT_COMMIT SELECTED_BASE_INDICES_CSV
+export ENV_PYTHON RUNTIME_ENV_DIR RUNTIME_CONTRACT_PATH
 export SOURCE_RESULTS_ROOT EXPERIMENT_RUN_ID INTERVENTION_BASE_ROOT INTERVENTION_ROOT HF_CACHE_DIR

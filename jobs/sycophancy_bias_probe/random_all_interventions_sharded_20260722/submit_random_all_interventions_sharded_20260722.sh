@@ -6,6 +6,7 @@ BUNDLE_NAME="random_all_interventions_sharded_20260722"
 JOB_DATE_TAG="20260722"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
+CALLER_ENV_PYTHON="${ENV_PYTHON:-}"
 
 if [[ ! -f .env ]]; then
   printf '%s\n' "Missing .env in $ROOT_DIR" >&2
@@ -39,11 +40,15 @@ fi
 source jobs/sycophancy_bias_probe/storage_common.sh
 configure_sycophancy_bias_storage "$BUNDLE_NAME"
 
-ENV_PYTHON="${ENV_PYTHON:-/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python}"
+RUNTIME_ENV_DIR="${RANDOM_ALL_INTERVENTION_ENV_DIR:-$SYCOPHANCY_STORAGE_ROOT/python_envs/llmsknow_py310_torch220_transformers4423}"
+ENV_PYTHON="${CALLER_ENV_PYTHON:-$RUNTIME_ENV_DIR/bin/python}"
 if [[ ! -x "$ENV_PYTHON" ]]; then
-  printf '%s\n' "Missing Python interpreter for source preflight: $ENV_PYTHON" >&2
+  printf '%s\n' \
+    "Missing validated intervention Python: $ENV_PYTHON. Run jobs/sycophancy_bias_probe/$BUNDLE_NAME/create_runtime_env.sh or set ENV_PYTHON explicitly." >&2
   exit 1
 fi
+RUNTIME_CONTRACT_PATH="$REPO_DIR/jobs/sycophancy_bias_probe/$BUNDLE_NAME/runtime_contract.py"
+"$ENV_PYTHON" "$RUNTIME_CONTRACT_PATH"
 
 SUBMIT_LOG_DIR="$LOG_ROOT/submit"
 SUBMISSION_STEM="$(date +%Y%m%dT%H%M%S%z)_pid_$$"
@@ -249,6 +254,7 @@ dose_tune_array="0-$((selected_count * TOP_K_PATCH_LAYERS - 1))"
 cell_array="$fit_array"
 
 export TASK_FILTER SELECTED_BASE_INDICES_CSV SOURCE_RESULTS_ROOT EXPERIMENT_RUN_ID ENV_PYTHON
+export RUNTIME_ENV_DIR RUNTIME_CONTRACT_PATH
 export INTERVENTION_BASE_ROOT INTERVENTION_ROOT TOP_K_PATCH_LAYERS SUBMISSION_GIT_COMMIT
 
 fit_cmd=(
@@ -410,6 +416,9 @@ fi
   printf 'ROOT_DIR=%q\n' "$ROOT_DIR"
   printf 'REPO_DIR=%q\n' "$REPO_DIR"
   printf 'SUBMISSION_GIT_COMMIT=%q\n' "$SUBMISSION_GIT_COMMIT"
+  printf 'ENV_PYTHON=%q\n' "$ENV_PYTHON"
+  printf 'RUNTIME_ENV_DIR=%q\n' "$RUNTIME_ENV_DIR"
+  printf 'RUNTIME_CONTRACT_PATH=%q\n' "$RUNTIME_CONTRACT_PATH"
   printf 'SOURCE_RESULTS_ROOT=%q\n' "$SOURCE_RESULTS_ROOT"
   printf 'EXPERIMENT_RUN_ID=%q\n' "$EXPERIMENT_RUN_ID"
   printf 'INTERVENTION_BASE_ROOT=%q\n' "$INTERVENTION_BASE_ROOT"

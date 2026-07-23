@@ -54,6 +54,29 @@ The central success pattern is:
 
 ## Run
 
+This bundle does not use the legacy `itai_ml_env` because it contains Python 3.8. It defaults to a pinned Python 3.10 environment on Holystore:
+
+```text
+/n/holystore01/LABS/barak_lab/Users/ishapira/python_envs/llmsknow_py310_torch220_transformers4423/bin/python
+```
+
+Create it once from the repository's exact `requirements.txt` pins:
+
+```bash
+SYCOPHANCY_STORAGE_ROOT_OVERRIDE=/n/holystore01/LABS/barak_lab/Users/ishapira \
+bash jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/create_runtime_env.sh
+```
+
+Then validate the actual CUDA runtime before submitting the experiment:
+
+```bash
+export ENV_PYTHON=/n/holystore01/LABS/barak_lab/Users/ishapira/python_envs/llmsknow_py310_torch220_transformers4423/bin/python
+srun --partition=gpu,seas_gpu,gpu_h200 --gres=gpu:1 --cpus-per-task=2 --mem=16G --time=00:10:00 \
+  "$ENV_PYTHON" jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/runtime_contract.py --require-cuda
+```
+
+The validator requires Python >=3.10 and the pinned package versions, including PyTorch 2.2.0 and Transformers 4.42.3. Every GPU stage repeats the CUDA check before loading a model.
+
 First validate shell syntax and the submission graph:
 
 ```bash
