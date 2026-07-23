@@ -37,7 +37,7 @@ VAL_MAX_QUESTIONS="${VAL_MAX_QUESTIONS:-}"
 RANDOM_CONTROL_SEEDS="${RANDOM_CONTROL_SEEDS:-0,1,2,3,4}"
 MAX_BATCH_SIZE="${MAX_BATCH_SIZE:-4}"
 cmd=(
-  "$ENV_PYTHON" run_random_all_intervention.py run-layer
+  "$ENV_PYTHON" "$REPO_DIR/run_random_all_intervention.py" run-layer
   --source-run-dir "$SOURCE_RUN_DIR"
   --directions-path "$DIRECTIONS_PATH"
   --output-root "$CELL_ROOT"

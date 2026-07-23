@@ -25,7 +25,7 @@ start_structured_task_log aggregate probe_bias_random_all
 N_BOOTSTRAP="${N_BOOTSTRAP:-2000}"
 BOOTSTRAP_SEED="${BOOTSTRAP_SEED:-5}"
 cmd=(
-  "$ENV_PYTHON" run_random_all_intervention.py aggregate
+  "$ENV_PYTHON" "$REPO_DIR/run_random_all_intervention.py" aggregate
   --output-root "$CELL_ROOT"
   --n-bootstrap "$N_BOOTSTRAP"
   --seed "$BOOTSTRAP_SEED"

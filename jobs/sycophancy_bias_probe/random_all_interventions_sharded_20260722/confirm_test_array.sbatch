@@ -28,7 +28,7 @@ test -s "$SELECTION_JSON"
 TEST_RANDOM_CONTROL_SEEDS="${TEST_RANDOM_CONTROL_SEEDS:-0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19}"
 MAX_BATCH_SIZE="${MAX_BATCH_SIZE:-4}"
 cmd=(
-  "$ENV_PYTHON" run_random_all_intervention.py run-selected
+  "$ENV_PYTHON" "$REPO_DIR/run_random_all_intervention.py" run-selected
   --source-run-dir "$SOURCE_RUN_DIR"
   --directions-path "$DIRECTIONS_PATH"
   --selection-json "$SELECTION_JSON"

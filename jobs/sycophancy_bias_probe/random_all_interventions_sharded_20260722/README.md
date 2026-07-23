@@ -69,6 +69,16 @@ bash jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/submit
 
 Useful validation-pilot overrides are `TASK_FILTER`, `FIT_MAX_QUESTIONS`, and `VAL_MAX_QUESTIONS`. Empty max-question values mean the full split. A capped direction artifact is blocked from held-out confirmation, and there is deliberately no `TEST_MAX_QUESTIONS` option. Each submission gets a unique `EXPERIMENT_RUN_ID` output namespace, and writers refuse to overwrite an existing shard. `ALLOW_STALE_LOCK_CLEANUP` is intentionally not used; this bundle never removes source locks or mutates source probe runs.
 
+`TASK_FILTER` accepts a dataset name, one task label, or a comma-separated list. For example, if only the two CSQA source runs are present:
+
+```bash
+TASK_FILTER=commonsense_qa \
+EXPERIMENT_RUN_ID=random_all_csqa_full_20260722_v2 \
+bash jobs/sycophancy_bias_probe/random_all_interventions_sharded_20260722/submit_random_all_interventions_sharded_20260722.sh
+```
+
+The submitter binds `REPO_DIR` and every Slurm `--chdir` to the exact checkout containing the submit script, records and verifies its Git commit in every task, and checks all required source-run/probe artifacts before the first `sbatch`. A missing source now fails before any jobs are submitted rather than cancelling a downstream DAG. Use a new `EXPERIMENT_RUN_ID` for every retry.
+
 ## Outputs
 
 Source June probe artifacts remain immutable. New artifacts live under:

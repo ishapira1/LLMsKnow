@@ -15,6 +15,20 @@ set -a
 source .env
 set +a
 
+# Bind every submitted task to the exact checkout containing this submitter.
+# This intentionally overrides a stale REPO_DIR inherited from another checkout.
+REPO_DIR="$ROOT_DIR"
+export REPO_DIR
+if [[ ! -f "$REPO_DIR/run_random_all_intervention.py" ]]; then
+  printf '%s\n' "Missing intervention entrypoint in submitting checkout: $REPO_DIR/run_random_all_intervention.py" >&2
+  exit 1
+fi
+SUBMISSION_GIT_COMMIT="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)"
+if [[ -z "$SUBMISSION_GIT_COMMIT" ]]; then
+  printf '%s\n' "Unable to resolve the Git commit for submitting checkout: $REPO_DIR" >&2
+  exit 1
+fi
+
 if [[ -n "${SYCOPHANCY_STORAGE_ROOT_OVERRIDE:-}" ]]; then
   export SYCOPHANCY_STORAGE_ROOT="$SYCOPHANCY_STORAGE_ROOT_OVERRIDE"
   unset HUGGINGFACE_HUB_CACHE HF_HUB_CACHE TRANSFORMERS_CACHE HF_DATASETS_CACHE HF_HOME
@@ -24,6 +38,12 @@ fi
 
 source jobs/sycophancy_bias_probe/storage_common.sh
 configure_sycophancy_bias_storage "$BUNDLE_NAME"
+
+ENV_PYTHON="${ENV_PYTHON:-/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python}"
+if [[ ! -x "$ENV_PYTHON" ]]; then
+  printf '%s\n' "Missing Python interpreter for source preflight: $ENV_PYTHON" >&2
+  exit 1
+fi
 
 SUBMIT_LOG_DIR="$LOG_ROOT/submit"
 SUBMISSION_STEM="$(date +%Y%m%dT%H%M%S%z)_pid_$$"
@@ -87,26 +107,126 @@ SOURCE_RUN_NAMES=(
 
 TASK_FILTER="${TASK_FILTER:-}"
 SELECTED_INDICES=()
+task_filter_matches() {
+  local label="${1:?missing task label}"
+  local dataset_name="${2:?missing dataset name}"
+  local compact_filter token
+  if [[ -z "$TASK_FILTER" ]]; then
+    return 0
+  fi
+  compact_filter="${TASK_FILTER//[[:space:]]/}"
+  IFS=',' read -r -a filter_tokens <<< "$compact_filter"
+  for token in "${filter_tokens[@]}"; do
+    if [[ -n "$token" && ( "$token" == "$label" || "$token" == "$dataset_name" ) ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 for index in "${!TASK_LABELS[@]}"; do
-  if [[ -z "$TASK_FILTER" || "$TASK_FILTER" == "${TASK_LABELS[$index]}" ]]; then
+  if task_filter_matches "${TASK_LABELS[$index]}" "${DATASET_NAMES[$index]}"; then
     SELECTED_INDICES+=("$index")
   fi
 done
 if [[ "${#SELECTED_INDICES[@]}" -eq 0 ]]; then
-  printf '%s\n' "TASK_FILTER did not match a known task: $TASK_FILTER" >&2
+  printf '%s\n' "TASK_FILTER did not match a known task label or dataset: $TASK_FILTER" >&2
   exit 1
 fi
+SELECTED_BASE_INDICES_CSV="$(IFS=,; printf '%s' "${SELECTED_INDICES[*]}")"
+
+require_any_file() {
+  local label="${1:?missing file label}"
+  shift
+  local candidate
+  for candidate in "$@"; do
+    if [[ -f "$candidate" ]]; then
+      return 0
+    fi
+  done
+  printf '[preflight] missing %s; checked:' "$label" >&2
+  printf ' %s' "$@" >&2
+  printf '\n' >&2
+  return 1
+}
+
+preflight_source_run() {
+  local task_label="${1:?missing task label}"
+  local run_dir="${2:?missing source run directory}"
+  local chosen_probe_dir=""
+  local candidate
+  local failed=0
+  if [[ ! -d "$run_dir" ]]; then
+    printf '[preflight] missing source run task=%s path=%s\n' "$task_label" "$run_dir" >&2
+    return 1
+  fi
+  require_any_file "run configuration for $task_label" \
+    "$run_dir/meta/run_config.json" "$run_dir/run_config.json" || failed=1
+  require_any_file "sampling records for $task_label" \
+    "$run_dir/sampling/raw/sampling_records.jsonl" \
+    "$run_dir/logs/sampling_records.jsonl" || failed=1
+  require_any_file "probe prompt scores for $task_label" \
+    "$run_dir/query/probe_scores_by_prompt.csv" \
+    "$run_dir/probes/probe_scores_by_prompt.csv" || failed=1
+  for candidate in \
+    "$run_dir/probes/chosen/families/probe_bias_random_all" \
+    "$run_dir/probes/chosen_probe/probe_bias_random_all"
+  do
+    if [[ -d "$candidate" ]]; then
+      chosen_probe_dir="$candidate"
+      break
+    fi
+  done
+  if [[ -z "$chosen_probe_dir" ]]; then
+    printf '[preflight] missing chosen random_all probe task=%s path=%s\n' \
+      "$task_label" "$run_dir" >&2
+    failed=1
+  else
+    require_any_file "chosen-probe metadata for $task_label" \
+      "$chosen_probe_dir/metadata.json" || failed=1
+    require_any_file "chosen-probe model for $task_label" \
+      "$chosen_probe_dir/model.pkl" || failed=1
+  fi
+  if (( failed )); then
+    return 1
+  fi
+  printf '[preflight] source_ok task=%s path=%s\n' "$task_label" "$run_dir"
+}
 
 printf 'array_task\ttask_label\tmodel_slug\tdataset\tsource_run_dir\tcell_root\n' > "$TASK_MATRIX"
+SOURCE_PREFLIGHT_DIR="$SUBMIT_LOG_DIR/source_preflight_$SUBMISSION_STEM"
+mkdir -p "$SOURCE_PREFLIGHT_DIR"
 matrix_index=0
+source_preflight_failed=0
 for base_index in "${SELECTED_INDICES[@]}"; do
   source_run_dir="$SOURCE_RESULTS_ROOT/${MODEL_SLUGS[$base_index]}/${DATASET_NAMES[$base_index]}/${SOURCE_RUN_NAMES[$base_index]}"
   cell_root="$INTERVENTION_ROOT/${TASK_LABELS[$base_index]}"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$matrix_index" "${TASK_LABELS[$base_index]}" "${MODEL_SLUGS[$base_index]}" \
     "${DATASET_NAMES[$base_index]}" "$source_run_dir" "$cell_root" >> "$TASK_MATRIX"
+  if ! preflight_source_run "${TASK_LABELS[$base_index]}" "$source_run_dir"; then
+    source_preflight_failed=1
+  elif ! "$ENV_PYTHON" "$REPO_DIR/run_random_all_intervention.py" validate-source \
+    --source-run-dir "$source_run_dir" \
+    --output-dir "$SOURCE_PREFLIGHT_DIR/${TASK_LABELS[$base_index]}"
+  then
+    printf '[preflight] semantic source validation failed task=%s path=%s\n' \
+      "${TASK_LABELS[$base_index]}" "$source_run_dir" >&2
+    source_preflight_failed=1
+  elif ! "$ENV_PYTHON" -c \
+    'import json,sys; d=json.load(open(sys.argv[1])); required=("train","val","test"); counts=d.get("pairs_by_split",{}); missing=[s for s in required if int(counts.get(s,0)) <= 0]; sys.exit(f"missing positive paired split counts: {missing}") if missing else None' \
+    "$SOURCE_PREFLIGHT_DIR/${TASK_LABELS[$base_index]}/source_validation.json"
+  then
+    printf '[preflight] incomplete paired splits task=%s path=%s\n' \
+      "${TASK_LABELS[$base_index]}" "$source_run_dir" >&2
+    source_preflight_failed=1
+  fi
   matrix_index=$((matrix_index + 1))
 done
+if (( source_preflight_failed )); then
+  printf '%s\n' \
+    "Source preflight failed; no Slurm jobs were submitted. Fix SOURCE_RESULTS_ROOT or narrow TASK_FILTER." >&2
+  exit 1
+fi
 
 DRY_RUN="${DRY_RUN:-0}"
 GPU_PARTITION="${GPU_PARTITION:-gpu,seas_gpu,gpu_h200}"
@@ -128,10 +248,13 @@ TOP_K_PATCH_LAYERS="${TOP_K_PATCH_LAYERS:-3}"
 dose_tune_array="0-$((selected_count * TOP_K_PATCH_LAYERS - 1))"
 cell_array="$fit_array"
 
-export TASK_FILTER SOURCE_RESULTS_ROOT EXPERIMENT_RUN_ID INTERVENTION_BASE_ROOT INTERVENTION_ROOT TOP_K_PATCH_LAYERS
+export TASK_FILTER SELECTED_BASE_INDICES_CSV SOURCE_RESULTS_ROOT EXPERIMENT_RUN_ID ENV_PYTHON
+export INTERVENTION_BASE_ROOT INTERVENTION_ROOT TOP_K_PATCH_LAYERS SUBMISSION_GIT_COMMIT
 
 fit_cmd=(
   sbatch --parsable
+  --export=ALL
+  --chdir "$REPO_DIR"
   --job-name "syco_int_fit_${JOB_DATE_TAG}"
   --array "$fit_array"
   --partition "$GPU_PARTITION"
@@ -151,6 +274,8 @@ fi
 
 localize_cmd=(
   sbatch --parsable
+  --export=ALL
+  --chdir "$REPO_DIR"
   --job-name "syco_int_loc_${JOB_DATE_TAG}"
   --dependency "afterok:$fit_job_id"
   --array "$localize_array"
@@ -171,6 +296,8 @@ fi
 
 select_layers_cmd=(
   sbatch --parsable
+  --export=ALL
+  --chdir "$REPO_DIR"
   --job-name "syco_int_lsel_${JOB_DATE_TAG}"
   --dependency "afterok:$localize_job_id"
   --array "$cell_array"
@@ -191,6 +318,8 @@ fi
 
 dose_tune_cmd=(
   sbatch --parsable
+  --export=ALL
+  --chdir "$REPO_DIR"
   --job-name "syco_int_dose_${JOB_DATE_TAG}"
   --dependency "afterok:$select_layers_job_id"
   --array "$dose_tune_array"
@@ -211,6 +340,8 @@ fi
 
 select_dose_cmd=(
   sbatch --parsable
+  --export=ALL
+  --chdir "$REPO_DIR"
   --job-name "syco_int_dsel_${JOB_DATE_TAG}"
   --dependency "afterok:$dose_tune_job_id"
   --array "$cell_array"
@@ -231,6 +362,8 @@ fi
 
 confirm_cmd=(
   sbatch --parsable
+  --export=ALL
+  --chdir "$REPO_DIR"
   --job-name "syco_int_test_${JOB_DATE_TAG}"
   --dependency "afterok:$select_dose_job_id"
   --array "$cell_array"
@@ -251,6 +384,8 @@ fi
 
 aggregate_cmd=(
   sbatch --parsable
+  --export=ALL
+  --chdir "$REPO_DIR"
   --job-name "syco_int_agg_${JOB_DATE_TAG}"
   --dependency "afterok:$confirm_job_id"
   --array "$cell_array"
@@ -273,13 +408,17 @@ fi
   printf 'BUNDLE_NAME=%q\n' "$BUNDLE_NAME"
   printf 'SUBMITTED_AT=%q\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')"
   printf 'ROOT_DIR=%q\n' "$ROOT_DIR"
+  printf 'REPO_DIR=%q\n' "$REPO_DIR"
+  printf 'SUBMISSION_GIT_COMMIT=%q\n' "$SUBMISSION_GIT_COMMIT"
   printf 'SOURCE_RESULTS_ROOT=%q\n' "$SOURCE_RESULTS_ROOT"
   printf 'EXPERIMENT_RUN_ID=%q\n' "$EXPERIMENT_RUN_ID"
   printf 'INTERVENTION_BASE_ROOT=%q\n' "$INTERVENTION_BASE_ROOT"
   printf 'INTERVENTION_ROOT=%q\n' "$INTERVENTION_ROOT"
   printf 'LOG_ROOT=%q\n' "$LOG_ROOT"
   printf 'TASK_FILTER=%q\n' "$TASK_FILTER"
+  printf 'SELECTED_BASE_INDICES_CSV=%q\n' "$SELECTED_BASE_INDICES_CSV"
   printf 'TASK_MATRIX=%q\n' "$TASK_MATRIX"
+  printf 'SOURCE_PREFLIGHT_DIR=%q\n' "$SOURCE_PREFLIGHT_DIR"
   printf 'TOP_K_PATCH_LAYERS=%q\n' "$TOP_K_PATCH_LAYERS"
   printf 'FIT_JOB_ID=%q\n' "$fit_job_id"
   printf 'LOCALIZE_JOB_ID=%q\n' "$localize_job_id"

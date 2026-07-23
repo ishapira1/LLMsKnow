@@ -24,7 +24,7 @@ start_structured_task_log select_layers probe_bias_random_all
 
 TOP_K="${TOP_K_PATCH_LAYERS:-3}"
 cmd=(
-  "$ENV_PYTHON" run_random_all_intervention.py select-layers
+  "$ENV_PYTHON" "$REPO_DIR/run_random_all_intervention.py" select-layers
   --output-root "$CELL_ROOT"
   --split val
   --top-k "$TOP_K"

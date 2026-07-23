@@ -26,7 +26,7 @@ start_structured_task_log fit_directions probe_bias_random_all
 FIT_MAX_QUESTIONS="${FIT_MAX_QUESTIONS:-}"
 FIT_SEED="${FIT_SEED:-5}"
 cmd=(
-  "$ENV_PYTHON" run_random_all_intervention.py fit-directions
+  "$ENV_PYTHON" "$REPO_DIR/run_random_all_intervention.py" fit-directions
   --source-run-dir "$SOURCE_RUN_DIR"
   --output-dir "$DIRECTIONS_DIR"
   --fit-split train

@@ -28,7 +28,7 @@ CORRECT_PROBABILITY_COST="${MAX_CORRECT_SUGGESTION_PROBABILITY_COST:-0.02}"
 GENUINE_MARGIN_COST="${MAX_GENUINE_AGREEMENT_RELATIVE_MARGIN_COST:-0.10}"
 MIN_DOSE_RESPONSE_SPEARMAN="${MIN_DOSE_RESPONSE_SPEARMAN:-0.70}"
 cmd=(
-  "$ENV_PYTHON" run_random_all_intervention.py select-dose
+  "$ENV_PYTHON" "$REPO_DIR/run_random_all_intervention.py" select-dose
   --output-root "$CELL_ROOT"
   --split val
   --max-neutral-accuracy-cost "$NEUTRAL_COST"

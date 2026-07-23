@@ -4,9 +4,19 @@ set -euo pipefail
 
 BUNDLE_NAME="random_all_interventions_sharded_20260722"
 JOB_DATE_TAG="20260722"
-REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
+REPO_DIR="${REPO_DIR:-${SLURM_SUBMIT_DIR:-/n/home12/ishapira/LLMsKnow}}"
 
 cd "$REPO_DIR"
+if [[ ! -f "$REPO_DIR/run_random_all_intervention.py" ]]; then
+  printf '%s\n' "Missing intervention entrypoint in runtime checkout: $REPO_DIR/run_random_all_intervention.py" >&2
+  exit 1
+fi
+RUNTIME_GIT_COMMIT="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)"
+if [[ -n "${SUBMISSION_GIT_COMMIT:-}" && "$RUNTIME_GIT_COMMIT" != "$SUBMISSION_GIT_COMMIT" ]]; then
+  printf '%s\n' \
+    "Runtime checkout commit mismatch: expected=$SUBMISSION_GIT_COMMIT actual=$RUNTIME_GIT_COMMIT repo=$REPO_DIR" >&2
+  exit 1
+fi
 export PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
@@ -90,11 +100,35 @@ SOURCE_RUN_NAMES=(
 NONTERMINAL_LAYER_COUNTS=(31 27 31 27)
 
 selected_base_indices() {
-  local index
+  local index token compact_filter
+  if [[ -n "${SELECTED_BASE_INDICES_CSV:-}" ]]; then
+    IFS=',' read -r -a selected_tokens <<< "$SELECTED_BASE_INDICES_CSV"
+    for token in "${selected_tokens[@]}"; do
+      if [[ "$token" =~ ^[0-3]$ ]]; then
+        printf '%s\n' "$token"
+      else
+        printf '%s\n' "Invalid selected base index from submitter: $token" >&2
+        return 1
+      fi
+    done
+    return 0
+  fi
+  compact_filter="${TASK_FILTER//[[:space:]]/}"
   for index in "${!TASK_LABELS[@]}"; do
-    if [[ -z "${TASK_FILTER:-}" || "${TASK_FILTER:-}" == "${TASK_LABELS[$index]}" ]]; then
+    if [[ -z "${TASK_FILTER:-}" ]]; then
       printf '%s\n' "$index"
+      continue
     fi
+    IFS=',' read -r -a filter_tokens <<< "$compact_filter"
+    for token in "${filter_tokens[@]}"; do
+      if [[ -n "$token" && ( \
+        "$token" == "${TASK_LABELS[$index]}" \
+        || "$token" == "${DATASET_NAMES[$index]}" \
+      ) ]]; then
+        printf '%s\n' "$index"
+        break
+      fi
+    done
   done
 }
 
@@ -142,6 +176,8 @@ start_structured_task_log() {
     "$(hostname)" "$PWD" "$(iso_now)"
   printf '[task] python=%s hf_cache_dir=%s intervention_root=%s\n' \
     "$ENV_PYTHON" "$HF_CACHE_DIR" "$INTERVENTION_ROOT"
+  printf '[task] repo_dir=%s submission_git_commit=%s runtime_git_commit=%s\n' \
+    "$REPO_DIR" "${SUBMISSION_GIT_COMMIT:-}" "$RUNTIME_GIT_COMMIT"
   if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia-smi || true
   fi
@@ -171,4 +207,5 @@ print_command() {
   printf '\n'
 }
 
+export REPO_DIR SUBMISSION_GIT_COMMIT SELECTED_BASE_INDICES_CSV
 export SOURCE_RESULTS_ROOT EXPERIMENT_RUN_ID INTERVENTION_BASE_ROOT INTERVENTION_ROOT HF_CACHE_DIR
