@@ -168,7 +168,7 @@ def to_gib(value):
     suffix = match.group(2)
     if not suffix:
         return number / (1024 * 1024)
-    factors = {"K": 1 / 1024, "M": 1, "G": 1024, "T": 1024**2, "P": 1024**3, "E": 1024**4}
+    factors = {"K": 1 / 1024**2, "M": 1 / 1024, "G": 1, "T": 1024, "P": 1024**2, "E": 1024**3}
     return number * factors[suffix]
 
 print(int(to_gib(sys.argv[2]) - to_gib(sys.argv[1])))
