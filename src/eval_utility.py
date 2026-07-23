@@ -127,6 +127,18 @@ def build_parser():
                         help="Cap rows per per-task wandb.Table (full data still goes to the artifact). "
                              "Set <=0 to disable the table and only log the JSONL artifact.")
     parser.add_argument("--alpaca_nsamples", default=1000, type=int, help='Number of samples to evaluate on Alpaca instruct.')
+    parser.add_argument(
+        "--alpaca_eval_seed",
+        default=5,
+        type=int,
+        help="Fixed seed used only to select the Alpaca utility-evaluation subset.",
+    )
+    parser.add_argument(
+        "--alpaca_eval_data",
+        type=str,
+        default=None,
+        help="Local .json, .jsonl/.ndjson, or .csv Alpaca utility dataset.",
+    )
     parser.add_argument("--no_chat_template", action="store_true", help='Do not use chat template. Models are often more susceptible to jailbreaks without it. Only relevant to instruct models.')
 
     return parser

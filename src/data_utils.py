@@ -45,7 +45,7 @@ model_to_chat = {
 
 
 def get_align(args, nsamples, seed, tokenizer, model_name, data_name):
-    data_files = {"train": f"../data/{data_name}_{model_name.split("/")[-1]}.csv"}
+    data_files = {"train": f"../data/{data_name}_{model_name.split('/')[-1]}.csv"}
     if data_name == "alpaca_cleaned_no_safety_train_raw":
         data_files = {"train": f"../data/alpaca_cleaned_no_safety_train_raw.csv"}
     print("Loading dataset: ", data_files)

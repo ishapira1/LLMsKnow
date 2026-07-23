@@ -151,9 +151,9 @@ def _prune_core(
 
 
     if args.dump_gradients_only:
-        save_path = f"gradients/{args.model.split("/")[-1]}/{args.prune_method}/seed_{args.seed}/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
+        save_path = f"gradients/{args.model.split('/')[-1]}/{args.prune_method}/seed_{args.seed}/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
     else:
-        save_path = f"scores/{args.model.split("/")[-1]}/{args.prune_method}/seed_{args.seed}/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
+        save_path = f"scores/{args.model.split('/')[-1]}/{args.prune_method}/seed_{args.seed}/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
 
     if return_score:
         scores_dict = {}
@@ -235,7 +235,7 @@ def _prune_core(
                 module.base.weight.data[W_mask] = 0  ## set weights to zero
 
             if args.dump_mask:
-                mask_save_path = f"masks/{args.model.split("/")[-1]}/{args.prune_method}/seed_{args.seed}/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
+                mask_save_path = f"masks/{args.model.split('/')[-1]}/{args.prune_method}/seed_{args.seed}/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
                 if not os.path.exists(mask_save_path):
                     os.makedirs(mask_save_path)
                 target_file = os.path.join(
@@ -251,7 +251,7 @@ def _prune_core(
 
             if args.dump_indices:
                 indices = torch.nonzero(W_mask, as_tuple=False)
-                scores_save_path = f"../indices/{args.model.split("/")[-1]}/{args.prune_method}/seed_{args.seed}/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
+                scores_save_path = f"../indices/{args.model.split('/')[-1]}/{args.prune_method}/seed_{args.seed}/{prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
                 if not os.path.exists(scores_save_path):
                     os.makedirs(scores_save_path)
                 target_file = os.path.join(
@@ -599,7 +599,7 @@ def prune_attribution_score_set_difference_global(
             module.weight.data[W_mask] = 0  ## set weights to zero
 
         if args.dump_mask:
-            mask_save_path = f"masks/{args.model.split("/")[-1]}/{args.prune_method}/seed_{args.seed}/{args.prune_data}_not_{args.preserve_data}/{abs_indicator}/nsamples_{args.nsamples}"
+            mask_save_path = f"masks/{args.model.split('/')[-1]}/{args.prune_method}/seed_{args.seed}/{args.prune_data}_not_{args.preserve_data}/{abs_indicator}/nsamples_{args.nsamples}"
             if not os.path.exists(mask_save_path):
                 os.makedirs(mask_save_path)
             target_file = os.path.join(
@@ -615,7 +615,7 @@ def prune_attribution_score_set_difference_global(
 
         if args.dump_indices:
             indices = torch.nonzero(W_mask, as_tuple=False)
-            scores_save_path = f"../indices/{args.model.split("/")[-1]}/{args.prune_method}_not_{args.preserve_data}/seed_{args.seed}/{args.prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
+            scores_save_path = f"../indices/{args.model.split('/')[-1]}/{args.prune_method}_not_{args.preserve_data}/seed_{args.seed}/{args.prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
             if not os.path.exists(scores_save_path):
                 os.makedirs(scores_save_path)
             target_file = os.path.join(
@@ -774,7 +774,7 @@ def prune_attribution_score_set_difference_with_refusal(
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
 
             if args.dump_mask:
-                mask_save_path = f"masks/{args.model.split("/")[-1]}/{args.prune_method}/seed_{args.seed}/{args.prune_data}_not_{args.preserve_data}/{abs_indicator}/nsamples_{args.nsamples}"
+                mask_save_path = f"masks/{args.model.split('/')[-1]}/{args.prune_method}/seed_{args.seed}/{args.prune_data}_not_{args.preserve_data}/{abs_indicator}/nsamples_{args.nsamples}"
                 if not os.path.exists(mask_save_path):
                     os.makedirs(mask_save_path)
                 target_file = os.path.join(
@@ -790,7 +790,7 @@ def prune_attribution_score_set_difference_with_refusal(
 
             if args.dump_indices:
                 indices = torch.nonzero(W_mask, as_tuple=False)
-                scores_save_path = f"../indices/{args.model.split("/")[-1]}/{args.prune_method}_not_{args.preserve_data}/seed_{args.seed}/{args.prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
+                scores_save_path = f"../indices/{args.model.split('/')[-1]}/{args.prune_method}_not_{args.preserve_data}/seed_{args.seed}/{args.prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
                 if not os.path.exists(scores_save_path):
                     os.makedirs(scores_save_path)
                 target_file = os.path.join(
@@ -932,7 +932,7 @@ def prune_attribution_score_set_difference(
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
 
             if args.dump_mask:
-                mask_save_path = f"masks/{args.model.split("/")[-1]}/{args.prune_method}/seed_{args.seed}/{args.prune_data}_not_{args.preserve_data}/{abs_indicator}/nsamples_{args.nsamples}"
+                mask_save_path = f"masks/{args.model.split('/')[-1]}/{args.prune_method}/seed_{args.seed}/{args.prune_data}_not_{args.preserve_data}/{abs_indicator}/nsamples_{args.nsamples}"
                 if not os.path.exists(mask_save_path):
                     os.makedirs(mask_save_path)
                 target_file = os.path.join(
@@ -948,7 +948,7 @@ def prune_attribution_score_set_difference(
 
             if args.dump_indices:
                 indices = torch.nonzero(W_mask, as_tuple=False)
-                scores_save_path = f"../indices/{args.model.split("/")[-1]}/{args.prune_method}_not_{args.preserve_data}/seed_{args.seed}/{args.prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
+                scores_save_path = f"../indices/{args.model.split('/')[-1]}/{args.prune_method}_not_{args.preserve_data}/seed_{args.seed}/{args.prune_data}/{abs_indicator}/nsamples_{args.nsamples}"
                 if not os.path.exists(scores_save_path):
                     os.makedirs(scores_save_path)
                 target_file = os.path.join(
@@ -1137,8 +1137,8 @@ def find_intersection_indices(args):
     for prune_data in args.prune_data_list:
         for l in layers:
             for c in components:
-                weight_path_safety = f"../src/scores/{args.model.split("/")[-1]}/attribution_score/seed_0/{prune_data}/no_abs/nsamples_{nsamples_preserve}/W_metric_layer_{l}_name_model.layers.{l}.{c}_weight.pkl"
-                weight_path_utility = f"../src/scores/{args.model.split("/")[-1]}/attribution_score/seed_0/{args.preserve_data}/no_abs/nsamples_{args.nsamples}/W_metric_layer_{l}_name_model.layers.{l}.{c}_weight.pkl"
+                weight_path_safety = f"../src/scores/{args.model.split('/')[-1]}/attribution_score/seed_0/{prune_data}/no_abs/nsamples_{nsamples_preserve}/W_metric_layer_{l}_name_model.layers.{l}.{c}_weight.pkl"
+                weight_path_utility = f"../src/scores/{args.model.split('/')[-1]}/attribution_score/seed_0/{args.preserve_data}/no_abs/nsamples_{args.nsamples}/W_metric_layer_{l}_name_model.layers.{l}.{c}_weight.pkl"
                 with open(weight_path_safety, "rb") as f:
                     W_metric_prune = pickle.load(f)
                 with open(weight_path_utility, "rb") as f:
