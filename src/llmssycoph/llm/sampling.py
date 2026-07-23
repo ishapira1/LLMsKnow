@@ -151,11 +151,14 @@ def _execute_sampling_task(
     top_p: float,
     max_new_tokens: int,
     sample_batch_size: int,
+    behavior_generation: bool = False,
 ) -> List[Dict[str, Any]]:
     missing_draws = list(task["missing_draws"])
     batch_size = max(1, min(sample_batch_size, len(missing_draws)))
+    choice_probabilities: Dict[str, float] = {}
     if task["choice_labels"] and _llm_supports_choice_scoring(llm):
         choice_probabilities = llm.score_choices(task["prompt_messages"], task["choice_labels"])
+    if choice_probabilities and not behavior_generation:
         selected_choice = max(
             task["choice_labels"],
             key=lambda choice: (float(choice_probabilities.get(choice, float("-inf"))), -task["choice_labels"].index(choice)),
@@ -196,6 +199,18 @@ def _execute_sampling_task(
             task["base"],
             generation_info=generation_record,
         )
+        if choice_probabilities and behavior_generation:
+            selected = str(grading.get("committed_answer", grading.get("parsed_answer", "")) or "").strip().upper()
+            generation_record.update(
+                {
+                    "sampling_mode": "generation_with_choice_probabilities",
+                    "choice_probabilities": dict(choice_probabilities),
+                    "choice_probability_correct": float(
+                        choice_probabilities.get(str(task["correct_letter"] or "").strip().upper(), 0.0)
+                    ),
+                    "choice_probability_selected": float(choice_probabilities.get(selected, float("nan"))),
+                }
+            )
         outputs.append(
             {
                 "draw_idx": draw_idx,
@@ -311,6 +326,7 @@ def build_sampling_spec(
     return {
         "sampling_spec_version": int(SAMPLING_SPEC_VERSION),
         "model": args.model,
+        "revision": str(getattr(args, "revision", "") or ""),
         "model_backend": str(getattr(args, "model_backend", "huggingface") or "huggingface"),
         "benchmark_source": str(getattr(args, "benchmark_source", "answer_json") or "answer_json"),
         "mc_mode": str(getattr(args, "mc_mode", "") or ""),
@@ -330,6 +346,7 @@ def build_sampling_spec(
         "n_draws": int(args.n_draws),
         "requested_n_draws": int(getattr(args, "requested_n_draws", args.n_draws)),
         "strict_mc_choice_scoring": bool(getattr(args, "strict_mc_choice_scoring", False)),
+        "behavior_generation": bool(getattr(args, "behavior_generation", False)),
         "sample_batch_size": int(getattr(args, "sample_batch_size", 1)),
         "temperature": float(args.temperature),
         "top_p": float(args.top_p),
@@ -459,6 +476,7 @@ def sample_records_for_groups(
     checkpoint_every: int = 0,
     progress_callback: Optional[Callable[[List[Dict[str, Any]], Dict[str, int]], None]] = None,
     start_id: int = 0,
+    behavior_generation: bool = False,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     records_by_key: Dict[Tuple[str, str, str, int], Dict[str, Any]] = {}
     max_existing_record_id = start_id - 1
@@ -629,6 +647,7 @@ def sample_records_for_groups(
                     top_p=top_p,
                     max_new_tokens=max_new_tokens,
                     sample_batch_size=sample_batch_size,
+                    behavior_generation=behavior_generation,
                 )
                 future_to_task[future] = task
                 return True
@@ -671,6 +690,7 @@ def sample_records_for_groups(
                 top_p=top_p,
                 max_new_tokens=max_new_tokens,
                 sample_batch_size=sample_batch_size,
+                behavior_generation=behavior_generation,
             )
             for output in task_outputs:
                 draw_idx = int(output["draw_idx"])

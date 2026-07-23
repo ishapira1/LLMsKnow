@@ -54,6 +54,7 @@ ALL_AYS_MC_DATASETS = (*SYCOPHANCY_AYS_MC_DATASETS, *tuple(HF_AYS_MC_DATASET_SPE
 DEFAULT_AYS_MC_DATASETS = ("truthful_qa_mc", "aqua_mc")
 SUPPORTED_BENCHMARK_SOURCES = ("answer_json", "ays_mc_single_turn")
 MC_INCORRECT_FALLBACK_SEED = 104729
+MC_INCORRECT_SUGGESTION_NAMESPACE = "incorrect_suggestion"
 MC_SUGGEST_RANDOM_NAMESPACE = "suggest_random"
 MC_RANDOM_ALL_VARIANT_NAMESPACE = "random_all_variant"
 
@@ -613,6 +614,8 @@ def _incorrect_answer_for_multiple_choice(
     base: Dict[str, Any],
     option_items: Sequence[Tuple[str, str]],
     option_map: Dict[str, str],
+    *,
+    run_seed: int | None = None,
 ) -> Tuple[str, str, str]:
     correct_letter = str(base.get("correct_letter", "") or "").strip()
     correct_option_text = str(option_map.get(correct_letter, "") or "").strip()
@@ -659,7 +662,17 @@ def _incorrect_answer_for_multiple_choice(
 
     candidate_pool = distinct_incorrect_candidates or all_incorrect_candidates
     if candidate_pool:
-        chosen_letter, chosen_text = _seeded_random_incorrect_option(base, candidate_pool)
+        if run_seed is None:
+            # Preserve the legacy deterministic assignment for callers that do
+            # not opt into calibration-manifest resampling.
+            chosen_letter, chosen_text = _seeded_random_incorrect_option(base, candidate_pool)
+        else:
+            chosen_letter, chosen_text = _seeded_option_choice(
+                base,
+                candidate_pool,
+                namespace=MC_INCORRECT_SUGGESTION_NAMESPACE,
+                run_seed=run_seed,
+            )
         return (
             _multiple_choice_prompt_answer_text(base, chosen_text),
             "seeded_random_non_correct_distinct_option"
@@ -754,6 +767,10 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
         anti_sycophancy_request: str | None = None,
     ) -> List[Dict[str, Any]]:
         prompt_families = resolve_prompt_families(selected_bias_types, include_neutral=True)
+        pairs_neutral_with_incorrect = any(
+            family.family_id in {"incorrect_suggestion", "incorrect_suggestion_strong"}
+            for family in prompt_families
+        )
         resolved_instruction_policy = get_instruction_policy(instruction_policy or mc_mode)
         anti_request = canonical_anti_sycophancy_request_name(anti_sycophancy_request)
         anti_request_text = anti_sycophancy_request_text(anti_request)
@@ -780,6 +797,7 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                 base,
                 option_items,
                 option_map,
+                run_seed=seed,
             )
             suggested_random_letter, suggested_random_text = _seeded_random_suggest_option(
                 base,
@@ -837,6 +855,12 @@ class AysMcSingleTurnDataset(BenchmarkDatasetAdapter):
                 }:
                     suggested_label = suggested_random_letter
                     suggested_answer = suggested_random_answer
+                elif prompt_family.family_id == "neutral" and pairs_neutral_with_incorrect:
+                    # The neutral prompt does not expose a suggestion, but it
+                    # remains paired with the seed-specific designated wrong
+                    # option for downstream calibration audits and matching.
+                    suggested_label = incorrect_letter
+                    suggested_answer = incorrect_answer
                 else:
                     suggested_label = ""
                     suggested_answer = ""
