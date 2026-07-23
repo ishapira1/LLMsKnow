@@ -68,7 +68,7 @@ require_sha() {
 
 slurm_cluster_name() {
   if command -v scontrol >/dev/null 2>&1; then
-    scontrol show config | awk '$1 == "ClusterName" {print $3; exit}'
+    scontrol show config | awk '$1 == "ClusterName" && !found {print $3; found=1}'
   elif [[ -n "${SLURM_CLUSTER_NAME:-}" ]]; then
     printf '%s\n' "$SLURM_CLUSTER_NAME"
   fi
@@ -150,7 +150,7 @@ require_quota_headroom_gb() {
   local quota_output usage_fields used_value quota_value available_gb
   quota_output="$(quota "$path")"
   printf '%s\n' "$quota_output"
-  usage_fields="$(printf '%s\n' "$quota_output" | awk '$1 ~ /^\// {print $2, $3; exit}')"
+  usage_fields="$(printf '%s\n' "$quota_output" | awk '$1 ~ /^\// && !found {print $2, $3; found=1}')"
   read -r used_value quota_value <<< "$usage_fields"
   if [[ -z "${used_value:-}" || -z "${quota_value:-}" ]]; then
     printf '%s\n' "Could not parse Harvard quota output for $path" >&2
