@@ -1,13 +1,16 @@
 #!/bin/bash
-#SBATCH --job-name=syco_prune_grid_20260722
+#SBATCH --job-name=weight_pruning_grid
 #SBATCH --partition=gpu,seas_gpu,gpu_h200
 #SBATCH --gres=gpu:1
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=120G
 #SBATCH --time=36:00:00
 #SBATCH --array=0-9
-#SBATCH --output=jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/slurm/grid/%x.%A_%a.out
-#SBATCH --error=jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/slurm/grid/%x.%A_%a.err
+#SBATCH --output=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/slurm/grid/%x.%A_%a.out
+#SBATCH --error=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/slurm/grid/%x.%A_%a.err
+#SBATCH --open-mode=append
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=itaishapira@g.harvard.edu
 
@@ -15,6 +18,7 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
 source "$REPO_DIR/jobs/sycophancy_pruning/paper_global_sharded_20260722/common.sh"
+require_gpu_allocation
 setup_environment
 
 MANIFEST_SIZE="${MANIFEST_SIZE:-main}"
@@ -23,7 +27,7 @@ GRID_Q="${GRID_Q:-0}"
 GRID_EVAL_SPLITS="${GRID_EVAL_SPLITS:-val}"
 CALIBRATION_SEED=5
 P_VALUES=(0 1e-5 5e-5 7e-5 1e-4)
-TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
+TASK_ID="$SLURM_ARRAY_TASK_ID"
 if [[ "$GRID_Q" == "0" || "$GRID_Q" == "0.0" ]]; then
   if (( TASK_ID < 0 || TASK_ID >= 2 )); then
     printf '[grid] skipping baseline task_id=%s\n' "$TASK_ID"
@@ -61,7 +65,7 @@ PREDICTION_DIR="$PREDICTION_ROOT/$MODEL_SLUG/revision_$(slugify "$MODEL_REVISION
 POINTER_PATH="$REGISTRY_ROOT/$MODEL_SLUG/revision_$(slugify "$MODEL_REVISION")/seed_5/$MANIFEST_SIZE/primary/$MANIFEST_IDENTITY/$CONFIG_SLUG.json"
 STOP_PATH="$ANALYSIS_ROOT/$MODEL_SLUG/revision_$(slugify "$MODEL_REVISION")/seed_5/$MANIFEST_SIZE/primary/$MANIFEST_IDENTITY/p_$(numeric_slug "$P_VALUE")/hard_stop.json"
 TASK_LABEL="${MODEL_SLUG}_${MANIFEST_SIZE}_${CONFIG_SLUG}"
-STRUCTURED_DIR="jobs/sycophancy_pruning/logs/$BUNDLE_NAME/by_task/$MODEL_SLUG/grid_${MANIFEST_SIZE}/job_${SLURM_JOB_ID:-local}"
+STRUCTURED_DIR="$WEIGHT_PRUNING_LOG_ROOT/by_task/$MODEL_SLUG/grid_${MANIFEST_SIZE}/job_${SLURM_JOB_ID}"
 mkdir -p "$STRUCTURED_DIR" "$CONFIG_ROOT" "$PREDICTION_DIR" "$(dirname "$POINTER_PATH")"
 exec > >(tee -a "$STRUCTURED_DIR/task_${TASK_ID}.out") \
   2> >(tee -a "$STRUCTURED_DIR/task_${TASK_ID}.err" >&2)
@@ -80,7 +84,7 @@ if [[ "$Q_VALUE" != "0" && -f "$STOP_PATH" ]]; then
 fi
 
 prune_cmd=(
-  "$ENV_PYTHON" "$HARM_REPO_DIR/src/prune.py"
+  "$ENV_PYTHON" "$WEIGHT_PRUNING_DIR/prune.py"
   --model "$MODEL_ID"
   --revision "$MODEL_REVISION"
   --tokenizer_revision "$MODEL_REVISION"
@@ -136,7 +140,6 @@ fi
 
 resolver_cmd=(
   "$ENV_PYTHON" scripts/resolve_paper_pruning_artifact.py
-  --harm-repo "$HARM_REPO_DIR"
   --artifact-root "$PRUNING_ARTIFACT_ROOT"
   --model "$MODEL_ID"
   --revision "$MODEL_REVISION"

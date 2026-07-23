@@ -20,7 +20,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Snapshot raw/chat rendering, token IDs, and exact scored response spans."
     )
-    parser.add_argument("--harm-repo", type=Path, required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -29,8 +28,13 @@ def main() -> int:
     parser.add_argument("--hf-cache-dir")
     args = parser.parse_args()
 
-    harm_src = args.harm_repo.expanduser().resolve() / "src"
-    sys.path.insert(0, str(harm_src))
+    repo_root = Path(__file__).resolve().parents[1]
+    weight_pruning_dir = repo_root / "tools" / "weight_pruning"
+    if not weight_pruning_dir.is_dir():
+        raise FileNotFoundError(
+            f"in-repo weight pruning source directory not found: {weight_pruning_dir}"
+        )
+    sys.path.insert(0, str(weight_pruning_dir))
     from paper_pruning import encode_completion, load_manifest  # noqa: E402
     from transformers import AutoTokenizer  # noqa: E402
 

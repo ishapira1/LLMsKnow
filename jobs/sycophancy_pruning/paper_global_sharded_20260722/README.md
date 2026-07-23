@@ -50,27 +50,30 @@ q = 1e-6, 3e-6, 7e-6, 1e-5, 2e-5, 5e-5, 1e-4
 
 ## Before submitting
 
-Both the model and tokenizer must be pinned to the same immutable Hugging Face
-commit SHA. Export the revisions in the submission shell so Slurm propagates
-them to every job:
-
-```bash
-export QWEN_REVISION=<qwen_commit_sha>
-export LLAMA_REVISION=<llama_commit_sha>
-export ALPACA_DATA=/path/to/alpaca_data_cleaned_archive.json
-```
-
-Defaults assume these cluster checkouts and interpreter:
+The experiment is self-contained in the single `LLMsKnow` checkout. The
+paper-faithful pruning runtime lives in `tools/weight_pruning/`; there is no
+second repository, submodule, or external source directory to synchronize.
+The cluster checkout and large-storage Python environment default to:
 
 ```text
 REPO_DIR=/n/home12/ishapira/LLMsKnow
-HARM_REPO_DIR=/n/home12/ishapira/harm_pruning_WIP
-ENV_PYTHON=/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python
+ENV_PYTHON=/n/holystore01/LABS/barak_lab/Users/ishapira/python_envs/llmsknow_py310_torch220_transformers4423/bin/python
 ```
 
-Override them before submission if the checkouts or environment live
-elsewhere. `.env` must configure a Hugging Face cache outside `/home`; gated
-Llama access must already be available.
+`common.sh` pins the Qwen and Llama model/tokenizer revisions to immutable
+Hugging Face commit SHAs. The existing repository `.env` supplies
+`SYCOPHANCY_STORAGE_ROOT`, `HUGGINGFACE_HUB_CACHE`, `HF_HOME`, and access
+credentials; do not create another environment file for this bundle. The
+launcher fails before submission unless it is on Harvard's `odyssey` Slurm
+cluster, those paths are outside `/home` and `/n/home`, and the storage root
+has at least 1,600 GiB free.
+
+The setup stage automatically downloads the official Stanford Alpaca JSON at
+pinned commit `761dc5bfbdeeffa89b8bff5d038781a4055f796a`, verifies its SHA-256
+and 52,002-row count, and stores it beneath the large storage root. It also
+prefetches the WikiText-2 raw test split at pinned dataset revision
+`b08601e04326c79dfdd32d625aee71d232d685c3`. Dataset caches and offline
+Weights & Biases runs are kept on large storage, not in the Git checkout.
 
 Always validate a stage before submitting it:
 
@@ -82,12 +85,32 @@ DRY_RUN=1 \
   jobs/sycophancy_pruning/paper_global_sharded_20260722/submit_paper_global_sharded_20260722.sh setup
 ```
 
+A local `DRY_RUN=1` only renders commands. On Harvard, the same dry run also
+performs the real `.env`, Python, storage, and scheduler preflight. Every live
+submission is recorded under the external log root, including a
+`submit/latest_setup.env` file containing the job IDs and Git commit.
+
+To update the cluster, use only the single main branch:
+
+```bash
+cd /n/home12/ishapira/LLMsKnow
+git pull --ff-only origin main
+DRY_RUN=1 \
+  jobs/sycophancy_pruning/paper_global_sharded_20260722/submit_paper_global_sharded_20260722.sh setup
+```
+
+Never submit the `.sbatch` files directly. The wrapper supplies the external
+log paths, clear `weight_pruning_*` job names, and job dependencies. Every
+batch script sends `END` and `FAIL` email to
+`itaishapira@g.harvard.edu`.
+
 ## Run order
 
-Run setup once. It samples actual generated answer identities for both models,
-both datasets, and calibration seeds `5`, `17`, and `29`; builds the strict
-nested manifests; builds one fixed seed-5 held-out val/test manifest; and
-snapshots raw/chat tokenization.
+Run setup once. It prepares and validates the pinned Alpaca source while
+sampling actual generated answer identities for both models, both datasets,
+and calibration seeds `5`, `17`, and `29`. After both jobs succeed, it builds
+the strict nested manifests and one fixed seed-5 held-out val/test manifest,
+then snapshots raw/chat tokenization.
 
 The held-out manifest also freezes two semantic rephrasings of every weak
 wrong suggestion. The unmodified `q=0` checkpoint and every selected mask are
@@ -190,6 +213,9 @@ and skip mask controls/replications.
 
 ## What each job does
 
+- `prepare_data.sbatch`: downloads or reuses the pinned Stanford Alpaca source
+  and WikiText evaluation split on large storage and fails on any checksum,
+  revision, or row-count mismatch.
 - `sampling_array.sbatch`: actual deterministic MC generation plus audit choice
   probabilities; sample batch size defaults to one.
 - `manifests_array.sbatch`: strict flip filtering, 16/128/412 nested sets, the
@@ -217,7 +243,7 @@ and skip mask controls/replications.
 Experiment artifacts live beneath:
 
 ```text
-<cache-parent>/LLMsKnow_results/sycophancy_pruning/paper_global_sharded_20260722/
+$SYCOPHANCY_STORAGE_ROOT/LLMsKnow_results/sycophancy_pruning/paper_global_sharded_20260722/
 ```
 
 The tree separates `sampling/`, `manifests/`, `pruning_artifacts/`,
@@ -240,7 +266,7 @@ for all three calibration manifests.
 Logs are under:
 
 ```text
-jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/
+$SYCOPHANCY_STORAGE_ROOT/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/
 ```
 
 Use `submit/` for submission records, `slurm/<stage>/` for raw scheduler logs,

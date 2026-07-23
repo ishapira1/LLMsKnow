@@ -10,9 +10,8 @@ import sys
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Resolve the identity-keyed harm_pruning_WIP score and mask paths."
+        description="Resolve the identity-keyed in-repo weight-pruning score and mask paths."
     )
-    parser.add_argument("--harm-repo", type=Path, required=True)
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--revision", required=True)
@@ -48,10 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def resolve(args: argparse.Namespace) -> dict[str, object]:
-    harm_src = args.harm_repo.expanduser().resolve() / "src"
-    if not harm_src.is_dir():
-        raise FileNotFoundError(f"harm pruning source directory not found: {harm_src}")
-    sys.path.insert(0, str(harm_src))
+    repo_root = Path(__file__).resolve().parents[1]
+    weight_pruning_dir = repo_root / "tools" / "weight_pruning"
+    if not weight_pruning_dir.is_dir():
+        raise FileNotFoundError(
+            f"in-repo weight pruning source directory not found: {weight_pruning_dir}"
+        )
+    sys.path.insert(0, str(weight_pruning_dir))
     from paper_pruning import expected_score_dir, mask_output_dir, score_identity  # noqa: E402
 
     values = Namespace(

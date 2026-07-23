@@ -1,12 +1,15 @@
 #!/bin/bash
-#SBATCH --job-name=syco_prune_tokens_20260722
+#SBATCH --job-name=weight_pruning_tokens
 #SBATCH --partition=shared,sapphire
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
 #SBATCH --time=02:00:00
 #SBATCH --array=0-1
-#SBATCH --output=jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/slurm/token_snapshots/%x.%A_%a.out
-#SBATCH --error=jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/slurm/token_snapshots/%x.%A_%a.err
+#SBATCH --output=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/slurm/token_snapshots/%x.%A_%a.out
+#SBATCH --error=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/slurm/token_snapshots/%x.%A_%a.err
+#SBATCH --open-mode=append
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=itaishapira@g.harvard.edu
 
@@ -14,9 +17,10 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
 source "$REPO_DIR/jobs/sycophancy_pruning/paper_global_sharded_20260722/common.sh"
+require_slurm_array_task
 setup_environment
 
-MODEL_INDEX="${SLURM_ARRAY_TASK_ID:-0}"
+MODEL_INDEX="$SLURM_ARRAY_TASK_ID"
 MODEL_ID="$(model_id_for_index "$MODEL_INDEX")"
 MODEL_REVISION="$(model_revision_for_index "$MODEL_INDEX")"
 require_sha "MODEL_REVISION" "$MODEL_REVISION"
@@ -29,14 +33,13 @@ require_file "$PRUNE_MANIFEST"
 require_file "$PRESERVE_MANIFEST"
 
 TASK_LABEL="${MODEL_SLUG}_token_snapshot"
-STRUCTURED_DIR="jobs/sycophancy_pruning/logs/$BUNDLE_NAME/by_task/$MODEL_SLUG/token_snapshots/job_${SLURM_JOB_ID:-local}"
+STRUCTURED_DIR="$WEIGHT_PRUNING_LOG_ROOT/by_task/$MODEL_SLUG/token_snapshots/job_${SLURM_JOB_ID}"
 mkdir -p "$STRUCTURED_DIR"
 exec > >(tee -a "$STRUCTURED_DIR/task_${MODEL_INDEX}.out") \
   2> >(tee -a "$STRUCTURED_DIR/task_${MODEL_INDEX}.err" >&2)
 
 prune_cmd=(
   "$ENV_PYTHON" scripts/snapshot_pruning_tokenization.py
-  --harm-repo "$HARM_REPO_DIR"
   --model "$MODEL_ID"
   --revision "$MODEL_REVISION"
   --manifest "$PRUNE_MANIFEST"
@@ -46,7 +49,6 @@ prune_cmd=(
 )
 preserve_cmd=(
   "$ENV_PYTHON" scripts/snapshot_pruning_tokenization.py
-  --harm-repo "$HARM_REPO_DIR"
   --model "$MODEL_ID"
   --revision "$MODEL_REVISION"
   --manifest "$PRESERVE_MANIFEST"

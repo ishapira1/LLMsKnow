@@ -1,11 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=syco_prune_report_20260722
+#SBATCH --job-name=weight_pruning_report
 #SBATCH --partition=shared,sapphire
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=02:00:00
-#SBATCH --output=jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/slurm/report/%x.%j.out
-#SBATCH --error=jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/slurm/report/%x.%j.err
+#SBATCH --output=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/slurm/report/%x.%j.out
+#SBATCH --error=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/slurm/report/%x.%j.err
+#SBATCH --open-mode=append
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=itaishapira@g.harvard.edu
 
@@ -13,6 +16,7 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
 source "$REPO_DIR/jobs/sycophancy_pruning/paper_global_sharded_20260722/common.sh"
+require_slurm_job
 setup_environment
 
 REPORT_BOOTSTRAP_SEED="${REPORT_BOOTSTRAP_SEED:-5}"
@@ -27,7 +31,7 @@ require_file "$REPORT_SCRIPT"
 require_dir "$EXPERIMENT_ROOT"
 
 TASK_LABEL="paper_global_minimum_result_package"
-STRUCTURED_DIR="jobs/sycophancy_pruning/logs/$BUNDLE_NAME/by_task/report/job_${SLURM_JOB_ID:-local}"
+STRUCTURED_DIR="$WEIGHT_PRUNING_LOG_ROOT/by_task/report/job_${SLURM_JOB_ID}"
 mkdir -p "$STRUCTURED_DIR" "$(dirname "$REPORT_OUTPUT_DIR")"
 exec > >(tee -a "$STRUCTURED_DIR/task_0.out") \
   2> >(tee -a "$STRUCTURED_DIR/task_0.err" >&2)

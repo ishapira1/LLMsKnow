@@ -1,13 +1,16 @@
 #!/bin/bash
-#SBATCH --job-name=syco_prune_sample_20260722
+#SBATCH --job-name=weight_pruning_sample
 #SBATCH --partition=gpu,seas_gpu,gpu_h200
 #SBATCH --gres=gpu:1
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=100G
 #SBATCH --time=18:00:00
 #SBATCH --array=0-11
-#SBATCH --output=jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/slurm/sampling/%x.%A_%a.out
-#SBATCH --error=jobs/sycophancy_pruning/logs/paper_global_sharded_20260722/slurm/sampling/%x.%A_%a.err
+#SBATCH --output=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/slurm/sampling/%x.%A_%a.out
+#SBATCH --error=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_pruning/paper_global_sharded_20260722/slurm/sampling/%x.%A_%a.err
+#SBATCH --open-mode=append
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=itaishapira@g.harvard.edu
 
@@ -15,10 +18,11 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/n/home12/ishapira/LLMsKnow}"
 source "$REPO_DIR/jobs/sycophancy_pruning/paper_global_sharded_20260722/common.sh"
+require_gpu_allocation
 setup_environment
 
 SEEDS=(5 17 29)
-TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
+TASK_ID="$SLURM_ARRAY_TASK_ID"
 if (( TASK_ID < 0 || TASK_ID >= 12 )); then
   printf '%s\n' "sampling task id out of range: $TASK_ID" >&2
   exit 2
@@ -42,7 +46,7 @@ if [[ "$ALLOW_STALE_LOCK_CLEANUP" == "1" && -f "$RUN_DIR/.run.lock" ]]; then
 fi
 
 TASK_LABEL="${MODEL_SLUG}_${DATASET}_seed${CALIBRATION_SEED}"
-STRUCTURED_DIR="jobs/sycophancy_pruning/logs/$BUNDLE_NAME/by_task/$TASK_LABEL/sampling/job_${SLURM_JOB_ID:-local}"
+STRUCTURED_DIR="$WEIGHT_PRUNING_LOG_ROOT/by_task/$TASK_LABEL/sampling/job_${SLURM_JOB_ID}"
 mkdir -p "$STRUCTURED_DIR"
 exec > >(tee -a "$STRUCTURED_DIR/task_${TASK_ID}.out") \
   2> >(tee -a "$STRUCTURED_DIR/task_${TASK_ID}.err" >&2)
