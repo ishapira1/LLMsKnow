@@ -136,6 +136,25 @@ class ModelUtilsContractTests(unittest.TestCase):
         self.assertIs(_resolve_torch_dtype("Qwen/Qwen2.5-7B-Instruct", "cpu", "auto"), torch.float32)
         self.assertIs(_resolve_torch_dtype("Qwen/Qwen2.5-7B-Instruct", "cuda", "float16"), torch.float16)
 
+    def test_load_llm_pins_huggingface_model_and_tokenizer_revision(self):
+        with patch("llmssycoph.llm.registry.HuggingFaceLLM", autospec=True) as mock_hf_llm:
+            load_llm(
+                "Qwen/Qwen2.5-7B-Instruct",
+                device="cuda",
+                device_map_auto=False,
+                hf_cache_dir="/tmp/hf-cache",
+                revision="0123456789abcdef",
+            )
+
+        mock_hf_llm.assert_called_once_with(
+            model_name="Qwen/Qwen2.5-7B-Instruct",
+            device="cuda",
+            device_map_auto=False,
+            hf_cache_dir="/tmp/hf-cache",
+            torch_dtype=None,
+            revision="0123456789abcdef",
+        )
+
     def test_gpu_device_detection_accepts_cuda_and_mps(self):
         self.assertTrue(_device_uses_gpu("cuda"))
         self.assertTrue(_device_uses_gpu("cuda:0"))

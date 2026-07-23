@@ -84,6 +84,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     model_group.add_argument(
+        "--revision",
+        type=str,
+        default=None,
+        help=(
+            "Pinned Hugging Face commit revision used for both model and tokenizer. "
+            "Paper-faithful pruning runs should pass an immutable commit SHA."
+        ),
+    )
+    model_group.add_argument(
         "--device",
         type=str,
         default="auto",
@@ -255,6 +264,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=200,
         help="Persist sampling checkpoint every N newly generated responses. Set 0 to disable periodic checkpoints.",
+    )
+    sampling_group.add_argument(
+        "--behavior_generation",
+        "--force_mc_generation",
+        action="store_true",
+        help=(
+            "For strict multiple choice, use the model's actual generated answer for behavior "
+            "filtering while also retaining candidate-renormalized choice probabilities for audit."
+        ),
     )
     sampling_group.add_argument(
         "--no_reuse_sampling_cache",
@@ -464,7 +482,8 @@ def _apply_effective_sampling_overrides(args: argparse.Namespace) -> None:
     if args.mc_mode == "strict_mc":
         args.requested_temperature = float(args.temperature)
         args.n_draws = 1
-        args.temperature = 1.0
+        if not bool(getattr(args, "behavior_generation", False)):
+            args.temperature = 1.0
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:

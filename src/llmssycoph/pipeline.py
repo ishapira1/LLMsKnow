@@ -1530,7 +1530,11 @@ def run_pipeline(args) -> None:
         )
         any_choice_scoring, all_choice_scoring = _choice_scoring_coverage(groups, planned_bias_types)
         model_capabilities = resolve_llm_capabilities(args.model)
-        args.strict_mc_choice_scoring = bool(any_choice_scoring and model_capabilities.supports_choice_scoring)
+        args.strict_mc_choice_scoring = bool(
+            any_choice_scoring
+            and model_capabilities.supports_choice_scoring
+            and not bool(getattr(args, "behavior_generation", False))
+        )
         if any_choice_scoring and not model_capabilities.supports_choice_scoring:
             log_status(
                 "pipeline.py",
@@ -1718,6 +1722,7 @@ def run_pipeline(args) -> None:
             device=device,
             device_map_auto=args.device_map_auto,
             hf_cache_dir=hf_cache_dir,
+            revision=args.revision,
         )
 
         if all(
@@ -1778,6 +1783,7 @@ def run_pipeline(args) -> None:
                         split_records["val"],
                         split_records["test"],
                     ),
+                    behavior_generation=bool(getattr(args, "behavior_generation", False)),
                 )
                 _log_sample_preview(split_name, split_records[split_name])
 

@@ -73,6 +73,7 @@ def load_llm(
     device_map_auto: bool,
     hf_cache_dir: Optional[str],
     torch_dtype: Optional[str] = None,
+    revision: Optional[str] = None,
 ) -> BaseLLM:
     factory = get_registered_llm_factory(model_name)
     if factory is None:
@@ -80,13 +81,19 @@ def load_llm(
             "llm/registry.py",
             f"model={model_name} not found in registry; loading as a Hugging Face model identifier",
         )
-        return HuggingFaceLLM(
+        hf_kwargs = dict(
             model_name=model_name,
             device=device,
             device_map_auto=device_map_auto,
             hf_cache_dir=hf_cache_dir,
             torch_dtype=torch_dtype,
         )
+        if revision is not None:
+            hf_kwargs["revision"] = revision
+        return HuggingFaceLLM(**hf_kwargs)
+
+    if revision is not None:
+        raise ValueError("--revision is supported only by the Hugging Face backend")
 
     log_status("llm/registry.py", f"model={model_name} resolved via registered backend")
     return factory(

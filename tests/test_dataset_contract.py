@@ -740,6 +740,48 @@ def test_seeded_random_fallback_is_deterministic_and_ignores_global_random_state
     assert first[0]["base"]["incorrect_letter"] == second[0]["base"]["incorrect_letter"]
 
 
+def test_incorrect_suggestion_assignment_is_reproducible_and_changes_with_run_seed():
+    rows = [
+        {
+            "prompt": [{"type": "human", "content": "unused"}],
+            "base": {
+                "dataset": "commonsense_qa",
+                "question": f"Seeded calibration question {index}?",
+                "correct_letter": "C",
+                "letters": "ABCDE",
+                "answers": "\n(A) alpha\n(B) beta\n(C) correct\n(D) delta\n(E) epsilon",
+                "answers_list": ["alpha", "beta", "correct", "delta", "epsilon"],
+                "source_dataset": "tau/commonsense_qa",
+                "source_split": "train",
+                "source_example_id": f"seeded-calibration-{index}",
+            },
+        }
+        for index in range(24)
+    ]
+
+    def assignments(seed):
+        materialized = materialize_ays_mc_single_turn_rows(
+            rows,
+            selected_bias_types=["incorrect_suggestion_strong"],
+            selected_ays_mc_datasets=["commonsense_qa"],
+            seed=seed,
+        )
+        return [
+            row["base"]["incorrect_letter"]
+            for row in materialized
+            if row["metadata"]["template_type"] == "incorrect_suggestion_strong"
+        ]
+
+    seed_5_first = assignments(5)
+    seed_5_second = assignments(5)
+    seed_17 = assignments(17)
+    seed_29 = assignments(29)
+
+    assert seed_5_first == seed_5_second
+    assert seed_5_first != seed_17
+    assert seed_5_first != seed_29
+
+
 def test_materialize_ays_mc_single_turn_rows_supports_suggest_random_prompt_family():
     rows = [
         {

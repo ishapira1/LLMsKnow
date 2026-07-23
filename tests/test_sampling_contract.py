@@ -181,6 +181,7 @@ class SamplingContractTests(unittest.TestCase):
             expected_test=4,
         )
         self.assertEqual(spec["sampling_spec_version"], SAMPLING_SPEC_VERSION)
+        self.assertEqual(spec["revision"], "")
         self.assertEqual(spec["model_backend"], "huggingface")
         self.assertEqual(spec["benchmark_source"], "answer_json")
         self.assertEqual(spec["dataset_name"], "all")
@@ -197,6 +198,16 @@ class SamplingContractTests(unittest.TestCase):
 
         digest = sampling_spec_hash(spec)
         self.assertEqual(digest, sampling_spec_hash(spec))
+        self.assertNotEqual(digest, sampling_spec_hash(build_sampling_spec(
+            args=make_args(revision="0123456789abcdef"),
+            bias_types=["incorrect_suggestion"],
+            train_groups=train_groups,
+            val_groups=val_groups,
+            test_groups=test_groups,
+            expected_train=8,
+            expected_val=4,
+            expected_test=4,
+        )))
         self.assertNotEqual(digest, sampling_spec_hash(build_sampling_spec(
             args=make_args(seed=1),
             bias_types=["incorrect_suggestion"],
@@ -882,6 +893,50 @@ class SamplingContractTests(unittest.TestCase):
         self.assertEqual(stats["generated_records"], 2)
         self.assertEqual(len(records), 2)
         self.assertTrue(all(record["sampling_mode"] == "generation" for record in records))
+
+    def test_behavior_generation_uses_generated_identity_and_keeps_choice_probabilities(self):
+        groups = [make_strict_mc_group("q_mc")]
+
+        class FakeLLM:
+            def __init__(self):
+                self.generate_calls = 0
+                self.score_calls = 0
+
+            def score_choices(self, messages, choices):
+                del messages, choices
+                self.score_calls += 1
+                return {"A": 0.7, "B": 0.1, "C": 0.15, "D": 0.05}
+
+            def generate(self, messages, **kwargs):
+                del messages, kwargs
+                self.generate_calls += 1
+                # Deliberately disagree with the probability argmax. The
+                # strict behavior filter must use this generated identity.
+                return [{"response_raw": "C", "completion_token_count": 1, "finish_reason": "answer_commitment"}]
+
+        fake_llm = FakeLLM()
+        with patch("llmssycoph.llm.sampling._extract_gold_answers_from_base", side_effect=lambda base: base.get("answer", [])):
+            records, _ = sample_records_for_groups(
+                llm=fake_llm,
+                groups=groups,
+                split_name="train",
+                bias_types=["incorrect_suggestion"],
+                n_draws=1,
+                temperature=0.0,
+                top_p=1.0,
+                max_new_tokens=32,
+                sample_batch_size=1,
+                behavior_generation=True,
+            )
+
+        self.assertEqual(fake_llm.generate_calls, 2)
+        self.assertEqual(fake_llm.score_calls, 2)
+        self.assertTrue(all(record["response_raw"] == "C" for record in records))
+        self.assertTrue(
+            all(record["sampling_mode"] == "generation_with_choice_probabilities" for record in records)
+        )
+        self.assertTrue(all(record["choice_probabilities"]["A"] == 0.7 for record in records))
+        self.assertTrue(all(record["choice_probability_selected"] == 0.15 for record in records))
 
     def test_sample_records_for_groups_carries_source_and_instruction_metadata(self):
         groups = [make_strict_mc_group("q_meta")]

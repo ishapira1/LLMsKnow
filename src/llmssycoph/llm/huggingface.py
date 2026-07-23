@@ -89,17 +89,20 @@ class HuggingFaceLLM(BaseLLM):
         device_map_auto: bool,
         hf_cache_dir: Optional[str],
         torch_dtype: Optional[str] = None,
+        revision: Optional[str] = None,
     ):
         super().__init__(model_name=model_name)
         self.device = device
         self.device_map_auto = bool(device_map_auto)
         self.hf_cache_dir = hf_cache_dir
+        self.revision = revision
         self.model, self.tokenizer = self._load_model_and_tokenizer(
             model_name=model_name,
             device=device,
             device_map_auto=device_map_auto,
             hf_cache_dir=hf_cache_dir,
             torch_dtype=torch_dtype,
+            revision=revision,
         )
 
     def capabilities(self) -> LLMCapabilities:
@@ -117,6 +120,7 @@ class HuggingFaceLLM(BaseLLM):
         device_map_auto: bool,
         hf_cache_dir: Optional[str],
         torch_dtype: Optional[str] = None,
+        revision: Optional[str] = None,
     ) -> Tuple[Any, Any]:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -124,6 +128,8 @@ class HuggingFaceLLM(BaseLLM):
         log_status("llm/huggingface.py", f"loading model={model_name} on device={device}")
         _warn_if_not_using_gpu(model_name=model_name, device=device)
         load_kwargs = _hf_load_kwargs(hf_cache_dir)
+        if revision:
+            load_kwargs["revision"] = revision
         resolved_torch_dtype = _resolve_torch_dtype(model_name, device, torch_dtype)
         log_status(
             "llm/huggingface.py",
