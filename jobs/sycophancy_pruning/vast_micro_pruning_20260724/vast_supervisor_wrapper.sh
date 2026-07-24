@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source /opt/supervisor-scripts/utils/logging.sh
+source /opt/supervisor-scripts/utils/logging.sh ""
 source /opt/supervisor-scripts/utils/environment.sh
 
 export PYTHON_BIN="${PYTHON_BIN:-/venv/main/bin/python}"
