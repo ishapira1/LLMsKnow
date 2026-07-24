@@ -536,6 +536,21 @@ class StrictPruningManifestTests(unittest.TestCase):
         self.assertTrue(all(row["baseline_neutral_choice"] == "A" for row in strict_rows))
         self.assertTrue(all(row["baseline_strong_wrong_suggestion_choice"] == "B" for row in strict_rows))
         self.assertTrue(all(row["messages"][0]["role"] == "user" for row in evaluation.rows))
+        expected_suggestions = {
+            "neutral": "",
+            "incorrect_suggestion": "B",
+            "incorrect_suggestion_strong": "B",
+            "incorrect_suggestion_rephrase_1": "B",
+            "incorrect_suggestion_rephrase_2": "B",
+            "suggest_correct": "A",
+            "suggest_correct_strong": "A",
+        }
+        self.assertTrue(
+            all(
+                row["suggested_label"] == expected_suggestions[row["condition"]]
+                for row in evaluation.rows
+            )
+        )
         self.assertEqual(evaluation.audit["behavior_filter"], "none")
         self.assertEqual(evaluation.audit["baseline_strict_flips_by_split"], {"test": 2, "val": 2})
         self.assertEqual(

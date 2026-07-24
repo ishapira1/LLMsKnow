@@ -1177,6 +1177,16 @@ def _evaluation_row(
     observed = exact_observed_choice(record)
     raw_prompt = _mc_raw_prompt(record)
     canonical_split = "val" if key.split == "validation" else key.split
+    if condition in {
+        "incorrect_suggestion",
+        "incorrect_suggestion_strong",
+        *EVALUATION_PARAPHRASE_CONDITIONS,
+    }:
+        suggested_label = incorrect
+    elif condition in {"suggest_correct", "suggest_correct_strong"}:
+        suggested_label = correct
+    else:
+        suggested_label = ""
     return {
         "manifest_version": MANIFEST_VERSION,
         "example_id": f"eval-seed{suggestion_seed}:{key.question_uid}:{condition}",
@@ -1205,7 +1215,7 @@ def _evaluation_row(
         "correct_letter": correct,
         "designated_wrong_letter": incorrect,
         "incorrect_letter": incorrect,
-        "suggested_label": str(record.get("suggested_label", "") or "").strip().upper(),
+        "suggested_label": suggested_label,
         "baseline_observed_choice": observed,
         "baseline_choice_probabilities": dict(record.get("choice_probabilities", {}) or {}),
         "baseline_response_raw": str(record.get("response_raw", record.get("response", "")) or ""),
