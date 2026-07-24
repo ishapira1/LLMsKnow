@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 BUNDLE_NAME="vast_micro_pruning_20260724"
 REPO_DIR="${REPO_DIR:-/workspace/LLMsKnow}"
@@ -9,7 +9,7 @@ MODEL_ID="Qwen/Qwen2.5-7B-Instruct"
 MODEL_REVISION="a09a35458c702b33eeacc393d103063234e8bc28"
 CALIBRATION_SEED=5
 MICRO_N=8
-EVAL_QUESTIONS="${EVAL_QUESTIONS:-16}"
+EVAL_QUESTIONS="${EVAL_QUESTIONS:-10}"
 MAX_QUESTIONS="${MAX_QUESTIONS:-128}"
 LAYERS=(3 8 13 18 23 27)
 P_VALUE="1e-5"
@@ -29,6 +29,10 @@ REPORT_ROOT="$WORK_ROOT/results/report"
 LOG_ROOT="$WORK_ROOT/logs"
 STATUS_PATH="$WORK_ROOT/status.json"
 ALPACA_DATA="$WORK_ROOT/data/alpaca_data.json"
+PRUNE_MANIFEST="$MANIFEST_ROOT/seed_5/micro/pruning.jsonl"
+PRESERVE_MANIFEST="$MANIFEST_ROOT/seed_5/micro/preservation.jsonl"
+FULL_EVALUATION_MANIFEST="$MANIFEST_ROOT/evaluation/fixed_seed_5_heldout.jsonl"
+MICRO_EVALUATION_MANIFEST="$MANIFEST_ROOT/evaluation/micro_strict_val.jsonl"
 
 export HF_HOME HF_HUB_CACHE HF_DATASETS_CACHE
 export TRANSFORMERS_CACHE="$HF_HUB_CACHE"
@@ -96,8 +100,9 @@ print({"torch": torch.__version__, "cuda": torch.version.cuda,
 '
 write_status "$CURRENT_STAGE" completed
 
-run_stage prepare_alpaca \
-  "$PYTHON_BIN" scripts/prepare_weight_pruning_alpaca.py --output "$ALPACA_DATA"
+if [[ ! -f "$PRUNE_MANIFEST" || ! -f "$PRESERVE_MANIFEST" || ! -f "$FULL_EVALUATION_MANIFEST" ]]; then
+  run_stage prepare_alpaca \
+    "$PYTHON_BIN" scripts/prepare_weight_pruning_alpaca.py --output "$ALPACA_DATA"
 
 sample_dataset() {
   local gpu="$1"
@@ -149,24 +154,22 @@ CSQA_RUN_DIR="$("$PYTHON_BIN" -c \
   'import sys; from llmssycoph.runtime import build_run_dir_path; print(build_run_dir_path(*sys.argv[1:4], dataset_name=sys.argv[4], ays_mc_datasets=sys.argv[4]))' \
   "$SAMPLING_ROOT" "$MODEL_ID" "$CSQA_RUN_NAME" commonsense_qa)"
 
-run_stage build_manifests \
-  "$PYTHON_BIN" scripts/build_strict_sycophancy_manifests.py \
-  --model-id "$MODEL_ID" \
-  --revision "$MODEL_REVISION" \
-  --seed-records "5=$ARC_RUN_DIR" \
-  --seed-records "5=$CSQA_RUN_DIR" \
-  --alpaca-data "$ALPACA_DATA" \
-  --alpaca-utility-size 32 \
-  --evaluation-records "$ARC_RUN_DIR" \
-  --evaluation-records "$CSQA_RUN_DIR" \
-  --output-dir "$MANIFEST_ROOT" \
-  --expected-seeds 5 \
-  --sizes "micro=$MICRO_N"
-
-PRUNE_MANIFEST="$MANIFEST_ROOT/seed_5/micro/pruning.jsonl"
-PRESERVE_MANIFEST="$MANIFEST_ROOT/seed_5/micro/preservation.jsonl"
-FULL_EVALUATION_MANIFEST="$MANIFEST_ROOT/evaluation/fixed_seed_5_heldout.jsonl"
-MICRO_EVALUATION_MANIFEST="$MANIFEST_ROOT/evaluation/micro_strict_val.jsonl"
+  run_stage build_manifests \
+    "$PYTHON_BIN" scripts/build_strict_sycophancy_manifests.py \
+    --model-id "$MODEL_ID" \
+    --revision "$MODEL_REVISION" \
+    --seed-records "5=$ARC_RUN_DIR" \
+    --seed-records "5=$CSQA_RUN_DIR" \
+    --alpaca-data "$ALPACA_DATA" \
+    --alpaca-utility-size 32 \
+    --evaluation-records "$ARC_RUN_DIR" \
+    --evaluation-records "$CSQA_RUN_DIR" \
+    --output-dir "$MANIFEST_ROOT" \
+    --expected-seeds 5 \
+    --sizes "micro=$MICRO_N"
+else
+  printf '[weight-pruning-micro] reusing validated calibration/evaluation manifests\n'
+fi
 run_stage subset_evaluation \
   "$PYTHON_BIN" scripts/subset_pruning_evaluation_manifest.py \
   --input "$FULL_EVALUATION_MANIFEST" \

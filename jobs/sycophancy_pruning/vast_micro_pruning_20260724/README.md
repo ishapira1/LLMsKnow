@@ -11,7 +11,9 @@ Locked scope:
 - Raw formatting and full-completion NLL.
 - Transformer blocks 3, 8, 13, 18, 23, and 27 only.
 - One targeted global set-difference mask at `p=1e-5`, `q=5e-5`.
-- Live base-versus-pruned evaluation on 16 balanced held-out strict flips.
+- Live base-versus-pruned evaluation on 10 balanced held-out strict flips
+  (five ARC and five CommonsenseQA), the largest balanced strict validation
+  cohort available in the fresh 128-question-per-dataset sample.
 
 The output label is:
 
