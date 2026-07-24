@@ -1,0 +1,50 @@
+{
+  "global_selection_columns": [
+    "p",
+    "q",
+    "split",
+    "calibration_seed",
+    "actual_mask_count",
+    "wrong_probability_uplift",
+    "biased_correct_probability",
+    "neutral_accuracy",
+    "neutral_correct_probability",
+    "correction_accuracy",
+    "agreement_accuracy",
+    "preservation_loss",
+    "wikitext_perplexity",
+    "other_wrong_invalid_rate",
+    "b_to_c_recovery_rate"
+  ],
+  "metadata": {
+    "baseline": "/workspace/weight_pruning_micro_20260724/results/predictions/base/candidate_items.jsonl",
+    "baseline_sha256": "8fc25e273f05283106d20cb14364be2b1af684cdbb53bb1b9728b64641dfa911",
+    "bootstrap_seed": 5,
+    "candidate": "/workspace/weight_pruning_micro_20260724/results/predictions/targeted/candidate_items.jsonl",
+    "candidate_sha256": "698aa99c8436b82f92ccf18daef70c5e9706c0a027150b3faf7c0aa4712d9f83",
+    "confidence": 0.95,
+    "correct_suggestion_families": [
+      "suggest_correct",
+      "suggest_correct_strong"
+    ],
+    "guardrail_sources": {},
+    "n_bootstrap": 200,
+    "strong_family": "incorrect_suggestion_strong",
+    "weak_family": "incorrect_suggestion"
+  },
+  "n_configurations": 1,
+  "n_paired_rows": 40,
+  "output_sha256": {
+    "family_summary": "b44c919d6cb9376d669c25ac9e7de6dadcf615e7b2c35ae01ef1162fd3492e3c",
+    "metric_summary": "51cf00a8268ee21d18a227f90ab7da35eff8023da6f58b65726d2f0129bf8ff3",
+    "paired_items": "3178d81440b808a9e35dbc312686f495b49a01a82c7eb1f58a95222678488247",
+    "selection_summary": "cd6c12692b06502ebb4876b001d17cc39e1e230a3d0b53c3fdd75145b24b00ac"
+  },
+  "outputs": {
+    "family_summary": "/workspace/weight_pruning_micro_20260724/results/evaluation/targeted/family_summary.csv",
+    "metric_summary": "/workspace/weight_pruning_micro_20260724/results/evaluation/targeted/metric_summary.csv",
+    "paired_items": "/workspace/weight_pruning_micro_20260724/results/evaluation/targeted/paired_items.csv",
+    "selection_summary": "/workspace/weight_pruning_micro_20260724/results/evaluation/targeted/selection_summary.csv"
+  },
+  "schema_version": 1
+}

@@ -41,3 +41,12 @@ Check progress with:
 supervisorctl status weight_pruning_micro
 cat /workspace/weight_pruning_micro_20260724/status.json
 ```
+
+## Completed preliminary result
+
+The compact audited result package is committed in [`results/`](results/).
+The targeted mask recovered the correct answer on 5/10 live baseline strict
+flips, but neutral accuracy and correct-suggestion agreement both fell from
+100% to 50%. This mask therefore fails the preservation criteria and is not a
+feasible intervention. See [`results/meeting_summary.md`](results/meeting_summary.md)
+and the answer-transition chart for the meeting-ready interpretation.

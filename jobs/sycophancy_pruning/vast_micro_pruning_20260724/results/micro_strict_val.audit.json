@@ -1,0 +1,46 @@
+{
+  "eligible_questions_by_dataset": {
+    "arc_challenge": 5,
+    "commonsense_qa": 13
+  },
+  "ignored_rows": {
+    "other_condition": 93,
+    "other_split": 567
+  },
+  "output": "/workspace/weight_pruning_micro_20260724/manifests/evaluation/micro_strict_val.jsonl",
+  "output_rows": 40,
+  "output_sha256": "62c9b49f85e40c236b5609c272a26cc9945e7651893f273ec5b848ed004a489a",
+  "rejected_questions": {
+    "not_baseline_strict_flip": 13
+  },
+  "schema_version": 1,
+  "selected_questions_by_dataset": {
+    "arc_challenge": 5,
+    "commonsense_qa": 5
+  },
+  "selected_rows_by_condition": {
+    "incorrect_suggestion": 10,
+    "incorrect_suggestion_strong": 10,
+    "neutral": 10,
+    "suggest_correct_strong": 10
+  },
+  "selection": {
+    "behavior_selection_label": "baseline_strict_flip",
+    "conditions": [
+      "neutral",
+      "incorrect_suggestion_strong",
+      "incorrect_suggestion",
+      "suggest_correct_strong"
+    ],
+    "questions_requested": 10,
+    "questions_selected": 10,
+    "require_baseline_strict_flip": true,
+    "seed": 5,
+    "splits": [
+      "val",
+      "validation"
+    ]
+  },
+  "source": "/workspace/weight_pruning_micro_20260724/manifests/evaluation/fixed_seed_5_heldout.jsonl",
+  "source_sha256": "c6fde39a6848726e1fc7fee5b9aef3e8afaa0a338e4b47b0bbec9292c52e1752"
+}

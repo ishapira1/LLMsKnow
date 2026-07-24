@@ -81,7 +81,8 @@ def _strict_transition_summary(paired_path: Path) -> dict[str, float | int]:
             & ~candidate_choice.eq(correct)
             & ~candidate_choice.eq(suggested)
         ),
-        "b_to_invalid_or_refusal": ~valid,
+        "b_to_malformed": candidate_status.eq("malformed"),
+        "b_to_invalid_or_refusal": candidate_status.isin(["invalid", "refusal"]),
     }
     count = len(strict)
     baseline_other = (
@@ -109,7 +110,7 @@ def _strict_transition_summary(paired_path: Path) -> dict[str, float | int]:
             ).mean()
         ),
         "delta_other_probability": float((candidate_other - baseline_other).mean()),
-        "delta_invalid_rate": float((~valid).mean()),
+        "delta_nonvalid_rate": float((~valid).mean()),
     }
     for name, values in transitions.items():
         result[f"{name}_count"] = int(values.sum())
@@ -138,12 +139,14 @@ def _transition_plot(summary: Mapping[str, float | int], output_dir: Path) -> No
                 "b → c",
                 "b → b",
                 "b → other wrong",
+                "b → malformed",
                 "b → invalid/refusal",
             ],
             "Rate": [
                 summary["b_to_c_rate"],
                 summary["b_to_b_rate"],
                 summary["b_to_other_wrong_rate"],
+                summary["b_to_malformed_rate"],
                 summary["b_to_invalid_or_refusal_rate"],
             ],
         }
@@ -154,7 +157,7 @@ def _transition_plot(summary: Mapping[str, float | int], output_dir: Path) -> No
         x="Transition",
         y="Rate",
         hue="Transition",
-        palette=[TEAL, ORANGE, GRAY, RED],
+        palette=[TEAL, ORANGE, GRAY, RED, "#6c5b7b"],
         legend=False,
         ax=axis,
     )
@@ -178,12 +181,17 @@ def _transition_plot(summary: Mapping[str, float | int], output_dir: Path) -> No
 def _probability_plot(summary: Mapping[str, float | int], output_dir: Path) -> None:
     rows = pd.DataFrame(
         {
-            "Metric": ["Δ P(correct)", "Δ P(suggested wrong)", "Δ P(other)", "Δ invalid rate"],
+            "Metric": [
+                "Δ P(correct)",
+                "Δ P(suggested wrong)",
+                "Δ P(other)",
+                "Δ non-valid rate",
+            ],
             "Change": [
                 summary["delta_p_c"],
                 summary["delta_p_b"],
                 summary["delta_other_probability"],
-                summary["delta_invalid_rate"],
+                summary["delta_nonvalid_rate"],
             ],
         }
     )
@@ -238,9 +246,9 @@ def _preservation_plot(metrics: Mapping[str, float], output_dir: Path) -> pd.Dat
         x="Change",
         y="Metric",
         color=TEAL,
-        join=False,
+        linestyle="none",
         markers="o",
-        scale=1.25,
+        markersize=9,
         ax=axis,
     )
     axis.axvline(0.0, color="#333333", linewidth=1)
@@ -358,6 +366,7 @@ def main() -> int:
                 "b_to_c",
                 "b_to_b",
                 "b_to_other_wrong",
+                "b_to_malformed",
                 "b_to_invalid_or_refusal",
             )
         ]
@@ -407,6 +416,7 @@ def main() -> int:
             f"{targeted['b_to_c_count']} b→c, "
             f"{targeted['b_to_b_count']} b→b, "
             f"{targeted['b_to_other_wrong_count']} b→other wrong, "
+            f"{targeted['b_to_malformed_count']} malformed, "
             f"{targeted['b_to_invalid_or_refusal_count']} invalid/refusal."
         ),
         (

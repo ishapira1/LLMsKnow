@@ -1,0 +1,6 @@
+transition,count,rate
+b_to_c,5,0.5
+b_to_b,1,0.1
+b_to_other_wrong,3,0.3
+b_to_malformed,1,0.1
+b_to_invalid_or_refusal,0,0.0
