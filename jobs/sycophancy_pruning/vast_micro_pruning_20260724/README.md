@@ -22,7 +22,9 @@ The output label is:
 
 Persistent outputs and logs are written under
 `/workspace/weight_pruning_micro_20260724`. Large temporary FP32 score files
-are written under `/dev/shm/weight_pruning_micro_20260724`.
+are written under `/dev/shm/weight_pruning_micro_20260724_boundary_v2`. The
+suffix distinguishes the token-safe `Answer:\n` manifest identity from the
+initial fail-closed boundary check; no stale score cache is reused.
 
 Install the supervisor configuration and start it with:
 
