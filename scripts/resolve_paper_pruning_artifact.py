@@ -38,7 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="none",
     )
     parser.add_argument("--match-bins", type=int, default=20)
-    parser.add_argument("--no-abs", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--no-abs",
+        action="store_true",
+        help="Match prune.py --no_abs: retain the signed pruning attribution.",
+    )
     parser.add_argument("--abs-prune", action="store_true")
     parser.add_argument("--abs-preserve", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--max-score-length", type=int, default=4096)

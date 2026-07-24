@@ -201,33 +201,47 @@ COMMON_SCORE_ARGS=(
   --abs_preserve
 )
 
-CURRENT_STAGE=scoring
-write_status "$CURRENT_STAGE" running
-CUDA_VISIBLE_DEVICES=0 "$PYTHON_BIN" "${COMMON_SCORE_ARGS[@]}" \
-  --score_role prune --dump_score >"$LOG_ROOT/score_prune.log" 2>&1 &
-PRUNE_PID="$!"
-for _ in $(seq 1 180); do
-  [[ -f "$SCORE_CACHE/identity.json" ]] && break
-  kill -0 "$PRUNE_PID" 2>/dev/null || break
-  sleep 1
-done
-CUDA_VISIBLE_DEVICES=1 "$PYTHON_BIN" "${COMMON_SCORE_ARGS[@]}" \
-  --score_role preserve --dump_score >"$LOG_ROOT/score_preserve.log" 2>&1 &
-PRESERVE_PID="$!"
-wait "$PRUNE_PID"
-wait "$PRESERVE_PID"
-write_status "$CURRENT_STAGE" completed
+if [[ -f "$SCORE_CACHE/prune/COMPLETE" && -f "$SCORE_CACHE/preserve/COMPLETE" ]]; then
+  printf '[weight-pruning-micro] reusing complete identity-validated score roles\n'
+else
+  CURRENT_STAGE=scoring
+  write_status "$CURRENT_STAGE" running
+  CUDA_VISIBLE_DEVICES=0 "$PYTHON_BIN" "${COMMON_SCORE_ARGS[@]}" \
+    --score_role prune --dump_score >"$LOG_ROOT/score_prune.log" 2>&1 &
+  PRUNE_PID="$!"
+  for _ in $(seq 1 180); do
+    [[ -f "$SCORE_CACHE/identity.json" ]] && break
+    kill -0 "$PRUNE_PID" 2>/dev/null || break
+    sleep 1
+  done
+  CUDA_VISIBLE_DEVICES=1 "$PYTHON_BIN" "${COMMON_SCORE_ARGS[@]}" \
+    --score_role preserve --dump_score >"$LOG_ROOT/score_preserve.log" 2>&1 &
+  PRESERVE_PID="$!"
+  wait "$PRUNE_PID"
+  wait "$PRESERVE_PID"
+  write_status "$CURRENT_STAGE" completed
+fi
 
-CURRENT_STAGE=mask
-write_status "$CURRENT_STAGE" running
-CUDA_VISIBLE_DEVICES=0 "$PYTHON_BIN" "${COMMON_SCORE_ARGS[@]}" \
-  --use_saved_scores \
-  --p "$P_VALUE" \
-  --q "$Q_VALUE" \
-  --dump_mask \
-  --dump_indices \
-  --mask_only 2>&1 | tee "$LOG_ROOT/mask.log"
-write_status "$CURRENT_STAGE" completed
+EXISTING_MASK_METADATA="$(
+  find "$ARTIFACT_ROOT/masks" -type f \
+    -path "*/p_1e-05_q_5e-05_neg_1_slice2_0_none/metadata.json" \
+    -print -quit 2>/dev/null || true
+)"
+if [[ -n "$EXISTING_MASK_METADATA" && -f "${EXISTING_MASK_METADATA%/metadata.json}/indices.pt" ]]; then
+  printf '[weight-pruning-micro] reusing existing targeted mask artifacts: %s\n' \
+    "$(dirname "$EXISTING_MASK_METADATA")"
+else
+  CURRENT_STAGE=mask
+  write_status "$CURRENT_STAGE" running
+  CUDA_VISIBLE_DEVICES=0 "$PYTHON_BIN" "${COMMON_SCORE_ARGS[@]}" \
+    --use_saved_scores \
+    --p "$P_VALUE" \
+    --q "$Q_VALUE" \
+    --dump_mask \
+    --dump_indices \
+    --mask_only 2>&1 | tee "$LOG_ROOT/mask.log"
+  write_status "$CURRENT_STAGE" completed
+fi
 
 POINTER_PATH="$WORK_ROOT/results/targeted_mask_pointer.json"
 run_stage resolve_mask \
