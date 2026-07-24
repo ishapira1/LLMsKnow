@@ -342,8 +342,7 @@ class StrictPruningManifestTests(unittest.TestCase):
 
     def test_manifest_schema_locks_raw_prompt_boundary(self):
         row = self.build().manifests["smoke"]["pruning"][0]
-        self.assertTrue(row["raw_prompt"].endswith("\nAnswer:"))
-        self.assertFalse(row["raw_prompt"].endswith(" "))
+        self.assertTrue(row["raw_prompt"].endswith("\nAnswer:\n"))
         self.assertRegex(row["target_text"], r"^[A-Z0-9]$")
         self.assertFalse(row["target_text"].startswith(" "))
         self.assertEqual(row["messages"], row["prompt_messages"])
@@ -358,6 +357,7 @@ class StrictPruningManifestTests(unittest.TestCase):
             {
                 "separator": "Answer:",
                 "prompt_ends_at_separator": True,
+                "prompt_has_explicit_trailing_newline": True,
                 "target_has_leading_whitespace": False,
             },
         )

@@ -573,7 +573,11 @@ def _mc_raw_prompt(record: Mapping[str, Any]) -> str:
             "Strict MC raw prompts must end exactly with the stable 'Answer:' separator; "
             f"got prompt_id={record.get('prompt_id')!r}."
         )
-    return prompt
+    # Keep the canonical one-letter completion free of leading whitespace while
+    # making the tokenizer boundary explicit. Qwen's fast tokenizer merges both
+    # ``Answer:`` + ``B`` and ``Answer: `` + ``B`` across the response boundary;
+    # a trailing newline is independently tokenized and therefore fail-closed.
+    return f"{prompt}\n"
 
 
 def _manifest_mc_row(
@@ -635,6 +639,7 @@ def _manifest_mc_row(
         "response_boundary": {
             "separator": "Answer:",
             "prompt_ends_at_separator": True,
+            "prompt_has_explicit_trailing_newline": True,
             "target_has_leading_whitespace": False,
         },
         "source_record_ids": source_ids,
@@ -1231,6 +1236,7 @@ def _evaluation_row(
         "response_boundary": {
             "separator": "Answer:",
             "prompt_ends_at_separator": True,
+            "prompt_has_explicit_trailing_newline": True,
         },
         "source_record_id": record.get("record_id"),
         "source_record_sha256": _semantic_record_fingerprint(record),
