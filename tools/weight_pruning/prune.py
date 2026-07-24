@@ -147,6 +147,16 @@ def parse_args():
     parser.add_argument(
         "--dump_indices", action="store_true", help="Whether to dump the final pruning indices."
     )
+    parser.add_argument(
+        "--mask_only",
+        action="store_true",
+        help=(
+            "For manifest pruning, exit immediately after selecting, saving, and "
+            "applying the sparse mask. This intentionally skips preservation-loss, "
+            "WikiText, and other evaluations; use only when evaluation is run by a "
+            "separate strict mask-replay stage."
+        ),
+    )
 
     # Finetuning jailbreak configuration
     parser.add_argument("--epochs", type=int, default=5, help="Number of epochs for a finetuning jailbreak")
@@ -243,6 +253,10 @@ def parse_args():
             parser.error("--dump_score and --use_saved_scores are mutually exclusive")
         if args.score_role != "both" and not args.dump_score:
             parser.error("--score_role prune/preserve is only valid with --dump_score")
+        if args.mask_only and args.dump_score:
+            parser.error("--mask_only and --dump_score are mutually exclusive")
+        if args.mask_only and not (args.dump_mask or args.dump_indices):
+            parser.error("--mask_only requires --dump_mask or --dump_indices")
         if args.eval_alpaca and not args.alpaca_eval_data:
             parser.error(
                 "manifest pruning with --eval_alpaca requires "
@@ -482,6 +496,13 @@ def main():
     # must not fall through to model saving, sparsity checks, WikiText, or evals.
     if args.dump_score:
         print("score dump complete; exiting before masking and evaluation")
+        wandb.finish()
+        return
+    if args.mask_only:
+        print(
+            "mask-only run complete; exiting before preservation loss, WikiText, "
+            "and downstream evaluations"
+        )
         wandb.finish()
         return
 

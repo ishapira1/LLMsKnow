@@ -13,6 +13,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Resolve the identity-keyed in-repo weight-pruning score and mask paths."
     )
     parser.add_argument("--artifact-root", type=Path, required=True)
+    parser.add_argument(
+        "--score-cache",
+        type=Path,
+        help="Optional explicit score-cache directory used by the scoring commands.",
+    )
     parser.add_argument("--model", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--prune-manifest", type=Path, required=True)
@@ -37,7 +42,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--abs-prune", action="store_true")
     parser.add_argument("--abs-preserve", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--max-score-length", type=int, default=4096)
+    parser.add_argument(
+        "--layers",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Optional 0-indexed transformer-block subset included in score identity.",
+    )
     parser.add_argument("--require-existing", action="store_true")
+    parser.add_argument(
+        "--mask-artifacts-only",
+        action="store_true",
+        help=(
+            "With --require-existing, require mask metadata and indices but not "
+            "evaluation.json. This matches prune.py --mask_only runs."
+        ),
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--print-field",
@@ -72,10 +92,14 @@ def resolve(args: argparse.Namespace) -> dict[str, object]:
         no_abs=args.no_abs,
         abs_prune=args.abs_prune,
         abs_preserve=args.abs_preserve,
-        layers=None,
+        layers=args.layers,
         max_score_length=args.max_score_length,
         artifact_root=str(args.artifact_root.expanduser().resolve()),
-        score_cache=None,
+        score_cache=(
+            str(args.score_cache.expanduser().resolve())
+            if args.score_cache is not None
+            else None
+        ),
         p=args.p,
         q=args.q,
         neg_prune=args.neg_prune,
@@ -98,9 +122,12 @@ def resolve(args: argparse.Namespace) -> dict[str, object]:
         "freeze_first_top_q": args.freeze_first_top_q,
         "control": args.control,
         "match_bins": args.match_bins if args.control == "random_magnitude" else None,
+        "layers": args.layers,
     }
     if args.require_existing:
-        required = [Path(str(payload["metadata_path"])), Path(str(payload["evaluation_path"]))]
+        required = [Path(str(payload["metadata_path"]))]
+        if not args.mask_artifacts_only:
+            required.append(Path(str(payload["evaluation_path"])))
         if args.q != 0:
             required.append(Path(str(payload["indices_path"])))
         missing = [str(path) for path in required if not path.is_file()]

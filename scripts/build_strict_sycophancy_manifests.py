@@ -30,6 +30,50 @@ from llmssycoph.pruning.strict_manifests import (  # noqa: E402
 EXPECTED_SEEDS = (5, 17, 29)
 
 
+def parse_sizes(value: str) -> tuple[tuple[str, int], ...]:
+    """Parse a comma-separated NAME=COUNT manifest-size declaration."""
+
+    sizes: list[tuple[str, int]] = []
+    seen_names: set[str] = set()
+    for raw_entry in str(value or "").split(","):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        name, separator, count_text = entry.partition("=")
+        name = name.strip()
+        count_text = count_text.strip()
+        if not separator or not name or not count_text:
+            raise argparse.ArgumentTypeError(
+                f"Invalid manifest size {entry!r}; expected NAME=COUNT."
+            )
+        if name in seen_names:
+            raise argparse.ArgumentTypeError(
+                f"Duplicate manifest-size name {name!r}."
+            )
+        try:
+            count = int(count_text)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f"Manifest size {name!r} has a non-integer count {count_text!r}."
+            ) from exc
+        if count <= 0:
+            raise argparse.ArgumentTypeError(
+                f"Manifest size {name!r} must be positive, got {count}."
+            )
+        sizes.append((name, count))
+        seen_names.add(name)
+    if not sizes:
+        raise argparse.ArgumentTypeError(
+            "At least one manifest size must be supplied as NAME=COUNT."
+        )
+    counts = [count for _, count in sizes]
+    if counts != sorted(counts):
+        raise argparse.ArgumentTypeError(
+            "Manifest sizes must be supplied in increasing COUNT order."
+        )
+    return tuple(sizes)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -85,6 +129,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--calibration-split", default="train")
+    parser.add_argument(
+        "--sizes",
+        type=parse_sizes,
+        default=DEFAULT_SIZES,
+        metavar="NAME=COUNT[,NAME=COUNT...]",
+        help=(
+            "Nested deterministic manifest sizes. The default is "
+            "smoke=16,pilot=128,main=412; small explicitly labeled pilots may "
+            "request a custom size such as micro=8."
+        ),
+    )
     parser.add_argument(
         "--expected-seeds",
         default=",".join(str(seed) for seed in EXPECTED_SEEDS),
@@ -209,7 +264,7 @@ def main(argv: List[str] | None = None) -> int:
             revision=args.revision,
             calibration_seed=seed,
             calibration_split=args.calibration_split,
-            sizes=DEFAULT_SIZES,
+            sizes=args.sizes,
         )
         source_audits[seed] = source_audit
     evaluation = None
@@ -249,7 +304,7 @@ def main(argv: List[str] | None = None) -> int:
                 "model_id": args.model_id,
                 "revision": args.revision,
                 "seeds": sorted(builds),
-                "sizes": [name for name, _ in DEFAULT_SIZES],
+                "sizes": [name for name, _ in args.sizes],
                 "manifest_index": index,
             },
             indent=2,
