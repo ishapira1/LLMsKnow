@@ -59,3 +59,30 @@ if (( ${#TRANSFER_INPUTS[@]} > 0 )); then
   print_command "${transfer_cmd[@]}"
   "${transfer_cmd[@]}"
 fi
+
+mapfile -t FIXED_PROBE_INPUTS < <(find "$INTERVENTION_ROOT/models" -path '*/fixed_probe_test/layer_*/question_results.jsonl' -type f | sort)
+mapfile -t GEOMETRY_INPUTS < <(find "$INTERVENTION_ROOT/models" -path '*/geometry_test/geometry_summary.json' -type f | sort)
+mapfile -t ALPACA_INPUTS < <(find "$INTERVENTION_ROOT/models" -path '*/alpaca_guardrail/alpaca_guardrail.jsonl' -type f | sort)
+if (( ${#FIXED_PROBE_INPUTS[@]} == 0 || ${#GEOMETRY_INPUTS[@]} == 0 || ${#ALPACA_INPUTS[@]} == 0 )); then
+  printf '%s\n' \
+    "Missing supplementary outputs: fixed_probe=${#FIXED_PROBE_INPUTS[@]} geometry=${#GEOMETRY_INPUTS[@]} alpaca=${#ALPACA_INPUTS[@]}" >&2
+  exit 1
+fi
+supplementary_cmd=(
+  "$ENV_PYTHON" "$REPO_DIR/scripts/aggregate_activation_steering_supplementary.py"
+  --output-dir "$INTERVENTION_ROOT/supplementary_aggregate"
+  --n-bootstrap 2000
+  --seed 5
+)
+for input in "${FIXED_PROBE_INPUTS[@]}"; do
+  supplementary_cmd+=(--fixed-probe "$input")
+done
+for input in "${GEOMETRY_INPUTS[@]}"; do
+  supplementary_cmd+=(--geometry "$input")
+done
+for input in "${ALPACA_INPUTS[@]}"; do
+  supplementary_cmd+=(--alpaca "$input")
+done
+print_command "${supplementary_cmd[@]}"
+"${supplementary_cmd[@]}"
+test -s "$INTERVENTION_ROOT/supplementary_aggregate/manifest.json"

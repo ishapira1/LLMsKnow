@@ -44,6 +44,9 @@ replay gate fails) and writes `compute_projection.json`. The full bundle has
 separate pooled and dataset-specific direction fits, 116 layer-screen tasks,
 12 selected-layer development dose tasks, 12 held-out tasks, 12 fixed-probe
 tasks, four cross-dataset transfer tasks, and separate geometry/Alpaca stages.
+The terminal CPU aggregation writes the behavioral dose/Pareto outputs plus
+`supplementary_aggregate/` tables for fixed-probe ranks and margins, Alpaca
+paired NLL changes, geometry summaries, and raw-versus-centered pair metrics.
 
 After all evidence has passed review, print the exact approval template. The
 inspection and tiny run directories retain immutable snapshots of the question

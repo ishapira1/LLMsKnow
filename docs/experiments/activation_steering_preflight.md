@@ -303,3 +303,6 @@ approved 1,000-row manifest, passing tests and numeric gates, plus explicit
 whose exact Git commit and SHA-256 hashes bind the config, full question
 manifest, Alpaca manifest, inspection report, and tiny compute report. The
 validator rejects a dirty worktree or any false or missing review assertion.
+The terminal aggregation stage also materializes fixed-probe, Alpaca utility,
+and identity-versus-framing summaries under `supplementary_aggregate/`; these
+stages are no longer dependency-only side artifacts.
