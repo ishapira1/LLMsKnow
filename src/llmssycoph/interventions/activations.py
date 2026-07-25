@@ -17,7 +17,11 @@ class PromptState:
     hidden_by_layer: Dict[int, np.ndarray]
     choice_probabilities: Dict[str, float]
     choice_log_scores: Dict[str, float]
+    choice_token_ids: Dict[str, tuple[int, ...]]
     prompt_token_count: int
+    prompt_token_ids: tuple[int, ...] = ()
+    final_token_id: int | None = None
+    final_token_text: str = ""
 
 
 def model_device(model: Any) -> Any:
@@ -135,13 +139,15 @@ def residual_addition_hook(
     *,
     residual_layer: int,
     addition_vectors: Any,
-    token_index: int = -1,
+    token_index: int | Sequence[int] = -1,
 ) -> Iterator[None]:
     """Add one residual vector per batch row at a specific sequence position."""
 
     block = block_for_residual_layer(model, residual_layer)
 
     def hook(_module: Any, _inputs: Any, output: Any) -> Any:
+        import torch
+
         hidden = output[0] if isinstance(output, (tuple, list)) else output
         if getattr(hidden, "ndim", None) != 3:
             raise ValueError(
@@ -158,8 +164,36 @@ def residual_addition_hook(
                 "Residual additions must have shape [batch, hidden]; "
                 f"got {tuple(vectors.shape)} for hidden {tuple(hidden.shape)}."
             )
+        # An enabled zero hook must be an exact no-op: return the original output
+        # object rather than cloning or adding representable zeros.
+        if bool((vectors == 0).all().item()):
+            return output
+        if isinstance(token_index, Sequence) and not isinstance(token_index, (str, bytes)):
+            indices = torch.as_tensor(
+                [int(value) for value in token_index],
+                dtype=torch.long,
+                device=hidden.device,
+            )
+            if indices.shape != (hidden.shape[0],):
+                raise ValueError(
+                    "Per-example token indices must have shape [batch], "
+                    f"got {tuple(indices.shape)} for batch={hidden.shape[0]}."
+                )
+        else:
+            indices = torch.full(
+                (hidden.shape[0],),
+                int(token_index),
+                dtype=torch.long,
+                device=hidden.device,
+            )
+        indices = torch.where(indices < 0, indices + hidden.shape[1], indices)
+        if bool(((indices < 0) | (indices >= hidden.shape[1])).any().item()):
+            raise IndexError(
+                f"Residual token indices {indices.tolist()} outside sequence length={hidden.shape[1]}."
+            )
         modified = hidden.clone()
-        modified[:, int(token_index), :] = modified[:, int(token_index), :] + vectors
+        rows = torch.arange(hidden.shape[0], device=hidden.device)
+        modified[rows, indices, :] = modified[rows, indices, :] + vectors
         return _replace_first_output(output, modified)
 
     handle = block.register_forward_hook(hook)
@@ -209,6 +243,54 @@ def residual_replacement_hook(
         handle.remove()
 
 
+@contextmanager
+def residual_generation_addition_hook(
+    model: Any,
+    *,
+    residual_layer: int,
+    addition_vector: Any,
+    mode: str,
+) -> Iterator[None]:
+    """Steer only the initial prompt boundary or every autoregressive step."""
+
+    if mode not in {"final_prompt_only", "all_generation_tokens"}:
+        raise ValueError(f"Unknown generation steering mode {mode!r}.")
+    block = block_for_residual_layer(model, residual_layer)
+    calls = 0
+
+    def hook(_module: Any, _inputs: Any, output: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        hidden = output[0] if isinstance(output, (tuple, list)) else output
+        if getattr(hidden, "ndim", None) != 3:
+            raise ValueError(
+                "Expected generation hidden state [batch, sequence, hidden], "
+                f"got {getattr(hidden, 'shape', None)}."
+            )
+        if mode == "final_prompt_only" and calls > 1:
+            return output
+        vectors = addition_vector.to(device=hidden.device, dtype=hidden.dtype)
+        if vectors.ndim == 1:
+            vectors = vectors.unsqueeze(0)
+        if vectors.shape[0] == 1 and hidden.shape[0] > 1:
+            vectors = vectors.expand(hidden.shape[0], -1)
+        if vectors.shape != (hidden.shape[0], hidden.shape[-1]):
+            raise ValueError(
+                f"Generation vector shape={tuple(vectors.shape)} hidden={tuple(hidden.shape)}."
+            )
+        if bool((vectors == 0).all().item()):
+            return output
+        modified = hidden.clone()
+        modified[:, -1, :] = modified[:, -1, :] + vectors
+        return _replace_first_output(output, modified)
+
+    handle = block.register_forward_hook(hook)
+    try:
+        yield
+    finally:
+        handle.remove()
+
+
 def _choice_token_groups(tokenizer: Any, choices: Sequence[str]) -> Dict[str, List[int]]:
     groups: Dict[str, List[int]] = {}
     for raw_choice in choices:
@@ -245,6 +327,8 @@ def choice_distributions_from_logits(
     logits = next_token_logits
     if logits.ndim == 1:
         logits = logits.unsqueeze(0)
+    if not bool(torch.isfinite(logits).all().item()):
+        raise FloatingPointError("Non-finite next-token logits in strict-choice scoring.")
     groups = _choice_token_groups(tokenizer, choices)
     ordered_choices = list(groups)
     per_choice_scores = []
@@ -253,6 +337,10 @@ def choice_distributions_from_logits(
         per_choice_scores.append(torch.logsumexp(logits.index_select(-1, token_index).float(), dim=-1))
     score_matrix = torch.stack(per_choice_scores, dim=-1)
     probability_matrix = torch.softmax(score_matrix, dim=-1)
+    if not bool(torch.isfinite(score_matrix).all().item()):
+        raise FloatingPointError("Non-finite option log scores in strict-choice scoring.")
+    if not bool(torch.isfinite(probability_matrix).all().item()):
+        raise FloatingPointError("Non-finite option probabilities in strict-choice scoring.")
 
     probability_rows: List[Dict[str, float]] = []
     log_score_rows: List[Dict[str, float]] = []
@@ -317,8 +405,307 @@ def extract_prompt_state(
             hidden_by_layer=hidden_by_layer,
             choice_probabilities=probability_rows[0],
             choice_log_scores=log_score_rows[0],
+            choice_token_ids={
+                choice: tuple(token_ids)
+                for choice, token_ids in _choice_token_groups(
+                    tokenizer,
+                    choices,
+                ).items()
+            },
             prompt_token_count=int(input_ids.shape[1]),
+            prompt_token_ids=tuple(int(value) for value in input_ids[0].detach().cpu().tolist()),
+            final_token_id=int(input_ids[0, -1].item()),
+            final_token_text=str(
+                tokenizer.decode([int(input_ids[0, -1].item())], skip_special_tokens=False)
+            ),
         )
+
+
+def score_repeated_prompt_without_hook(
+    model: Any,
+    tokenizer: Any,
+    messages: List[Dict[str, Any]],
+    *,
+    choices: Sequence[str],
+    batch_size: int,
+) -> tuple[List[Dict[str, float]], List[Dict[str, float]]]:
+    """Score identical prompts in one batch without registering any hook."""
+
+    import torch
+
+    size = int(batch_size)
+    if size < 1:
+        raise ValueError("batch_size must be at least one.")
+    input_ids_base, attention_mask_base = _resolve_model_inputs(
+        tokenizer,
+        messages,
+        model_device(model),
+        add_generation_prompt=True,
+    )
+    input_ids = input_ids_base.expand(size, -1).contiguous()
+    attention_mask = attention_mask_base.expand(size, -1).contiguous()
+    with torch.no_grad():
+        outputs = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+            output_hidden_states=False,
+            return_dict=True,
+        )
+    return choice_distributions_from_logits(
+        outputs.logits[:, -1],
+        tokenizer=tokenizer,
+        choices=choices,
+    )
+
+
+def candidate_feature_with_prompt_steering(
+    model: Any,
+    tokenizer: Any,
+    messages: List[Dict[str, Any]],
+    *,
+    completion: str,
+    feature_layer: int,
+    steering_layer: int,
+    addition_vector: np.ndarray,
+) -> tuple[np.ndarray, Dict[str, Any]]:
+    """Read a teacher-forced candidate feature while steering the prompt boundary.
+
+    The prompt encoding with ``add_generation_prompt=True`` must be an exact
+    prefix of the prompt-plus-assistant encoding. This makes the intervention
+    token auditable and prevents accidentally steering the candidate token.
+    """
+
+    import torch
+
+    from ..llm.generation import _token_id_list_from_encoded, encode_chat
+    from ..probes.features import _assistant_text_last_token_index
+
+    prompt_ids, _ = _resolve_model_inputs(
+        tokenizer,
+        messages,
+        model_device(model),
+        add_generation_prompt=True,
+    )
+    prompt_token_ids = [int(value) for value in prompt_ids[0].detach().cpu().tolist()]
+    full_messages = list(messages) + [{"type": "assistant", "content": str(completion)}]
+    full_token_ids = _token_id_list_from_encoded(
+        encode_chat(tokenizer, full_messages, add_generation_prompt=False),
+        device=model_device(model),
+    )
+    if full_token_ids[: len(prompt_token_ids)] != prompt_token_ids:
+        raise ValueError(
+            "Prompt-plus-candidate chat encoding does not preserve the exact generation-prompt "
+            "prefix; prompt-boundary steering would be ambiguous."
+        )
+    prompt_boundary_index = len(prompt_token_ids) - 1
+    candidate_index = _assistant_text_last_token_index(
+        tokenizer,
+        full_token_ids,
+        str(completion),
+    )
+    if candidate_index <= prompt_boundary_index:
+        raise ValueError(
+            "Candidate feature token does not occur after the prompt boundary: "
+            f"boundary={prompt_boundary_index} candidate={candidate_index}."
+        )
+    input_ids = torch.tensor([full_token_ids], dtype=torch.long, device=model_device(model))
+    attention_mask = torch.ones_like(input_ids)
+    vector = torch.as_tensor(np.asarray(addition_vector, dtype=np.float32))
+    with torch.no_grad():
+        with residual_addition_hook(
+            model,
+            residual_layer=int(steering_layer),
+            addition_vectors=vector,
+            token_index=prompt_boundary_index,
+        ):
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                use_cache=False,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+    feature = (
+        outputs.hidden_states[int(feature_layer)][0, candidate_index]
+        .detach()
+        .float()
+        .cpu()
+        .numpy()
+    )
+    return feature, {
+        "prompt_token_count": len(prompt_token_ids),
+        "full_token_count": len(full_token_ids),
+        "prompt_boundary_index": int(prompt_boundary_index),
+        "prompt_boundary_token_id": int(full_token_ids[prompt_boundary_index]),
+        "candidate_feature_index": int(candidate_index),
+        "candidate_feature_token_id": int(full_token_ids[candidate_index]),
+    }
+
+
+def generate_with_residual_addition(
+    model: Any,
+    tokenizer: Any,
+    messages: List[Dict[str, Any]],
+    *,
+    choices: Sequence[str],
+    residual_layer: int,
+    addition_vector: np.ndarray,
+    mode: str,
+    max_new_tokens: int = 16,
+) -> Dict[str, Any]:
+    """Greedily generate text under an auditable prompt/generation-token hook."""
+
+    import re
+    import torch
+
+    input_ids, attention_mask = _resolve_model_inputs(
+        tokenizer,
+        messages,
+        model_device(model),
+        add_generation_prompt=True,
+    )
+    vector = torch.as_tensor(np.asarray(addition_vector, dtype=np.float32))
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    if pad_token_id is None:
+        pad_token_id = getattr(tokenizer, "eos_token_id", None)
+    generation_kwargs = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "max_new_tokens": int(max_new_tokens),
+        "do_sample": False,
+        "use_cache": True,
+        "return_dict_in_generate": True,
+        "output_scores": True,
+        "pad_token_id": pad_token_id,
+    }
+    with torch.no_grad():
+        with residual_generation_addition_hook(
+            model,
+            residual_layer=int(residual_layer),
+            addition_vector=vector,
+            mode=mode,
+        ):
+            generated = model.generate(**generation_kwargs)
+    sequences = generated.sequences
+    generated_ids = sequences[0, input_ids.shape[1] :].detach().cpu().tolist()
+    text = str(tokenizer.decode(generated_ids, skip_special_tokens=True)).strip()
+    allowed = "".join(str(choice) for choice in choices)
+    match = re.fullmatch(
+        rf"\s*(?:answer\s*:\s*)?\(?([{re.escape(allowed)}])(?:\)|\])?[\s\].,:;\-]*",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    normalized_choice = match.group(1).upper() if match else ""
+    token_count = len(generated_ids)
+    unique_fraction = (
+        len(set(int(value) for value in generated_ids)) / token_count
+        if token_count
+        else 0.0
+    )
+    repeated_bigram_fraction = 0.0
+    if token_count >= 2:
+        bigrams = list(zip(generated_ids[:-1], generated_ids[1:]))
+        repeated_bigram_fraction = 1.0 - len(set(bigrams)) / len(bigrams)
+    score_tensors = list(getattr(generated, "scores", ()) or ())
+    nonfinite = any(
+        not bool(torch.isfinite(score).all().item()) for score in score_tensors
+    )
+    return {
+        "scoring_mode": "free_generation",
+        "generation_steering_mode": mode,
+        "generated_text": text,
+        "generated_token_ids": [int(value) for value in generated_ids],
+        "generated_token_count": token_count,
+        "parsed_option": normalized_choice,
+        "valid_answer": bool(normalized_choice),
+        "answer_format_failure": not bool(normalized_choice),
+        "unique_token_fraction": float(unique_fraction),
+        "repeated_bigram_fraction": float(repeated_bigram_fraction),
+        "repetition_failure": bool(repeated_bigram_fraction > 0.5),
+        "collapse_failure": bool(
+            token_count >= 4
+            and (unique_fraction < 0.25 or repeated_bigram_fraction > 0.75)
+        ),
+        "nonfinite_failure": bool(nonfinite),
+        "hit_max_new_tokens": token_count >= int(max_new_tokens),
+    }
+
+
+def completion_nll_with_prompt_steering(
+    model: Any,
+    tokenizer: Any,
+    messages: List[Dict[str, Any]],
+    *,
+    completion: str,
+    residual_layer: int,
+    addition_vector: np.ndarray,
+) -> Dict[str, Any]:
+    """Teacher-forced completion NLL with steering only at the prompt boundary."""
+
+    import torch
+    import torch.nn.functional as functional
+
+    from ..llm.generation import _token_id_list_from_encoded, encode_chat
+    from ..probes.features import _assistant_text_span
+
+    prompt_ids, _ = _resolve_model_inputs(
+        tokenizer,
+        messages,
+        model_device(model),
+        add_generation_prompt=True,
+    )
+    prompt_token_ids = [int(value) for value in prompt_ids[0].detach().cpu().tolist()]
+    full_messages = list(messages) + [{"type": "assistant", "content": str(completion)}]
+    full_token_ids = _token_id_list_from_encoded(
+        encode_chat(tokenizer, full_messages, add_generation_prompt=False),
+        device=model_device(model),
+    )
+    if full_token_ids[: len(prompt_token_ids)] != prompt_token_ids:
+        raise ValueError(
+            "Completion scoring does not preserve the exact generation-prompt prefix."
+        )
+    start, end = _assistant_text_span(tokenizer, full_token_ids, str(completion))
+    if start < len(prompt_token_ids) or end <= start:
+        raise ValueError(
+            f"Invalid assistant target span start={start} end={end} "
+            f"prompt_tokens={len(prompt_token_ids)}."
+        )
+    input_ids = torch.tensor([full_token_ids], dtype=torch.long, device=model_device(model))
+    attention_mask = torch.ones_like(input_ids)
+    vector = torch.as_tensor(np.asarray(addition_vector, dtype=np.float32))
+    with torch.no_grad():
+        with residual_addition_hook(
+            model,
+            residual_layer=int(residual_layer),
+            addition_vectors=vector,
+            token_index=len(prompt_token_ids) - 1,
+        ):
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                use_cache=False,
+                output_hidden_states=False,
+                return_dict=True,
+            )
+    prediction_logits = outputs.logits[0, start - 1 : end - 1].float()
+    target_ids = input_ids[0, start:end]
+    if not bool(torch.isfinite(prediction_logits).all().item()):
+        raise FloatingPointError("Non-finite logits in steered completion NLL.")
+    losses = functional.cross_entropy(
+        prediction_logits,
+        target_ids,
+        reduction="none",
+    )
+    mean_nll = float(losses.mean().item())
+    return {
+        "target_token_count": int(target_ids.numel()),
+        "target_mean_nll": mean_nll,
+        "target_perplexity": float(np.exp(min(mean_nll, 80.0))),
+        "prompt_boundary_index": len(prompt_token_ids) - 1,
+        "target_start_index": int(start),
+        "target_end_index": int(end),
+    }
 
 
 def score_with_residual_additions(

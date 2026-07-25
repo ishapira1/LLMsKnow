@@ -237,14 +237,27 @@ def record_key(record: Mapping[str, Any]) -> Tuple[str, str, int]:
     )
 
 
-def _record_usable(record: Mapping[str, Any]) -> bool:
+def _record_prompt_usable(record: Mapping[str, Any]) -> bool:
+    """Whether a saved prompt is structurally valid for prompt-only interventions.
+
+    This intentionally excludes generated-answer correctness/format fields. Using
+    those fields to decide which questions enter direction fitting conditions the
+    treatment on a post-prompt model outcome.
+    """
+
     return bool(
-        record_is_usable_for_metrics(dict(record))
-        and str(record.get("task_format", "") or "") == "multiple_choice"
+        str(record.get("task_format", "") or "") == "multiple_choice"
         and str(record.get("mc_mode", "") or "") == "strict_mc"
         and isinstance(record.get("prompt_messages"), list)
         and choice_letters(record)
     )
+
+
+def _record_usable(record: Mapping[str, Any], *, require_metric_usable: bool) -> bool:
+    prompt_usable = _record_prompt_usable(record)
+    if not require_metric_usable:
+        return prompt_usable
+    return bool(prompt_usable and record_is_usable_for_metrics(dict(record)))
 
 
 def _probe_rows_by_record_id(probe_scores: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
@@ -267,6 +280,7 @@ def build_intervention_pairs(
     required_conditions: Sequence[str] = DEFAULT_REQUIRED_CONDITIONS,
     allowed_splits: Optional[Sequence[str]] = None,
     max_questions_per_split: Optional[int] = None,
+    require_metric_usable: bool = True,
 ) -> tuple[List[Dict[str, Any]], pd.DataFrame]:
     """Pair saved prompts without rematerializing or changing their wording."""
 
@@ -305,7 +319,14 @@ def build_intervention_pairs(
             coverage["exclusion_reason"] = "missing_condition"
             coverage_rows.append(coverage)
             continue
-        unusable = [condition for condition in required if not _record_usable(by_condition[condition])]
+        unusable = [
+            condition
+            for condition in required
+            if not _record_usable(
+                by_condition[condition],
+                require_metric_usable=bool(require_metric_usable),
+            )
+        ]
         if unusable:
             coverage["exclusion_reason"] = "unusable_record:" + ",".join(unusable)
             coverage_rows.append(coverage)
@@ -369,6 +390,9 @@ def build_intervention_pairs(
         pair = {
             "split": split,
             "question_id": question_id,
+            "dataset": str(neutral.get("dataset", "") or ""),
+            "source_dataset": str(neutral.get("source_dataset", "") or ""),
+            "source_example_id": str(neutral.get("source_example_id", "") or ""),
             "draw_idx": draw_idx,
             "records": {condition: by_condition[condition] for condition in required},
             "correct_choice": correct_choice,

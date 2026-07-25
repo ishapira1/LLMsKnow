@@ -1,0 +1,196 @@
+{
+  "protocol_version": "controlled_prompt_only_v1_20260725",
+  "description": "Prompt-only causal steering with raw paired W-N directions, framing controls, fixed random_all readout, and held-out activation geometry.",
+  "models": {
+    "llama31_8b": {
+      "identifier": "meta-llama/Llama-3.1-8B-Instruct",
+      "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+      "hidden_size": 4096,
+      "nonterminal_layers": [
+        1,
+        31
+      ],
+      "source_random_all_probe_layer": 15
+    },
+    "qwen25_7b": {
+      "identifier": "Qwen/Qwen2.5-7B-Instruct",
+      "revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+      "hidden_size": 3584,
+      "nonterminal_layers": [
+        1,
+        27
+      ],
+      "source_random_all_probe_layer": 27
+    }
+  },
+  "datasets": [
+    "arc_challenge",
+    "commonsense_qa"
+  ],
+  "stable_question_key": [
+    "dataset",
+    "source_example_id"
+  ],
+  "splits": {
+    "reuse_existing_membership": true,
+    "audited_target_per_dataset": {
+      "train": 300,
+      "val": 100,
+      "test": 100
+    },
+    "selection_fields": [
+      "dataset",
+      "split",
+      "endorsed_choice",
+      "joint_model_neutral_correctness"
+    ],
+    "semantic_wrong_option_requires_human_approval": true
+  },
+  "conditions": {
+    "neutral": "neutral",
+    "wrong_ordinary": "incorrect_suggestion",
+    "wrong_strong": "incorrect_suggestion_strong",
+    "correct_ordinary": "suggest_correct"
+  },
+  "direction_formulas": {
+    "wn": "mean_i(h_i^incorrect_suggestion - h_i^neutral)",
+    "cn": "mean_i(h_i^suggest_correct - h_i^neutral)",
+    "wc": "mean_i(h_i^incorrect_suggestion - h_i^suggest_correct)",
+    "sw": "mean_i(h_i^incorrect_suggestion_strong - h_i^incorrect_suggestion)"
+  },
+  "primary_direction": "wn",
+  "positive_alpha_meaning": "more_like_wrong_pressure",
+  "alpha_one_meaning": "one_raw_paired_mean_shift",
+  "alpha_grid": [
+    -128,
+    -64,
+    -32,
+    -16,
+    -8,
+    -4,
+    -2,
+    -1,
+    -0.5,
+    -0.25,
+    0,
+    0.25,
+    0.5,
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64,
+    128
+  ],
+  "dry_run": {
+    "model_key": "qwen25_7b",
+    "dataset": "commonsense_qa",
+    "layers": [
+      17,
+      18
+    ],
+    "control_seeds": [
+      0,
+      1
+    ],
+    "candidate_batch_sizes": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "max_batch_size": 8,
+    "minimum_extreme_injected_norm_ratio": 4.0,
+    "extend_alpha_by_powers_of_two_if_needed": true
+  },
+  "generation_diagnostic_alphas": [
+    -128,
+    -32,
+    -8,
+    -4,
+    -2,
+    0,
+    2,
+    4,
+    8,
+    32,
+    128
+  ],
+  "compute_projection": {
+    "full_strict_choice_rows": 4737600,
+    "full_fixed_probe_candidate_passes": 23688000,
+    "tiny_report_required_before_full_submission": true
+  },
+  "full_controls": {
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "types": [
+      "isotropic",
+      "coordinate_sign",
+      "item_sign_native",
+      "item_sign_matched"
+    ],
+    "framing_directions_native_and_wn_norm_matched": [
+      "cn",
+      "wc",
+      "sw"
+    ]
+  },
+  "activation_site": {
+    "module": "decoder block producing the requested Hugging Face hidden_states index",
+    "stream": "post_block_residual",
+    "token_position": "final_rendered_prompt_token",
+    "prompt_scoring_use_cache": false,
+    "direction_construction_includes_assistant_answer_token": false
+  },
+  "numeric_gates": {
+    "same_shape_max_probability_error": 0.0,
+    "cross_batch_max_probability_error": 0.005,
+    "cross_batch_max_margin_error": 0.05,
+    "cross_batch_top_choice_agreement": 1.0,
+    "hard_fail_on_nonfinite": true,
+    "force_batch_size_one_after_failure": true
+  },
+  "geometry": {
+    "permutation_seeds": 100,
+    "centering_source": "training_grand_mean_all_four_conditions",
+    "normalized_distance_denominator": "training_median_residual_norm",
+    "groups": [
+      "A_same_question_N_W",
+      "B_same_question_W_S",
+      "C_same_question_N_C",
+      "D_different_questions_N_N",
+      "E_different_questions_W_W",
+      "F_different_questions_N_W"
+    ]
+  },
+  "selection": {
+    "split": "val",
+    "test_split": "test",
+    "control_specificity_quantile": 0.95,
+    "maximum_neutral_accuracy_loss": 0.02,
+    "maximum_invalid_rate": 0.01,
+    "selected_layer_neighbors": 1,
+    "preserve_full_test_dose_curve": true
+  },
+  "output": {
+    "refuse_overwrite": true,
+    "question_table": "question_results.jsonl",
+    "save_all_option_log_scores": true,
+    "save_all_option_probabilities": true,
+    "save_fixed_probe_scores": true,
+    "save_git_dirty_patch_hash": true
+  }
+}

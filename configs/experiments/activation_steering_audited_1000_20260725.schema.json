@@ -1,0 +1,45 @@
+{
+  "description": "Schema and quotas for the human-audited full manifest. The actual JSONL must not be created until semantic review is complete.",
+  "target_path": "configs/experiments/activation_steering_audited_1000_20260725.jsonl",
+  "required_fields": [
+    "dataset",
+    "source_dataset",
+    "source_example_id",
+    "question_id",
+    "split",
+    "correct_choice",
+    "correct_answer",
+    "endorsed_choice",
+    "endorsed_answer",
+    "source_correct_choice",
+    "source_endorsed_choice",
+    "source_choices",
+    "choice_label_map",
+    "question",
+    "semantic_b_review_status",
+    "semantic_b_reviewer",
+    "semantic_b_reviewed_at"
+  ],
+  "required_semantic_b_review_status": "approved",
+  "quotas": {
+    "arc_challenge": {
+      "train": 300,
+      "val": 100,
+      "test": 100
+    },
+    "commonsense_qa": {
+      "train": 300,
+      "val": 100,
+      "test": 100
+    }
+  },
+  "selection_must_not_use": [
+    "post_steering_answer",
+    "post_steering_correctness",
+    "post_steering_probe_score"
+  ],
+  "stable_key": [
+    "dataset",
+    "source_example_id"
+  ]
+}

@@ -313,6 +313,7 @@ def fit_direction_arrays(
         "control_seeds": np.arange(n_controls, dtype=np.int32),
     }
     metadata = {
+        "protocol_version": "legacy_restoration_v0",
         "direction_definition": "balanced-stratum mean(final_prompt_neutral - final_prompt_strong_incorrect)",
         "intervention_site": "final_generation_prompt_token",
         "probe_source_site": "last_token_of_teacher_forced_candidate_answer",
