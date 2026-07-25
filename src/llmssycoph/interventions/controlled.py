@@ -95,6 +95,26 @@ def canonicalize_choice_mapping(
     }
 
 
+def assert_prompt_only_messages(
+    messages: Sequence[Mapping[str, Any]],
+    *,
+    context: str,
+) -> None:
+    """Reject direction/intervention prompts containing assistant content."""
+
+    if not messages:
+        raise ValueError(f"Prompt-only messages are empty: {context}.")
+    for index, message in enumerate(messages):
+        role = str(
+            message.get("role", message.get("type", "user")) or "user"
+        ).strip().lower()
+        if role in {"assistant", "ai", "model"}:
+            raise ValueError(
+                "Prompt-only construction contains an assistant message at "
+                f"{context}[{index}]."
+            )
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -742,6 +762,10 @@ def make_controlled_result_row(
         "predicted_option": predicted,
         "is_correct": bool(predicted == correct_choice),
         "equals_endorsed": bool(predicted == endorsed_choice),
+        "error_indicator": int(predicted != correct_choice),
+        "targeted_error_indicator": int(
+            predicted != correct_choice and predicted == endorsed_choice
+        ),
         "p_correct": p_correct,
         "p_endorsed": p_endorsed,
         "delta_p_correct": p_correct - base_p_correct,
@@ -1090,6 +1114,7 @@ __all__ = [
     "PROTOCOL_VERSION",
     "REQUIRED_CONDITIONS",
     "assert_noop_contract",
+    "assert_prompt_only_messages",
     "canonical_choice_map",
     "canonicalize_choice_mapping",
     "canonical_json_hash",

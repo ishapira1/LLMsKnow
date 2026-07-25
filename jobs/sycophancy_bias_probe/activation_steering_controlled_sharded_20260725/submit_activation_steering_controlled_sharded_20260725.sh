@@ -110,6 +110,54 @@ python3 scripts/validate_activation_steering_full_gate.py \
   --approval "$FULL_GATE_APPROVAL" \
   --expected-git-commit "$commit"
 
+run_id="${EXPERIMENT_RUN_ID:-}"
+if [[ -z "$run_id" || ! "$run_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  log_error '%s\n' \
+    "EXPERIMENT_RUN_ID must be non-empty and contain only letters, digits, dot, underscore, or hyphen."
+  exit 2
+fi
+if [[ -n "${SYCOPHANCY_STORAGE_ROOT_OVERRIDE:-}" ]]; then
+  export SYCOPHANCY_STORAGE_ROOT="$SYCOPHANCY_STORAGE_ROOT_OVERRIDE"
+fi
+source jobs/sycophancy_bias_probe/storage_common.sh
+configure_sycophancy_bias_storage "activation_steering_controlled_sharded_20260725"
+file_sha256() {
+  python3 -c \
+    'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' \
+    "$1"
+}
+full_identity_sha256="$(
+  python3 -c \
+    'import hashlib,pathlib,sys; print(hashlib.sha256(b"\0".join(pathlib.Path(p).read_bytes() for p in sys.argv[1:])).hexdigest())' \
+    "$CONFIG" "$MANIFEST" "$ALPACA_MANIFEST"
+)"
+full_identity_hash="${full_identity_sha256:0:16}"
+INTERVENTION_BASE_ROOT="${INTERVENTION_BASE_ROOT:-$SYCOPHANCY_STORAGE_ROOT/LLMsKnow_results/sycophancy_bias_intervention/activation_steering_controlled_20260725}"
+INTERVENTION_ROOT="${INTERVENTION_ROOT:-$INTERVENTION_BASE_ROOT/${run_id}_$full_identity_hash}"
+sycophancy_bias_reject_home_path "INTERVENTION_ROOT" "$INTERVENTION_ROOT"
+mkdir -p "$INTERVENTION_BASE_ROOT"
+if ! mkdir "$INTERVENTION_ROOT"; then
+  log_error '%s\n' \
+    "Refusing overwrite: controlled run root already exists: $INTERVENTION_ROOT"
+  exit 2
+fi
+reservation="$INTERVENTION_ROOT/submission_reservation.env"
+printf 'protocol_version=%s\nrun_id=%s\nfull_identity_sha256=%s\ngit_commit=%s\nconfig_sha256=%s\nquestion_manifest_sha256=%s\nalpaca_manifest_sha256=%s\napproval_sha256=%s\ncreated_at=%s\n' \
+  "controlled_prompt_only_v1_20260725" \
+  "$run_id" \
+  "$full_identity_sha256" \
+  "$commit" \
+  "$(file_sha256 "$CONFIG")" \
+  "$(file_sha256 "$MANIFEST")" \
+  "$(file_sha256 "$ALPACA_MANIFEST")" \
+  "$(file_sha256 "$FULL_GATE_APPROVAL")" \
+  "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  >"$reservation"
+chmod 0444 "$reservation"
+export INTERVENTION_ROOT
+log_printf '[submit] reserved_run_root=%s identity_hash=%s\n' \
+  "$INTERVENTION_ROOT" "$full_identity_hash"
+
 mkdir -p \
   "$SUBMIT_LOG_ROOT/slurm/validation" \
   "$SUBMIT_LOG_ROOT/slurm/fit" \

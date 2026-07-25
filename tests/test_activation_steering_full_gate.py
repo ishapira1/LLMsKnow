@@ -34,7 +34,16 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 def _config() -> dict:
     return {
         "protocol_version": PROTOCOL_VERSION,
-        "dry_run": {"layers": [17, 18]},
+        "dry_run": {
+            "model_key": "qwen25_7b",
+            "layers": [17, 18],
+        },
+        "models": {
+            "qwen25_7b": {
+                "identifier": "Qwen/Qwen2.5-7B-Instruct",
+                "revision": "revision",
+            }
+        },
         "compute_projection": {
             "full_strict_choice_rows": 4_737_600,
             "full_fixed_probe_candidate_passes": 23_688_000,
@@ -69,6 +78,24 @@ def _noop_row() -> dict:
 
 
 class FullSubmissionGateTests(unittest.TestCase):
+    def test_submitter_reserves_a_hash_bound_non_overwriting_run_root(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        submitter = (
+            repo_root
+            / "jobs"
+            / "sycophancy_bias_probe"
+            / "activation_steering_controlled_sharded_20260725"
+            / "submit_activation_steering_controlled_sharded_20260725.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('if ! mkdir "$INTERVENTION_ROOT"; then', submitter)
+        self.assertIn("full_identity_sha256", submitter)
+        self.assertIn('"$CONFIG" "$MANIFEST" "$ALPACA_MANIFEST"', submitter)
+        self.assertIn("submission_reservation.env", submitter)
+        self.assertLess(
+            submitter.index('if [[ "$DRY_RUN" == "1" ]]'),
+            submitter.index('if ! mkdir "$INTERVENTION_ROOT"; then'),
+        )
+
     def test_inspection_requires_complete_prompt_boundary_grid(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -147,6 +174,10 @@ class FullSubmissionGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             inputs = []
+            shared_manifest_row = {
+                "dataset": "commonsense_qa",
+                "source_example_id": "shared",
+            }
             for split in ("train", "val", "test"):
                 run_dir = root / split
                 snapshot = run_dir / "question_manifest_snapshot.jsonl"
@@ -154,7 +185,7 @@ class FullSubmissionGateTests(unittest.TestCase):
                 noops = run_dir / "noop_sentinels.jsonl"
                 _write_jsonl(
                     snapshot,
-                    [{"dataset": "commonsense_qa", "source_example_id": split}],
+                    [shared_manifest_row],
                 )
                 _write_jsonl(results, [{"split": split, "scoring_mode": "strict_choice"}])
                 _write_jsonl(noops, [_noop_row()])
@@ -169,6 +200,14 @@ class FullSubmissionGateTests(unittest.TestCase):
                         "question_manifest_snapshot_sha256": sha256_file(snapshot),
                         "score_fixed_probe": True,
                         "generation_diagnostics": True,
+                        "requested_max_batch_size": 8,
+                        "effective_max_batch_size": 8,
+                        "batch_policy": {
+                            "requested_batch_size": 8,
+                            "effective_batch_size": 8,
+                            "forced_batch_size_one": False,
+                            "failure": None,
+                        },
                         "n_result_rows": 1,
                         "n_strict_choice_rows": 1,
                         "n_noop_rows": 1,
@@ -179,6 +218,30 @@ class FullSubmissionGateTests(unittest.TestCase):
                 inputs.append(
                     {"path": str(manifest), "sha256": sha256_file(manifest)}
                 )
+            real_gate = root / "real_model_bf16_gate.json"
+            _write_json(
+                real_gate,
+                {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "stage": "real_model_bf16_gate",
+                    "status": "passed",
+                    "question_manifest_sha256": sha256_file(
+                        root / "train" / "question_manifest_snapshot.jsonl"
+                    ),
+                    "runtime": {
+                        "device": "cuda",
+                        "model_dtype": "torch.bfloat16",
+                        "model_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
+                        "model_commit_hash": "revision",
+                        "tokenizer_commit_hash": "revision",
+                        "chat_template_sha256": "template",
+                    },
+                    "provenance": {
+                        "git_commit": "a" * 40,
+                        "dirty": False,
+                    },
+                },
+            )
             report = root / "compute_projection.json"
             _write_json(
                 report,
@@ -192,11 +255,53 @@ class FullSubmissionGateTests(unittest.TestCase):
                     "full_fixed_probe_candidate_passes": 23_688_000,
                     "projected_gpu_hours": 100.0,
                     "any_forced_batch_size_one": False,
+                    "real_model_bf16_gate": {
+                        "path": str(real_gate),
+                        "sha256": sha256_file(real_gate),
+                    },
+                    "batch_policies": [
+                        {
+                            "requested_batch_size": 8,
+                            "effective_batch_size": 8,
+                            "forced_batch_size_one": False,
+                            "failure": None,
+                        }
+                        for _ in range(3)
+                    ],
                 },
             )
             evidence = validate_tiny_compute(report, config=_config())
             self.assertEqual(evidence["n_noop_rows"], 3)
             self.assertEqual(evidence["projected_gpu_hours"], 100.0)
+            train_manifest_path = root / "train" / "manifest.json"
+            train_manifest = json.loads(
+                train_manifest_path.read_text(encoding="utf-8")
+            )
+            fallback_policy = {
+                "requested_batch_size": 8,
+                "effective_batch_size": 1,
+                "forced_batch_size_one": True,
+                "failure": {
+                    "stable_question_key": "commonsense_qa::train",
+                    "condition": "neutral",
+                    "layer": 17,
+                    "error": "cross-batch replay exceeded threshold",
+                },
+            }
+            train_manifest["effective_max_batch_size"] = 1
+            train_manifest["batch_policy"] = fallback_policy
+            _write_json(train_manifest_path, train_manifest)
+            inputs[0]["sha256"] = sha256_file(train_manifest_path)
+            report_payload = json.loads(report.read_text(encoding="utf-8"))
+            report_payload["input_manifests"] = inputs
+            report_payload["batch_policies"][0] = fallback_policy
+            report_payload["any_forced_batch_size_one"] = True
+            _write_json(root / "fallback_projection.json", report_payload)
+            fallback_evidence = validate_tiny_compute(
+                root / "fallback_projection.json",
+                config=_config(),
+            )
+            self.assertTrue(fallback_evidence["any_forced_batch_size_one"])
 
     def test_researcher_approval_binds_commit_and_all_evidence_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

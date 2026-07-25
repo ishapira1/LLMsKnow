@@ -12,6 +12,7 @@ import pandas as pd
 from llmssycoph.interventions.controlled import (
     PRIMARY_ALPHA_GRID,
     assert_noop_contract,
+    assert_prompt_only_messages,
     canonical_choice_map,
     canonicalize_choice_mapping,
     fit_controlled_direction_arrays,
@@ -151,6 +152,20 @@ class ControlledManifestTests(unittest.TestCase):
             require_metric_usable=True,
         )
         self.assertEqual(legacy_pairs, [])
+
+    def test_prompt_only_contract_rejects_assistant_content(self):
+        assert_prompt_only_messages(
+            [{"type": "human", "content": "Question"}],
+            context="unit",
+        )
+        with self.assertRaisesRegex(ValueError, "assistant message"):
+            assert_prompt_only_messages(
+                [
+                    {"type": "human", "content": "Question"},
+                    {"type": "assistant", "content": "A"},
+                ],
+                context="unit",
+            )
 
 
 class ControlledDirectionTests(unittest.TestCase):
@@ -360,6 +375,20 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
         self.assertEqual(row["option_log_score_A"], 3.0)
         self.assertEqual(row["prob_B"], 0.25)
         self.assertEqual(row["injected_norm_ratio"], 0.5)
+        self.assertEqual(row["error_indicator"], 0)
+        self.assertEqual(row["targeted_error_indicator"], 0)
+        targeted = make_controlled_result_row(
+            metadata={"injected_norm": 0.0},
+            probabilities={"A": 0.25, "B": 0.75},
+            log_scores={"A": 2.0, "B": 3.0},
+            baseline_probabilities={"A": 0.5, "B": 0.5},
+            baseline_log_scores={"A": 2.0, "B": 2.0},
+            correct_choice="A",
+            endorsed_choice="B",
+            median_residual_norm=4.0,
+        )
+        self.assertEqual(targeted["error_indicator"], 1)
+        self.assertEqual(targeted["targeted_error_indicator"], 1)
 
     def test_strict_json_writer_rejects_nonfinite(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -519,6 +548,36 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                                 "delta_log_score_margin": -0.005 * alpha,
                             }
                         )
+                        if alpha != 0.0:
+                            rows.append(
+                                {
+                                    "stable_question_key": (
+                                        f"commonsense_qa::q{question_index}"
+                                    ),
+                                    "dataset": "commonsense_qa",
+                                    "split": "val",
+                                    "condition": condition,
+                                    "model_name": "fake-model",
+                                    "layer": layer,
+                                    "direction_name": "wn",
+                                    "scale_convention": "native",
+                                    "control_seed": None,
+                                    "alpha": alpha,
+                                    "treatment_type": "learned",
+                                    "scoring_mode": "free_generation",
+                                    "generation_steering_mode": (
+                                        "final_prompt_only"
+                                    ),
+                                    "valid_answer": condition == "neutral",
+                                    "answer_format_failure": (
+                                        condition != "neutral"
+                                    ),
+                                    "repetition_failure": False,
+                                    "collapse_failure": False,
+                                    "nonfinite_failure": False,
+                                    "hit_max_new_tokens": False,
+                                }
+                            )
         with tempfile.TemporaryDirectory() as temporary:
             input_path = Path(temporary) / "rows.jsonl"
             write_strict_jsonl(input_path, rows)
@@ -534,9 +593,28 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
             )
             self.assertEqual(selection["selections"][0]["selected_layer"], 2)
             selected_dose = selection["selections"][0]["selected_dose"]
+            aggregate_summary = pd.read_csv(output)
+            self.assertIn(
+                "targeted_error_share_among_errors",
+                aggregate_summary.columns,
+            )
             self.assertEqual(selected_dose["selected"]["negative_alpha"], -1.0)
             self.assertEqual(selected_dose["selected"]["positive_alpha"], 1.0)
             self.assertTrue(selected_dose["fallback_is_descriptive_only"])
+            selected_candidate = selection["selections"][0]["selected_candidate"]
+            self.assertEqual(selected_candidate["neutral_invalid_rate"], 0.0)
+            self.assertEqual(selected_candidate["neutral_damage_composite"], 0.0)
+            self.assertEqual(selected_candidate["overall_degeneration_rate"], 0.5)
+            self.assertTrue(selected_candidate["passes_invalid_rate"])
+            self.assertFalse(selected_candidate["passes_degeneration_gate"])
+            self.assertEqual(
+                selected_dose["selected"]["neutral_invalid_rate"],
+                0.0,
+            )
+            self.assertEqual(
+                selected_dose["selected"]["overall_degeneration_rate"],
+                0.5,
+            )
             self.assertTrue((output.parent / "plots" / "dose_response.png").exists())
             self.assertTrue((output.parent / "plots" / "selectivity_pareto.png").exists())
 

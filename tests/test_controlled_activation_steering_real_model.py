@@ -21,7 +21,15 @@ from llmssycoph.interventions.activations import (
     score_repeated_prompt_without_hook,
     score_with_residual_additions,
 )
-from llmssycoph.interventions.controlled import assert_noop_contract, read_json
+from llmssycoph.interventions.controlled import (
+    PROTOCOL_VERSION,
+    assert_noop_contract,
+    git_fingerprint,
+    read_json,
+    sha256_file,
+    utc_now,
+    write_strict_json,
+)
 from llmssycoph.interventions.controlled_runtime import (
     _load_sources_and_pairs,
     load_controlled_runtime,
@@ -31,6 +39,7 @@ from llmssycoph.interventions.controlled_runtime import (
 SOURCE_RUN = os.environ.get("ACTIVATION_STEERING_REAL_SOURCE_RUN", "")
 MANIFEST = os.environ.get("ACTIVATION_STEERING_REAL_MANIFEST", "")
 CONFIG = os.environ.get("ACTIVATION_STEERING_REAL_CONFIG", "")
+REPORT = os.environ.get("ACTIVATION_STEERING_REAL_REPORT", "")
 
 
 @unittest.skipUnless(
@@ -126,6 +135,33 @@ class ControlledRealModelNumericalGate(unittest.TestCase):
             state.final_token_id,
             state.prompt_token_ids[state.prompt_token_count - 1],
         )
+        if REPORT:
+            write_strict_json(
+                Path(REPORT),
+                {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "stage": "real_model_bf16_gate",
+                    "status": "passed",
+                    "created_at": utc_now(),
+                    "test": (
+                        "ControlledRealModelNumericalGate."
+                        "test_bf16_same_shape_zero_and_cross_batch_replay"
+                    ),
+                    "layer": layer,
+                    "sentinel_batch_size": 2,
+                    "same_shape_bitwise_exact": True,
+                    "cross_batch_max_probability_error_threshold": 0.005,
+                    "cross_batch_max_margin_error_threshold": 0.05,
+                    "config_sha256": sha256_file(Path(CONFIG)),
+                    "question_manifest_sha256": sha256_file(Path(MANIFEST)),
+                    "source_run_dir": str(Path(SOURCE_RUN).resolve()),
+                    "source_sampling_records_sha256": sha256_file(
+                        self.source.sampling_records_path
+                    ),
+                    "runtime": self.runtime,
+                    "provenance": git_fingerprint(Path.cwd()),
+                },
+            )
 
 
 if __name__ == "__main__":

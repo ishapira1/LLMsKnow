@@ -26,6 +26,7 @@ from .controlled import (
     PROTOCOL_VERSION,
     REQUIRED_CONDITIONS,
     assert_noop_contract,
+    assert_prompt_only_messages,
     canonical_choice_map,
     canonicalize_choice_mapping,
     fit_controlled_direction_arrays,
@@ -242,6 +243,11 @@ def _load_sources_and_pairs(
             manifest_row = manifest_by_key.get(key)
             if manifest_row is None:
                 continue
+            for condition in REQUIRED_CONDITIONS:
+                assert_prompt_only_messages(
+                    pair["records"][condition]["prompt_messages"],
+                    context=f"{key}:{condition}",
+                )
             choice_map = canonical_choice_map(pair["choices"])
             canonical_correct = choice_map[str(pair["correct_choice"])]
             canonical_endorsed = choice_map[str(pair["endorsed_choice"])]
@@ -1213,6 +1219,17 @@ def run_controlled_interventions(
                 )
                 for spec, probability_row, score_row in zip(specs, probabilities, log_scores):
                     injected_norm = float(np.linalg.norm(spec["addition_vector"]))
+                    direction_formula = str(
+                        dict(
+                            artifact.metadata.get("direction_definition", {}) or {}
+                        ).get(
+                            spec["direction_name"],
+                            dict(artifact.metadata.get("controls", {}) or {}).get(
+                                spec["direction_name"],
+                                "unknown",
+                            ),
+                        )
+                    )
                     metadata = {
                         "protocol_version": PROTOCOL_VERSION,
                         "stage": stage,
@@ -1230,9 +1247,26 @@ def run_controlled_interventions(
                         "layer": int(layer),
                         "stream": "post_block_residual",
                         "token_position": "final_rendered_prompt_token",
+                        "prompt_token_count": int(
+                            baseline_state.prompt_token_count
+                        ),
+                        "selected_activation_token_index": int(
+                            baseline_state.prompt_token_count - 1
+                        ),
+                        "selected_activation_token_id": int(
+                            baseline_state.final_token_id
+                        ),
+                        "selected_activation_token_text": str(
+                            baseline_state.final_token_text
+                        ),
+                        "choice_token_ids": canonicalize_choice_mapping(
+                            baseline_state.choice_token_ids,
+                            pair["choice_label_map"],
+                        ),
                         "use_cache": False,
                         "treatment_type": spec["treatment_type"],
                         "direction_name": spec["direction_name"],
+                        "direction_formula": direction_formula,
                         "scale_convention": spec["scale_convention"],
                         "control_seed": spec["control_seed"],
                         "alpha": spec["alpha"],
@@ -1381,8 +1415,45 @@ def run_controlled_interventions(
                                     "layer": int(layer),
                                     "stream": "post_block_residual",
                                     "token_position": "final_rendered_prompt_token",
+                                    "prompt_token_count": int(
+                                        baseline_state.prompt_token_count
+                                    ),
+                                    "selected_activation_token_index": int(
+                                        baseline_state.prompt_token_count - 1
+                                    ),
+                                    "selected_activation_token_id": int(
+                                        baseline_state.final_token_id
+                                    ),
+                                    "selected_activation_token_text": str(
+                                        baseline_state.final_token_text
+                                    ),
+                                    "choice_token_ids": canonicalize_choice_mapping(
+                                        baseline_state.choice_token_ids,
+                                        pair["choice_label_map"],
+                                    ),
                                     "treatment_type": spec["treatment_type"],
                                     "direction_name": spec["direction_name"],
+                                    "direction_formula": str(
+                                        dict(
+                                            artifact.metadata.get(
+                                                "direction_definition",
+                                                {},
+                                            )
+                                            or {}
+                                        ).get(
+                                            spec["direction_name"],
+                                            dict(
+                                                artifact.metadata.get(
+                                                    "controls",
+                                                    {},
+                                                )
+                                                or {}
+                                            ).get(
+                                                spec["direction_name"],
+                                                "unknown",
+                                            ),
+                                        )
+                                    ),
                                     "scale_convention": spec["scale_convention"],
                                     "control_seed": spec["control_seed"],
                                     "alpha": spec["alpha"],
@@ -1881,6 +1952,13 @@ def aggregate_controlled_results(
     frame = all_frame
     if "scoring_mode" in all_frame.columns:
         frame = all_frame[all_frame["scoring_mode"].eq("strict_choice")].copy()
+    if "error_indicator" not in frame:
+        frame["error_indicator"] = (~frame["is_correct"].astype(bool)).astype(int)
+    if "targeted_error_indicator" not in frame:
+        frame["targeted_error_indicator"] = (
+            frame["equals_endorsed"].astype(bool)
+            & ~frame["is_correct"].astype(bool)
+        ).astype(int)
     required = {
         "stable_question_key",
         "dataset",
@@ -1895,6 +1973,8 @@ def aggregate_controlled_results(
         "p_correct",
         "p_endorsed",
         "delta_log_score_margin",
+        "error_indicator",
+        "targeted_error_indicator",
     }
     missing = sorted(required - set(frame.columns))
     if missing:
@@ -1969,7 +2049,14 @@ def aggregate_controlled_results(
                 "probability_threshold": 0.005,
                 "margin_threshold": 0.05,
             }
-    metrics = ("is_correct", "equals_endorsed", "p_correct", "p_endorsed", "delta_log_score_margin")
+    metrics = (
+        "is_correct",
+        "equals_endorsed",
+        "targeted_error_indicator",
+        "p_correct",
+        "p_endorsed",
+        "delta_log_score_margin",
+    )
     group_columns = [
         "model_name",
         "dataset",
@@ -1998,6 +2085,47 @@ def aggregate_controlled_results(
             row[f"{metric}_mean"] = float(values.mean())
             row[f"{metric}_ci_low"] = float(np.quantile(boot, 0.025))
             row[f"{metric}_ci_high"] = float(np.quantile(boot, 0.975))
+        targeted = np.asarray(
+            [
+                float(question_frame["targeted_error_indicator"].mean())
+                for _, question_frame in question_groups
+            ],
+            dtype=np.float64,
+        )
+        errors = np.asarray(
+            [
+                float(question_frame["error_indicator"].mean())
+                for _, question_frame in question_groups
+            ],
+            dtype=np.float64,
+        )
+        error_total = float(errors.sum())
+        if error_total > 0:
+            ratio_bootstrap: list[float] = []
+            for _ in range(int(n_bootstrap)):
+                sample = rng.integers(0, len(errors), size=len(errors))
+                denominator = float(errors[sample].sum())
+                if denominator > 0:
+                    ratio_bootstrap.append(
+                        float(targeted[sample].sum() / denominator)
+                    )
+            row["targeted_error_share_among_errors"] = float(
+                targeted.sum() / error_total
+            )
+            row["targeted_error_share_ci_low"] = (
+                float(np.quantile(ratio_bootstrap, 0.025))
+                if ratio_bootstrap
+                else None
+            )
+            row["targeted_error_share_ci_high"] = (
+                float(np.quantile(ratio_bootstrap, 0.975))
+                if ratio_bootstrap
+                else None
+            )
+        else:
+            row["targeted_error_share_among_errors"] = None
+            row["targeted_error_share_ci_low"] = None
+            row["targeted_error_share_ci_high"] = None
         row["n_questions"] = len(question_groups)
         summary_rows.append(row)
     target = Path(output_dir).expanduser().resolve()
@@ -2031,6 +2159,33 @@ def aggregate_controlled_results(
             all_frame["scoring_mode"].eq("free_generation")
             & all_frame["split"].eq("val")
         ].copy()
+
+    def generation_failure_rates(
+        rows: pd.DataFrame,
+    ) -> tuple[Optional[float], Optional[float], Optional[float]]:
+        """Return neutral invalid, neutral degeneration, and overall degeneration."""
+
+        if rows.empty:
+            return None, None, None
+        invalid = ~rows["valid_answer"].astype(bool)
+        degenerated = invalid.copy()
+        for column in (
+            "answer_format_failure",
+            "repetition_failure",
+            "collapse_failure",
+            "nonfinite_failure",
+            "hit_max_new_tokens",
+        ):
+            if column in rows:
+                degenerated |= rows[column].astype(bool)
+        neutral_mask = rows["condition"].eq("neutral")
+        if not bool(neutral_mask.any()):
+            return None, None, float(degenerated.mean())
+        return (
+            float(invalid[neutral_mask].mean()),
+            float(degenerated[neutral_mask].mean()),
+            float(degenerated.mean()),
+        )
 
     def select_symmetric_dose(
         model_name: str,
@@ -2108,26 +2263,14 @@ def aggregate_controlled_results(
                     )
                     & generation_frame["alpha"].abs().eq(magnitude)
                 ]
-            if dose_generation.empty:
-                invalid_rate: Optional[float] = None
-                degeneration_rate: Optional[float] = None
-            else:
-                invalid = ~dose_generation["valid_answer"].astype(bool)
-                degenerated = invalid.copy()
-                for column in (
-                    "answer_format_failure",
-                    "repetition_failure",
-                    "collapse_failure",
-                    "nonfinite_failure",
-                    "hit_max_new_tokens",
-                ):
-                    if column in dose_generation:
-                        degenerated |= dose_generation[column].astype(bool)
-                invalid_rate = float(invalid.mean())
-                degeneration_rate = float(degenerated.mean())
-            degeneration_component = (
-                float(degeneration_rate)
-                if degeneration_rate is not None
+            (
+                neutral_invalid_rate,
+                neutral_degeneration_rate,
+                overall_degeneration_rate,
+            ) = generation_failure_rates(dose_generation)
+            neutral_invalid_component = (
+                float(neutral_invalid_rate)
+                if neutral_invalid_rate is not None
                 else 1.0
             )
             neutral_damage = float(
@@ -2135,7 +2278,7 @@ def aggregate_controlled_results(
                     [
                         neutral_probability_damage,
                         neutral_accuracy_damage,
-                        degeneration_component,
+                        neutral_invalid_component,
                     ]
                 )
             )
@@ -2147,16 +2290,19 @@ def aggregate_controlled_results(
                     "signed_pressure_score": pressure_score,
                     "neutral_probability_damage": neutral_probability_damage,
                     "neutral_accuracy_damage": neutral_accuracy_damage,
-                    "invalid_rate": invalid_rate,
-                    "degeneration_rate": degeneration_rate,
+                    "neutral_invalid_rate": neutral_invalid_rate,
+                    "neutral_degeneration_rate": neutral_degeneration_rate,
+                    "overall_degeneration_rate": overall_degeneration_rate,
+                    "invalid_rate": neutral_invalid_rate,
+                    "degeneration_rate": overall_degeneration_rate,
                     "dose_selectivity_score": pressure_score - neutral_damage,
                     "confirmatory_eligible": bool(
                         pressure_score > 0.0
                         and neutral_accuracy_damage <= 0.02
-                        and invalid_rate is not None
-                        and invalid_rate <= 0.01
-                        and degeneration_rate is not None
-                        and degeneration_rate <= 0.01
+                        and neutral_invalid_rate is not None
+                        and neutral_invalid_rate <= 0.01
+                        and overall_degeneration_rate is not None
+                        and overall_degeneration_rate <= 0.01
                     ),
                 }
             )
@@ -2183,8 +2329,9 @@ def aggregate_controlled_results(
             "criterion": (
                 "maximize signed P(b|W,+m)-P(b|W,-m) minus the mean of "
                 "neutral probability damage, neutral accuracy damage, and "
-                "final-prompt-only generation degeneration over predeclared "
-                "symmetric screen magnitudes"
+                "neutral final-prompt-only invalid-output rate over predeclared "
+                "symmetric screen magnitudes; require the all-condition "
+                "degeneration gate separately"
             ),
             "confirmatory_eligible": bool(eligible),
             "fallback_is_descriptive_only": not bool(eligible),
@@ -2286,26 +2433,14 @@ def aggregate_controlled_results(
                         "final_prompt_only"
                     )
                 ]
-            if layer_generation.empty:
-                degeneration_rate: Optional[float] = None
-                invalid_rate: Optional[float] = None
-            else:
-                invalid = ~layer_generation["valid_answer"].astype(bool)
-                degenerated = invalid.copy()
-                for column in (
-                    "answer_format_failure",
-                    "repetition_failure",
-                    "collapse_failure",
-                    "nonfinite_failure",
-                    "hit_max_new_tokens",
-                ):
-                    if column in layer_generation:
-                        degenerated |= layer_generation[column].astype(bool)
-                invalid_rate = float(invalid.mean())
-                degeneration_rate = float(degenerated.mean())
-            invalid_component = (
-                float(degeneration_rate)
-                if degeneration_rate is not None
+            (
+                neutral_invalid_rate,
+                neutral_degeneration_rate,
+                overall_degeneration_rate,
+            ) = generation_failure_rates(layer_generation)
+            neutral_invalid_component = (
+                float(neutral_invalid_rate)
+                if neutral_invalid_rate is not None
                 else 1.0
             )
             neutral_damage = float(
@@ -2313,7 +2448,7 @@ def aggregate_controlled_results(
                     [
                         neutral_probability_damage,
                         neutral_accuracy_damage,
-                        invalid_component,
+                        neutral_invalid_component,
                     ]
                 )
             )
@@ -2348,9 +2483,14 @@ def aggregate_controlled_results(
                     "neutral_probability_damage": neutral_probability_damage,
                     "neutral_accuracy_damage": neutral_accuracy_damage,
                     "neutral_damage_composite": neutral_damage,
-                    "invalid_rate": invalid_rate,
-                    "degeneration_rate": degeneration_rate,
-                    "degeneration_gate_observed": degeneration_rate is not None,
+                    "neutral_invalid_rate": neutral_invalid_rate,
+                    "neutral_degeneration_rate": neutral_degeneration_rate,
+                    "overall_degeneration_rate": overall_degeneration_rate,
+                    "invalid_rate": neutral_invalid_rate,
+                    "degeneration_rate": overall_degeneration_rate,
+                    "degeneration_gate_observed": (
+                        overall_degeneration_rate is not None
+                    ),
                     "selectivity_score": selectivity,
                     "control_null_95": null_95,
                     "passes_direction_specificity": (
@@ -2360,11 +2500,12 @@ def aggregate_controlled_results(
                         neutral_accuracy_damage <= 0.02
                     ),
                     "passes_invalid_rate": (
-                        invalid_rate is not None and invalid_rate <= 0.01
+                        neutral_invalid_rate is not None
+                        and neutral_invalid_rate <= 0.01
                     ),
                     "passes_degeneration_gate": (
-                        degeneration_rate is not None
-                        and degeneration_rate <= 0.01
+                        overall_degeneration_rate is not None
+                        and overall_degeneration_rate <= 0.01
                     ),
                     "passes_bidirectionality": (
                         wrong_positive_effect > 0.0
@@ -2414,10 +2555,12 @@ def aggregate_controlled_results(
                 "fallback_is_descriptive_only": not bool(eligible),
                 "criterion": (
                     "maximize signed W pressure score minus the mean of neutral "
-                    "probability damage, neutral accuracy damage, and degeneration; "
+                    "probability damage, neutral accuracy damage, and neutral "
+                    "invalid-output rate; "
                     "require learned score above control 95th percentile, positive "
-                    "bidirectionality, neutral accuracy damage <=0.02, invalid and "
-                    "degeneration rates <=0.01, and passed no-op/nonfinite gates"
+                    "bidirectionality, neutral accuracy damage <=0.02, neutral "
+                    "invalid-output and overall degeneration rates <=0.01, and "
+                    "passed no-op/nonfinite gates"
                 ),
                 "selected_candidate": selected,
                 "all_candidates": sorted(candidates, key=lambda row: row["layer"]),

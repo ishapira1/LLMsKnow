@@ -23,6 +23,21 @@ CONTROL_SEEDS="${CONTROL_SEEDS:-0,1}"
 MAX_BATCH_SIZE="${MAX_BATCH_SIZE:-8}"
 TINY_ROOT="$INTERVENTION_ROOT/tiny/qwen25_7b/commonsense_qa"
 TINY_DIRECTIONS="$TINY_ROOT/directions"
+REAL_MODEL_GATE="$TINY_ROOT/real_model_bf16_gate.json"
+mkdir -p "$TINY_ROOT"
+
+export ACTIVATION_STEERING_REAL_SOURCE_RUN="$SOURCE_RUN_DIR"
+export ACTIVATION_STEERING_REAL_MANIFEST="$PREFLIGHT_MANIFEST"
+export ACTIVATION_STEERING_REAL_CONFIG="$CONFIG_PATH"
+export ACTIVATION_STEERING_REAL_LAYER="${ACTIVATION_STEERING_REAL_LAYER:-17}"
+export ACTIVATION_STEERING_REAL_REPORT="$REAL_MODEL_GATE"
+real_gate_cmd=(
+  "$ENV_PYTHON" -m unittest -v
+  tests.test_controlled_activation_steering_real_model
+)
+print_command "${real_gate_cmd[@]}"
+"${real_gate_cmd[@]}"
+test -s "$REAL_MODEL_GATE"
 
 fit_cmd=(
   "$ENV_PYTHON" "$REPO_DIR/run_activation_steering.py" fit-directions
@@ -83,6 +98,7 @@ projection_cmd=(
   --manifest "$TINY_ROOT/train/manifest.json"
   --manifest "$TINY_ROOT/val/manifest.json"
   --manifest "$TINY_ROOT/test/manifest.json"
+  --real-model-gate "$REAL_MODEL_GATE"
   --output "$TINY_ROOT/compute_projection.json"
 )
 print_command "${projection_cmd[@]}"

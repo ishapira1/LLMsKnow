@@ -18,6 +18,9 @@ contrast, aggregation, and alpha units are different.
   manifest, an eight-example inspection report, a reviewed tiny compute report,
   a clean approved Git commit, a hash-bound researcher approval JSON, and the
   explicit `ALLOW_FULL_SUBMISSION=1` opt-in.
+- A live submit atomically reserves a new run root derived from the config,
+  audited question manifest, and Alpaca manifest hashes. An existing root is a
+  hard failure; stale reservations are never removed automatically.
 - No script removes `.run.lock` or output artifacts.
 
 ## Inspection and tiny run
@@ -39,8 +42,10 @@ LAYERS=17,18 CONTROL_SEEDS=0,1 \
 sbatch jobs/sycophancy_bias_probe/activation_steering_controlled_sharded_20260725/tiny_dry_run_qwen_csqa.sbatch
 ```
 
-The tiny job tests treatment batch size eight (falling back to one if the BF16
-replay gate fails) and writes `compute_projection.json`. The full bundle has
+The tiny job first runs the opt-in real-model CUDA/BF16 unittest and writes a
+hash-bound `real_model_bf16_gate.json`. It then tests treatment batch size eight
+(falling back to one if the replay gate fails) and binds both numerical gates
+into `compute_projection.json`. The full bundle has
 two CPU source-validation tasks before separate pooled and dataset-specific
 direction fits, 116 layer-screen tasks,
 12 selected-layer development dose tasks, 12 held-out tasks, 12 fixed-probe

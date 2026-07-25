@@ -257,6 +257,8 @@ def validate_tiny_compute(
     margin_threshold = float(numeric.get("cross_batch_max_margin_error", 0.05))
     observed_splits: set[str] = set()
     manifest_hashes: list[str] = []
+    question_manifest_hashes: set[str] = set()
+    batch_policies: list[dict[str, Any]] = []
     no_op_rows = 0
     for item in inputs:
         manifest_path = Path(str(dict(item).get("path", ""))).expanduser().resolve()
@@ -268,13 +270,38 @@ def validate_tiny_compute(
         manifest_hashes.append(manifest_hash)
         manifest = read_json(manifest_path)
         require_protocol(manifest, stage="tiny_dry_run", path=manifest_path)
-        resolve_snapshot(manifest, report_path=manifest_path)
+        snapshot = resolve_snapshot(manifest, report_path=manifest_path)
+        question_manifest_hashes.add(sha256_file(snapshot))
         if (
             manifest.get("score_fixed_probe") is not True
             or manifest.get("generation_diagnostics") is not True
             or int(manifest.get("n_strict_choice_rows", 0)) <= 0
         ):
             raise ValueError(f"Incomplete tiny-run diagnostics in {manifest_path}.")
+        batch_policy = dict(manifest.get("batch_policy", {}) or {})
+        requested_batch = int(batch_policy.get("requested_batch_size", 0))
+        effective_batch = int(batch_policy.get("effective_batch_size", 0))
+        forced_batch_one = batch_policy.get("forced_batch_size_one")
+        failure = batch_policy.get("failure")
+        if (
+            requested_batch <= 0
+            or requested_batch
+            != int(manifest.get("requested_max_batch_size", 0))
+            or effective_batch
+            != int(manifest.get("effective_max_batch_size", 0))
+        ):
+            raise ValueError(f"Inconsistent tiny batch policy in {manifest_path}.")
+        if forced_batch_one is True:
+            if effective_batch != 1 or not isinstance(failure, dict) or not failure:
+                raise ValueError(
+                    f"Batch-one fallback lacks failure evidence in {manifest_path}."
+                )
+        elif forced_batch_one is False:
+            if effective_batch != requested_batch or failure is not None:
+                raise ValueError(f"Unexpected tiny batch fallback in {manifest_path}.")
+        else:
+            raise ValueError(f"Missing forced-batch policy flag in {manifest_path}.")
+        batch_policies.append(batch_policy)
         results_path = manifest_path.parent / "question_results.jsonl"
         noop_path = manifest_path.parent / "noop_sentinels.jsonl"
         if (
@@ -298,11 +325,62 @@ def validate_tiny_compute(
         no_op_rows += count
     if observed_splits != {"train", "val", "test"}:
         raise ValueError(f"Tiny evidence has wrong split coverage: {observed_splits!r}.")
+    if len(question_manifest_hashes) != 1:
+        raise ValueError("Tiny train/validation/test runs used different manifests.")
+    if report.get("batch_policies") != batch_policies:
+        raise ValueError("Tiny compute report batch policies do not match its inputs.")
+    any_forced = any(
+        bool(policy["forced_batch_size_one"]) for policy in batch_policies
+    )
+    if bool(report.get("any_forced_batch_size_one")) != any_forced:
+        raise ValueError("Tiny compute report misstates batch-one fallback.")
+    real_gate_item = dict(report.get("real_model_bf16_gate", {}) or {})
+    real_gate_path = Path(str(real_gate_item.get("path", ""))).expanduser().resolve()
+    if not real_gate_path.is_file():
+        raise FileNotFoundError(f"Missing real-model BF16 gate: {real_gate_path}")
+    real_gate_hash = sha256_file(real_gate_path)
+    if real_gate_item.get("sha256") != real_gate_hash:
+        raise ValueError("Real-model BF16 gate hash mismatch.")
+    real_gate = read_json(real_gate_path)
+    require_protocol(
+        real_gate,
+        stage="real_model_bf16_gate",
+        path=real_gate_path,
+    )
+    if real_gate.get("status") != "passed":
+        raise ValueError("Real-model BF16 gate is not passing.")
+    if real_gate.get("question_manifest_sha256") not in question_manifest_hashes:
+        raise ValueError("Real-model BF16 gate used a different question manifest.")
+    runtime = dict(real_gate.get("runtime", {}) or {})
+    dry_run = dict(config.get("dry_run", {}) or {})
+    model_config = dict(
+        dict(config.get("models", {}) or {}).get(
+            str(dry_run.get("model_key", "")),
+            {},
+        )
+        or {}
+    )
+    if (
+        str(runtime.get("device", "")).lower() != "cuda"
+        or "bfloat16" not in str(runtime.get("model_dtype", "")).lower()
+        or runtime.get("model_name_or_path") != model_config.get("identifier")
+        or runtime.get("model_commit_hash") != model_config.get("revision")
+        or runtime.get("tokenizer_commit_hash") != model_config.get("revision")
+        or not str(runtime.get("chat_template_sha256", "") or "")
+    ):
+        raise ValueError("Real-model BF16 gate runtime identity is invalid.")
+    provenance = dict(real_gate.get("provenance", {}) or {})
+    if (
+        not str(provenance.get("git_commit", "") or "")
+        or provenance.get("dirty") is not False
+    ):
+        raise ValueError("Real-model BF16 gate did not use a clean Git revision.")
     return {
         "report_sha256": sha256_file(report_path),
         "input_manifest_sha256s": manifest_hashes,
         "projected_gpu_hours": projected_hours,
-        "any_forced_batch_size_one": bool(report.get("any_forced_batch_size_one")),
+        "any_forced_batch_size_one": any_forced,
+        "real_model_bf16_gate_sha256": real_gate_hash,
         "n_noop_rows": no_op_rows,
     }
 

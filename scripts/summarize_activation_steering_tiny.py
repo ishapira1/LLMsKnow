@@ -17,6 +17,7 @@ from llmssycoph.interventions.controlled import (
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, action="append", required=True)
+    parser.add_argument("--real-model-gate", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -27,6 +28,19 @@ def main() -> int:
         raise ValueError("Every compute-projection input must be a tiny-dry-run manifest.")
     if any(not bool(row.get("score_fixed_probe")) for row in manifests):
         raise ValueError("Compute projection requires fixed-probe scoring in every tiny cell.")
+    real_model_gate = read_json(args.real_model_gate)
+    if (
+        real_model_gate.get("protocol_version") != PROTOCOL_VERSION
+        or real_model_gate.get("stage") != "real_model_bf16_gate"
+        or real_model_gate.get("status") != "passed"
+    ):
+        raise ValueError("Real-model BF16 gate report is not a passing controlled report.")
+    runtime = dict(real_model_gate.get("runtime", {}) or {})
+    if (
+        "bfloat16" not in str(runtime.get("model_dtype", "")).lower()
+        or str(runtime.get("device", "")).lower() != "cuda"
+    ):
+        raise ValueError("Real-model gate did not run on CUDA with BF16 model weights.")
 
     elapsed_seconds = sum(float(row["elapsed_seconds"]) for row in manifests)
     strict_rows = sum(int(row["n_strict_choice_rows"]) for row in manifests)
@@ -49,6 +63,10 @@ def main() -> int:
                 }
                 for path in args.manifest
             ],
+            "real_model_bf16_gate": {
+                "path": str(args.real_model_gate.resolve()),
+                "sha256": sha256_file(args.real_model_gate),
+            },
             "observed_elapsed_seconds": elapsed_seconds,
             "observed_strict_choice_rows": strict_rows,
             "observed_strict_rows_per_second": strict_rows / elapsed_seconds,

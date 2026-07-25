@@ -170,10 +170,11 @@ and freezes the exact 1,000-row manifest.
 The selected utility dose is chosen on development data only, at the selected
 layer. Among the predeclared symmetric screen magnitudes, it maximizes
 `P(b|W,+m) - P(b|W,-m)` minus the mean neutral probability, neutral accuracy,
-and final-prompt-only generation degeneration damage. The choice must pass the
-same accuracy, validity, and degeneration gates to remain confirmatory;
-otherwise it is explicitly descriptive. Alpaca uses `−128`, the selected
-negative dose, `0`, the selected positive dose, and `+128`.
+and neutral final-prompt-only invalid-output damage. All-condition generation
+degeneration remains a separate gate. The choice must pass the same accuracy,
+validity, and degeneration gates to remain confirmatory; otherwise it is
+explicitly descriptive. Alpaca uses `−128`, the selected negative dose, `0`,
+the selected positive dose, and `+128`.
 
 ## Directions and controls
 
@@ -211,9 +212,12 @@ injected-to-residual norm ratio of four. Extreme points are retained as
 diagnostics.
 
 Question-level output explicitly saves A–E option log scores and probabilities,
-correctness, equality to `b`, P(c), P(b), log-score/probability margins, entropy,
-residual and injected norms, alpha convention, subset labels fixed before
-steering, fixed-probe scores/ranks, and provenance. Strict option scoring is
+correctness, equality to `b`, error and targeted-error indicators, P(c), P(b),
+log-score/probability margins, entropy, residual and injected norms, alpha
+convention, the exact direction/control formula, prompt token count, selected
+token index/ID/text, model-specific option token IDs, subset labels fixed before
+steering, fixed-probe scores/ranks, and provenance. Aggregates include the
+paired-bootstrap targeted-error share among errors. Strict option scoring is
 distinguished from free-generation validity diagnostics.
 
 Aggregation uses paired question bootstrap intervals. The primary plots are a
@@ -244,10 +248,10 @@ Layer selection uses validation only. For each layer:
 
 1. compute the symmetric signed W pressure score;
 2. subtract the mean of neutral P(c) damage, neutral accuracy damage, and
-   free-generation degeneration;
-3. require positive bidirectionality, invalid/degeneration rates at most 1%,
-   neutral accuracy damage at most 2 points, and learned effect above the 95th
-   percentile control score;
+   neutral free-generation invalid-output rate;
+3. require positive bidirectionality, neutral invalid-output and all-condition
+   degeneration rates at most 1%, neutral accuracy damage at most 2 points,
+   and learned effect above the 95th percentile control score;
 4. evaluate the selected layer and available immediate neighbors on test.
 
 If no layer is eligible, the highest selectivity layer may be carried forward
@@ -259,9 +263,10 @@ must report measured throughput and projected accelerator-hours. No full
 submission is permitted if safe batch size one makes the matrix infeasible.
 
 `tests/test_controlled_activation_steering_real_model.py` is the opt-in GPU/BF16
-gate. It is skipped locally and becomes active only when the approved manifest,
-source run, and controlled config are supplied through its documented
-environment variables.
+gate. It is skipped locally. The tiny Slurm job supplies the approved manifest,
+source run, controlled config, and report path, then binds the resulting
+`real_model_bf16_gate.json` hash and exact CUDA/BF16 model, tokenizer, template,
+source, manifest, and clean-Git identities into `compute_projection.json`.
 
 ## Commands
 
@@ -306,3 +311,8 @@ validator rejects a dirty worktree or any false or missing review assertion.
 The terminal aggregation stage also materializes fixed-probe, Alpaca utility,
 and identity-versus-framing summaries under `supplementary_aggregate/`; these
 stages are no longer dependency-only side artifacts.
+
+A live full submission atomically reserves a never-before-used run root whose
+identity hashes the controlled config, audited 1,000-question manifest, and
+fixed Alpaca manifest. Existing roots and stale reservations are hard failures
+and are never cleaned automatically.
