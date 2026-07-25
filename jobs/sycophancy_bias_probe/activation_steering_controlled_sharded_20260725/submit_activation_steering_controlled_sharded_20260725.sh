@@ -18,6 +18,7 @@ SUBMIT_LOG_DIR="$SUBMIT_LOG_ROOT/submit"
 test -s "$CONFIG"
 test -s run_activation_steering.py
 scripts=(
+  "$BUNDLE/validate_sources_array.sbatch"
   "$BUNDLE/fit_directions_array.sbatch"
   "$BUNDLE/fit_dataset_directions_array.sbatch"
   "$BUNDLE/screen_layers_array.sbatch"
@@ -52,16 +53,17 @@ log_printf '[submit] dry_run=%s commit=%s config=%s manifest=%s task_filter=%s\n
 
 if [[ "$DRY_RUN" == "1" ]]; then
   log_printf '[dry-run] sbatch %s\n' "${scripts[0]}"
-  log_printf '[dry-run] sbatch %s\n' "${scripts[1]}"
-  log_printf '[dry-run] sbatch --dependency=afterok:<fit_pooled> %s\n' "${scripts[2]}"
-  log_printf '[dry-run] sbatch --dependency=afterok:<screen> %s\n' "${scripts[3]}"
-  log_printf '[dry-run] sbatch --dependency=afterok:<select> %s\n' "${scripts[4]}"
+  log_printf '[dry-run] sbatch --dependency=afterok:<validate> %s\n' "${scripts[1]}"
+  log_printf '[dry-run] sbatch --dependency=afterok:<validate> %s\n' "${scripts[2]}"
+  log_printf '[dry-run] sbatch --dependency=afterok:<fit_pooled> %s\n' "${scripts[3]}"
+  log_printf '[dry-run] sbatch --dependency=afterok:<screen> %s\n' "${scripts[4]}"
   log_printf '[dry-run] sbatch --dependency=afterok:<select> %s\n' "${scripts[5]}"
   log_printf '[dry-run] sbatch --dependency=afterok:<select> %s\n' "${scripts[6]}"
-  log_printf '[dry-run] sbatch --dependency=afterok:<fit_dataset>:<select> %s\n' "${scripts[7]}"
-  log_printf '[dry-run] sbatch --dependency=afterok:<select> %s\n' "${scripts[8]}"
+  log_printf '[dry-run] sbatch --dependency=afterok:<select> %s\n' "${scripts[7]}"
+  log_printf '[dry-run] sbatch --dependency=afterok:<fit_dataset>:<select> %s\n' "${scripts[8]}"
   log_printf '[dry-run] sbatch --dependency=afterok:<select> %s\n' "${scripts[9]}"
-  log_printf '[dry-run] sbatch --dependency=afterok:<dose>:<test>:<probe>:<transfer>:<geometry>:<alpaca> %s\n' "${scripts[10]}"
+  log_printf '[dry-run] sbatch --dependency=afterok:<select> %s\n' "${scripts[10]}"
+  log_printf '[dry-run] sbatch --dependency=afterok:<dose>:<test>:<probe>:<transfer>:<geometry>:<alpaca> %s\n' "${scripts[11]}"
   log_printf '%s\n' "[dry-run] no jobs submitted"
   exit 0
 fi
@@ -109,6 +111,7 @@ python3 scripts/validate_activation_steering_full_gate.py \
   --expected-git-commit "$commit"
 
 mkdir -p \
+  "$SUBMIT_LOG_ROOT/slurm/validation" \
   "$SUBMIT_LOG_ROOT/slurm/fit" \
   "$SUBMIT_LOG_ROOT/slurm/screen" \
   "$SUBMIT_LOG_ROOT/slurm/selection" \
@@ -124,16 +127,17 @@ mkdir -p \
 export ACTIVATION_STEERING_CONFIG="$CONFIG"
 export QUESTION_MANIFEST="$MANIFEST"
 export ALPACA_UTILITY_MANIFEST="$ALPACA_MANIFEST"
-fit_job="$(sbatch --parsable "${scripts[0]}")"
-fit_dataset_job="$(sbatch --parsable "${scripts[1]}")"
-screen_job="$(sbatch --parsable --dependency="afterok:$fit_job" "${scripts[2]}")"
-selection_job="$(sbatch --parsable --dependency="afterok:$screen_job" "${scripts[3]}")"
-dose_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[4]}")"
-test_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[5]}")"
-probe_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[6]}")"
-transfer_job="$(sbatch --parsable --dependency="afterok:$fit_dataset_job:$selection_job" "${scripts[7]}")"
-geometry_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[8]}")"
-alpaca_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[9]}")"
-aggregate_job="$(sbatch --parsable --dependency="afterok:$dose_job:$test_job:$probe_job:$transfer_job:$geometry_job:$alpaca_job" "${scripts[10]}")"
-log_printf '[submit] fit=%s fit_dataset=%s screen=%s selection=%s dose=%s test=%s probe=%s transfer=%s geometry=%s alpaca=%s aggregate=%s\n' \
-  "$fit_job" "$fit_dataset_job" "$screen_job" "$selection_job" "$dose_job" "$test_job" "$probe_job" "$transfer_job" "$geometry_job" "$alpaca_job" "$aggregate_job"
+validation_job="$(sbatch --parsable "${scripts[0]}")"
+fit_job="$(sbatch --parsable --dependency="afterok:$validation_job" "${scripts[1]}")"
+fit_dataset_job="$(sbatch --parsable --dependency="afterok:$validation_job" "${scripts[2]}")"
+screen_job="$(sbatch --parsable --dependency="afterok:$fit_job" "${scripts[3]}")"
+selection_job="$(sbatch --parsable --dependency="afterok:$screen_job" "${scripts[4]}")"
+dose_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[5]}")"
+test_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[6]}")"
+probe_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[7]}")"
+transfer_job="$(sbatch --parsable --dependency="afterok:$fit_dataset_job:$selection_job" "${scripts[8]}")"
+geometry_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[9]}")"
+alpaca_job="$(sbatch --parsable --dependency="afterok:$selection_job" "${scripts[10]}")"
+aggregate_job="$(sbatch --parsable --dependency="afterok:$dose_job:$test_job:$probe_job:$transfer_job:$geometry_job:$alpaca_job" "${scripts[11]}")"
+log_printf '[submit] validation=%s fit=%s fit_dataset=%s screen=%s selection=%s dose=%s test=%s probe=%s transfer=%s geometry=%s alpaca=%s aggregate=%s\n' \
+  "$validation_job" "$fit_job" "$fit_dataset_job" "$screen_job" "$selection_job" "$dose_job" "$test_job" "$probe_job" "$transfer_job" "$geometry_job" "$alpaca_job" "$aggregate_job"

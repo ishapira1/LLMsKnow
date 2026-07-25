@@ -76,6 +76,7 @@ mkdir -p \
   "$LOG_ROOT/by_task" \
   "$LOG_ROOT/slurm/inspection" \
   "$LOG_ROOT/slurm/tiny" \
+  "$LOG_ROOT/slurm/validation" \
   "$LOG_ROOT/slurm/fit" \
   "$LOG_ROOT/slurm/screen" \
   "$LOG_ROOT/slurm/selection" \

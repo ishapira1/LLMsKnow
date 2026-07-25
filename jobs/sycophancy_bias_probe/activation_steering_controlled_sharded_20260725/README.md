@@ -41,7 +41,8 @@ sbatch jobs/sycophancy_bias_probe/activation_steering_controlled_sharded_2026072
 
 The tiny job tests treatment batch size eight (falling back to one if the BF16
 replay gate fails) and writes `compute_projection.json`. The full bundle has
-separate pooled and dataset-specific direction fits, 116 layer-screen tasks,
+two CPU source-validation tasks before separate pooled and dataset-specific
+direction fits, 116 layer-screen tasks,
 12 selected-layer development dose tasks, 12 held-out tasks, 12 fixed-probe
 tasks, four cross-dataset transfer tasks, and separate geometry/Alpaca stages.
 The terminal CPU aggregation writes the behavioral dose/Pareto outputs plus
