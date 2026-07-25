@@ -27,6 +27,11 @@ LAYER="$(
   'import json,sys; p=json.load(open(sys.argv[1])); m=sys.argv[2]; rows=[r for r in p["selections"] if r["model_name"]==m]; assert len(rows)==1; print(rows[0]["selected_layer"])' \
   "$SELECTION" "$MODEL_IDENTIFIER"
 )"
+SELECTED_ALPHAS="$(
+  "$ENV_PYTHON" -c \
+  'import json,sys; p=json.load(open(sys.argv[1])); m=sys.argv[2]; rows=[r for r in p["selections"] if r["model_name"]==m]; assert len(rows)==1; d=rows[0]["selected_dose"]["selected"]; values=sorted({-128.0,float(d["negative_alpha"]),0.0,float(d["positive_alpha"]),128.0}); print(",".join(str(value) for value in values))' \
+  "$SELECTION" "$MODEL_IDENTIFIER"
+)"
 cmd=(
   "$ENV_PYTHON" "$REPO_DIR/run_activation_steering.py" run-alpaca-guardrail
   --config "$CONFIG_PATH"
@@ -35,7 +40,7 @@ cmd=(
   --directions-path "$DIRECTIONS_PATH"
   --output-dir "$MODEL_ROOT/alpaca_guardrail"
   --layer "$LAYER"
-  --alphas=-128,-4,0,4,128
+  --alphas="$SELECTED_ALPHAS"
   --device cuda
   --hf-cache-dir "$HF_CACHE_DIR"
   --torch-dtype auto

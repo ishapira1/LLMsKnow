@@ -533,6 +533,10 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                 (output.parent / "layer_selection.json").read_text(encoding="utf-8")
             )
             self.assertEqual(selection["selections"][0]["selected_layer"], 2)
+            selected_dose = selection["selections"][0]["selected_dose"]
+            self.assertEqual(selected_dose["selected"]["negative_alpha"], -1.0)
+            self.assertEqual(selected_dose["selected"]["positive_alpha"], 1.0)
+            self.assertTrue(selected_dose["fallback_is_descriptive_only"])
             self.assertTrue((output.parent / "plots" / "dose_response.png").exists())
             self.assertTrue((output.parent / "plots" / "selectivity_pareto.png").exists())
 

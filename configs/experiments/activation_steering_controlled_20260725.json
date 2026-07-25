@@ -183,6 +183,7 @@
     "maximum_neutral_accuracy_loss": 0.02,
     "maximum_invalid_rate": 0.01,
     "selected_layer_neighbors": 1,
+    "utility_dose_selection": "dev-only symmetric magnitude maximizing signed pressure score minus neutral probability, accuracy, and degeneration damage; fall back descriptively if no magnitude passes gates",
     "preserve_full_test_dose_curve": true
   },
   "output": {

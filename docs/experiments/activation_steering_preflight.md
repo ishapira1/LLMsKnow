@@ -167,6 +167,14 @@ The deterministic pending-review artifacts are
 rows only, replenishes rejections within dataset/split/endorsed-label strata,
 and freezes the exact 1,000-row manifest.
 
+The selected utility dose is chosen on development data only, at the selected
+layer. Among the predeclared symmetric screen magnitudes, it maximizes
+`P(b|W,+m) - P(b|W,-m)` minus the mean neutral probability, neutral accuracy,
+and final-prompt-only generation degeneration damage. The choice must pass the
+same accuracy, validity, and degeneration gates to remain confirmatory;
+otherwise it is explicitly descriptive. Alpaca uses `−128`, the selected
+negative dose, `0`, the selected positive dose, and `+128`.
+
 ## Directions and controls
 
 All paired direction differences and means are computed and stored in float32:

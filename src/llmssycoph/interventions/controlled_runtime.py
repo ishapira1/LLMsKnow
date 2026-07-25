@@ -2004,6 +2004,166 @@ def aggregate_controlled_results(
             & all_frame["split"].eq("val")
         ].copy()
 
+    def select_symmetric_dose(
+        model_name: str,
+        layer: int,
+        model_frame: pd.DataFrame,
+    ) -> Dict[str, Any]:
+        learned = model_frame[
+            model_frame["layer"].eq(layer)
+            & model_frame["direction_name"].eq("wn")
+            & model_frame["scale_convention"].eq("native")
+        ]
+        magnitudes = sorted(
+            {
+                abs(float(alpha))
+                for alpha in learned["alpha"].tolist()
+                if float(alpha) != 0.0
+                and bool(
+                    learned["alpha"].eq(-abs(float(alpha))).any()
+                    and learned["alpha"].eq(abs(float(alpha))).any()
+                )
+            }
+        )
+        candidates: list[Dict[str, Any]] = []
+        for magnitude in magnitudes:
+            wrong = learned[
+                learned["condition"].eq("incorrect_suggestion")
+                & learned["alpha"].isin((-magnitude, magnitude))
+            ]
+            positive = wrong[wrong["alpha"].eq(magnitude)]["p_endorsed"]
+            negative = wrong[wrong["alpha"].eq(-magnitude)]["p_endorsed"]
+            if positive.empty or negative.empty:
+                continue
+            pressure_score = float(positive.mean() - negative.mean())
+            neutral = learned[learned["condition"].eq("neutral")]
+            neutral_zero = neutral[neutral["alpha"].eq(0.0)][
+                ["stable_question_key", "p_correct", "is_correct"]
+            ].drop_duplicates("stable_question_key")
+            neutral_dose = neutral[
+                neutral["alpha"].isin((-magnitude, magnitude))
+            ].merge(
+                neutral_zero,
+                on="stable_question_key",
+                how="inner",
+                suffixes=("", "_alpha_zero"),
+                validate="many_to_one",
+            )
+            if neutral_dose.empty:
+                continue
+            neutral_probability_damage = float(
+                (
+                    neutral_dose["p_correct"]
+                    - neutral_dose["p_correct_alpha_zero"]
+                )
+                .abs()
+                .mean()
+            )
+            neutral_accuracy_damage = float(
+                (
+                    neutral_dose["is_correct"].astype(float)
+                    - neutral_dose["is_correct_alpha_zero"].astype(float)
+                )
+                .abs()
+                .mean()
+            )
+            if generation_frame.empty or "generation_steering_mode" not in generation_frame:
+                dose_generation = pd.DataFrame()
+            else:
+                dose_generation = generation_frame[
+                    generation_frame["model_name"].eq(model_name)
+                    & generation_frame["layer"].eq(layer)
+                    & generation_frame["direction_name"].eq("wn")
+                    & generation_frame["scale_convention"].eq("native")
+                    & generation_frame["generation_steering_mode"].eq(
+                        "final_prompt_only"
+                    )
+                    & generation_frame["alpha"].abs().eq(magnitude)
+                ]
+            if dose_generation.empty:
+                invalid_rate: Optional[float] = None
+                degeneration_rate: Optional[float] = None
+            else:
+                invalid = ~dose_generation["valid_answer"].astype(bool)
+                degenerated = invalid.copy()
+                for column in (
+                    "answer_format_failure",
+                    "repetition_failure",
+                    "collapse_failure",
+                    "nonfinite_failure",
+                    "hit_max_new_tokens",
+                ):
+                    if column in dose_generation:
+                        degenerated |= dose_generation[column].astype(bool)
+                invalid_rate = float(invalid.mean())
+                degeneration_rate = float(degenerated.mean())
+            degeneration_component = (
+                float(degeneration_rate)
+                if degeneration_rate is not None
+                else 1.0
+            )
+            neutral_damage = float(
+                np.mean(
+                    [
+                        neutral_probability_damage,
+                        neutral_accuracy_damage,
+                        degeneration_component,
+                    ]
+                )
+            )
+            candidates.append(
+                {
+                    "magnitude": float(magnitude),
+                    "positive_alpha": float(magnitude),
+                    "negative_alpha": float(-magnitude),
+                    "signed_pressure_score": pressure_score,
+                    "neutral_probability_damage": neutral_probability_damage,
+                    "neutral_accuracy_damage": neutral_accuracy_damage,
+                    "invalid_rate": invalid_rate,
+                    "degeneration_rate": degeneration_rate,
+                    "dose_selectivity_score": pressure_score - neutral_damage,
+                    "confirmatory_eligible": bool(
+                        pressure_score > 0.0
+                        and neutral_accuracy_damage <= 0.02
+                        and invalid_rate is not None
+                        and invalid_rate <= 0.01
+                        and degeneration_rate is not None
+                        and degeneration_rate <= 0.01
+                    ),
+                }
+            )
+        eligible = [
+            candidate
+            for candidate in candidates
+            if candidate["confirmatory_eligible"]
+        ]
+        pool = eligible or candidates
+        if not pool:
+            raise ValueError(
+                f"No symmetric nonzero dev doses for model={model_name} layer={layer}."
+            )
+        selected = max(
+            pool,
+            key=lambda candidate: (
+                candidate["dose_selectivity_score"],
+                -candidate["magnitude"],
+            ),
+        )
+        return {
+            "selection_split": "val",
+            "selection_uses_test_results": False,
+            "criterion": (
+                "maximize signed P(b|W,+m)-P(b|W,-m) minus the mean of "
+                "neutral probability damage, neutral accuracy damage, and "
+                "final-prompt-only generation degeneration over predeclared "
+                "symmetric screen magnitudes"
+            ),
+            "confirmatory_eligible": bool(eligible),
+            "fallback_is_descriptive_only": not bool(eligible),
+            "selected": selected,
+            "all_candidates": candidates,
+        }
+
     for model_name, model_frame in selection_frame.groupby("model_name"):
         candidates: list[Dict[str, Any]] = []
         for layer, layer_frame in model_frame.groupby("layer"):
@@ -2201,6 +2361,11 @@ def aggregate_controlled_results(
         if not pool:
             continue
         selected = max(pool, key=lambda row: (row["selectivity_score"], -row["layer"]))
+        selected_dose = select_symmetric_dose(
+            str(model_name),
+            int(selected["layer"]),
+            model_frame,
+        )
         available_layers = sorted(int(value) for value in model_frame["layer"].unique())
         neighbor_layers = [
             layer
@@ -2216,6 +2381,7 @@ def aggregate_controlled_results(
                 "model_name": model_name,
                 "selected_layer": selected["layer"],
                 "test_layers": neighbor_layers,
+                "selected_dose": selected_dose,
                 "confirmatory_eligible": bool(eligible),
                 "fallback_is_descriptive_only": not bool(eligible),
                 "criterion": (
