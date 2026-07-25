@@ -16,7 +16,8 @@ contrast, aggregation, and alpha units are different.
   in the tiny compute projection.
 - The full submitter requires an audited 1,000-row manifest, the fixed Alpaca
   manifest, an eight-example inspection report, a reviewed tiny compute report,
-  and the explicit `ALLOW_FULL_SUBMISSION=1` opt-in.
+  a clean approved Git commit, a hash-bound researcher approval JSON, and the
+  explicit `ALLOW_FULL_SUBMISSION=1` opt-in.
 - No script removes `.run.lock` or output artifacts.
 
 ## Inspection and tiny run
@@ -44,6 +45,28 @@ separate pooled and dataset-specific direction fits, 116 layer-screen tasks,
 12 selected-layer development dose tasks, 12 held-out tasks, 12 fixed-probe
 tasks, four cross-dataset transfer tasks, and separate geometry/Alpaca stages.
 
+After all evidence has passed review, print the exact approval template. The
+inspection and tiny run directories retain immutable snapshots of the question
+manifests used to produce them.
+
+```bash
+python3 scripts/validate_activation_steering_full_gate.py \
+  --repo-dir "$PWD" \
+  --config configs/experiments/activation_steering_controlled_20260725.json \
+  --question-manifest configs/experiments/activation_steering_audited_1000_20260725.jsonl \
+  --alpaca-manifest jobs/sycophancy_pruning/paper_global_sharded_20260722/evaluation/alpaca_utility.jsonl \
+  --inspection-report /path/to/inspection/manifest.json \
+  --tiny-compute-report /path/to/tiny/compute_projection.json \
+  --expected-git-commit "$(git rev-parse HEAD)" \
+  --print-approval-template
+```
+
+The researcher must review that template, fill the reviewer identity and
+timezone-aware timestamp, change every explicit review assertion to `true`,
+set `status` to `approved`, and enter the exact phrase
+`APPROVE_CONTROLLED_ACTIVATION_STEERING_FULL`. Store the resulting JSON outside
+the clean repository worktree and pass its path below.
+
 ## Structural validation
 
 ```bash
@@ -61,6 +84,7 @@ TASK_FILTER=llama31_8b \
 ALLOW_FULL_SUBMISSION=1 \
 ACTIVATION_STEERING_INSPECTION_REPORT=/path/to/approved/inspection/manifest.json \
 ACTIVATION_STEERING_TINY_COMPUTE_REPORT=/path/to/reviewed/tiny/compute_projection.json \
+ACTIVATION_STEERING_FULL_GATE_APPROVAL=/path/to/reviewed/full_gate_approval.json \
 SYCOPHANCY_STORAGE_ROOT_OVERRIDE=/n/holystore01/LABS/barak_lab/Users/ishapira \
 ACTIVATION_STEERING_CONFIG=configs/experiments/activation_steering_controlled_20260725.json \
 QUESTION_MANIFEST=configs/experiments/activation_steering_audited_1000_20260725.jsonl \
@@ -73,6 +97,7 @@ TASK_FILTER=qwen25_7b \
 ALLOW_FULL_SUBMISSION=1 \
 ACTIVATION_STEERING_INSPECTION_REPORT=/path/to/approved/inspection/manifest.json \
 ACTIVATION_STEERING_TINY_COMPUTE_REPORT=/path/to/reviewed/tiny/compute_projection.json \
+ACTIVATION_STEERING_FULL_GATE_APPROVAL=/path/to/reviewed/full_gate_approval.json \
 SYCOPHANCY_STORAGE_ROOT_OVERRIDE=/n/holystore01/LABS/barak_lab/Users/ishapira \
 ACTIVATION_STEERING_CONFIG=configs/experiments/activation_steering_controlled_20260725.json \
 QUESTION_MANIFEST=configs/experiments/activation_steering_audited_1000_20260725.jsonl \

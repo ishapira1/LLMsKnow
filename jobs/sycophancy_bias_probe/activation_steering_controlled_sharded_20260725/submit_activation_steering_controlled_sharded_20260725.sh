@@ -10,6 +10,7 @@ MANIFEST="${QUESTION_MANIFEST:-configs/experiments/activation_steering_audited_1
 ALPACA_MANIFEST="${ALPACA_UTILITY_MANIFEST:-jobs/sycophancy_pruning/paper_global_sharded_20260722/evaluation/alpaca_utility.jsonl}"
 INSPECTION_REPORT="${ACTIVATION_STEERING_INSPECTION_REPORT:-}"
 TINY_COMPUTE_REPORT="${ACTIVATION_STEERING_TINY_COMPUTE_REPORT:-}"
+FULL_GATE_APPROVAL="${ACTIVATION_STEERING_FULL_GATE_APPROVAL:-}"
 DRY_RUN="${DRY_RUN:-0}"
 SUBMIT_LOG_ROOT="${ACTIVATION_STEERING_SUBMIT_LOG_ROOT:-$REPO_DIR/jobs/sycophancy_bias_probe/logs/activation_steering_controlled_sharded_20260725}"
 SUBMIT_LOG_DIR="$SUBMIT_LOG_ROOT/submit"
@@ -92,6 +93,20 @@ if [[ -z "$TINY_COMPUTE_REPORT" || ! -s "$TINY_COMPUTE_REPORT" ]]; then
     "Missing reviewed tiny-run compute projection; set ACTIVATION_STEERING_TINY_COMPUTE_REPORT."
   exit 2
 fi
+if [[ -z "$FULL_GATE_APPROVAL" || ! -s "$FULL_GATE_APPROVAL" ]]; then
+  log_error '%s\n' \
+    "Missing hash-bound researcher approval; set ACTIVATION_STEERING_FULL_GATE_APPROVAL."
+  exit 2
+fi
+python3 scripts/validate_activation_steering_full_gate.py \
+  --repo-dir "$REPO_DIR" \
+  --config "$CONFIG" \
+  --question-manifest "$MANIFEST" \
+  --alpaca-manifest "$ALPACA_MANIFEST" \
+  --inspection-report "$INSPECTION_REPORT" \
+  --tiny-compute-report "$TINY_COMPUTE_REPORT" \
+  --approval "$FULL_GATE_APPROVAL" \
+  --expected-git-commit "$commit"
 
 mkdir -p \
   "$SUBMIT_LOG_ROOT/slurm/fit" \

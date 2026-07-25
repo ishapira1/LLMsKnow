@@ -76,6 +76,20 @@ def _read_controlled_config(path: Path) -> Dict[str, Any]:
     return config
 
 
+def _snapshot_exact_file(source: Path, target: Path) -> str:
+    """Copy an immutable input snapshot without normalizing its bytes."""
+
+    source_path = Path(source).expanduser().resolve()
+    target_path = Path(target)
+    with source_path.open("rb") as input_handle, target_path.open("xb") as output_handle:
+        while chunk := input_handle.read(1024 * 1024):
+            output_handle.write(chunk)
+    source_hash = sha256_file(source_path)
+    if sha256_file(target_path) != source_hash:
+        raise RuntimeError(f"Input snapshot hash mismatch: {source_path} -> {target_path}")
+    return source_hash
+
+
 def load_controlled_runtime(
     source: SourceBundle,
     config: Mapping[str, Any],
@@ -554,6 +568,11 @@ def inspect_controlled_examples(
                 )
     target = Path(output_dir).expanduser().resolve()
     target.mkdir(parents=True, exist_ok=False)
+    manifest_snapshot_path = target / "question_manifest_snapshot.jsonl"
+    manifest_snapshot_hash = _snapshot_exact_file(
+        question_manifest_path,
+        manifest_snapshot_path,
+    )
     output_path = target / "preflight_examples.jsonl"
     write_strict_jsonl(output_path, rows)
     write_strict_json(
@@ -573,6 +592,8 @@ def inspect_controlled_examples(
             "n_questions": len(pairs),
             "layers": layer_values,
             "manifest_validation": manifest_summary,
+            "question_manifest_snapshot": manifest_snapshot_path.name,
+            "question_manifest_snapshot_sha256": manifest_snapshot_hash,
             "runtime": runtime,
             "output_sha256": sha256_file(output_path),
         },
@@ -1419,6 +1440,11 @@ def run_controlled_interventions(
                 )
     target = Path(output_dir).expanduser().resolve()
     target.mkdir(parents=True, exist_ok=False)
+    manifest_snapshot_path = target / "question_manifest_snapshot.jsonl"
+    manifest_snapshot_hash = _snapshot_exact_file(
+        question_manifest_path,
+        manifest_snapshot_path,
+    )
     results_path = target / "question_results.jsonl"
     noop_path = target / "noop_sentinels.jsonl"
     write_strict_jsonl(results_path, result_rows)
@@ -1466,6 +1492,8 @@ def run_controlled_interventions(
             "directions_path": str(artifact.path),
             "directions_sha256": sha256_file(artifact.path),
             "manifest_validation": manifest_summary,
+            "question_manifest_snapshot": manifest_snapshot_path.name,
+            "question_manifest_snapshot_sha256": manifest_snapshot_hash,
             "layers": layer_values,
             "alphas": [float(value) for value in alphas],
             "control_seeds": [int(value) for value in control_seeds],

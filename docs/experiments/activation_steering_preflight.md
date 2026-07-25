@@ -298,4 +298,8 @@ The model-filtered full commands in the bundle README are **DO NOT RUN YET**.
 Live submission additionally requires `ALLOW_FULL_SUBMISSION=1`, an existing
 approved 1,000-row manifest, passing tests and numeric gates, plus explicit
 `ACTIVATION_STEERING_INSPECTION_REPORT` and
-`ACTIVATION_STEERING_TINY_COMPUTE_REPORT` paths.
+`ACTIVATION_STEERING_TINY_COMPUTE_REPORT` paths. It also requires
+`ACTIVATION_STEERING_FULL_GATE_APPROVAL`: a researcher-completed JSON record
+whose exact Git commit and SHA-256 hashes bind the config, full question
+manifest, Alpaca manifest, inspection report, and tiny compute report. The
+validator rejects a dirty worktree or any false or missing review assertion.
