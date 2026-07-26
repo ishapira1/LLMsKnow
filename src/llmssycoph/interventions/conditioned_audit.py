@@ -659,9 +659,41 @@ def _nested_logistic_scores(
     n_questions = len(folds)
     positive_oof = np.full(n_questions, np.nan, dtype=np.float64)
     negative_oof = np.full(n_questions, np.nan, dtype=np.float64)
+    combined = np.concatenate([positive, negative], axis=0).astype(
+        np.float64, copy=False
+    )
+    gram = combined @ combined.T
     for outer_fold in sorted(set(folds.tolist())):
         train = np.flatnonzero(folds != outer_fold)
         test = np.flatnonzero(folds == outer_fold)
+        # The L2-regularized optimum lies in the row span of the outer-fold
+        # training states.  Recover exact coordinates in an orthonormal basis
+        # for that span from the Gram matrix.  This preserves the L2 penalty
+        # and every decision score while reducing the 3.5k--4k residual width
+        # to at most 2 * n_train.  Only outer-training states define the basis.
+        combined_train = np.concatenate(
+            [train, n_questions + train], axis=0
+        )
+        train_gram = gram[np.ix_(combined_train, combined_train)]
+        eigenvalues, eigenvectors = np.linalg.eigh(train_gram)
+        largest = max(float(eigenvalues[-1]), np.finfo(np.float64).tiny)
+        tolerance = (
+            np.finfo(np.float64).eps
+            * max(train_gram.shape)
+            * largest
+        )
+        retained = eigenvalues > tolerance
+        if not np.any(retained):
+            raise FloatingPointError(
+                "Outer-fold training states have an empty numerical row span."
+            )
+        span_coordinates = (
+            gram[:, combined_train]
+            @ eigenvectors[:, retained]
+            / np.sqrt(eigenvalues[retained])[None, :]
+        )
+        positive_projected = span_coordinates[:n_questions]
+        negative_projected = span_coordinates[n_questions:]
         best: tuple[float, float] = (-float("inf"), float(c_grid[0]))
         for c_value in c_grid:
             inner_scores: list[float] = []
@@ -670,41 +702,57 @@ def _nested_logistic_scores(
                 inner_test = train[folds[train] == inner_fold]
                 if not len(inner_train) or not len(inner_test):
                     continue
-                x_train = np.concatenate([positive[inner_train], negative[inner_train]], axis=0)
+                x_train = np.concatenate(
+                    [
+                        positive_projected[inner_train],
+                        negative_projected[inner_train],
+                    ],
+                    axis=0,
+                )
                 y_train = np.concatenate(
                     [np.ones(len(inner_train), dtype=int), np.zeros(len(inner_train), dtype=int)]
                 )
                 classifier = LogisticRegression(
                     C=float(c_value),
                     penalty="l2",
-                    solver="liblinear",
-                    dual=True,
+                    solver="lbfgs",
                     max_iter=2000,
+                    tol=1e-8,
                     random_state=5,
                 ).fit(x_train, y_train)
                 inner_scores.append(
                     _question_auc(
-                        classifier.decision_function(positive[inner_test]),
-                        classifier.decision_function(negative[inner_test]),
+                        classifier.decision_function(
+                            positive_projected[inner_test]
+                        ),
+                        classifier.decision_function(
+                            negative_projected[inner_test]
+                        ),
                     )
                 )
             candidate = (float(np.mean(inner_scores)), -float(c_value))
             if candidate > (best[0], -best[1]):
                 best = (candidate[0], float(c_value))
-        x_train = np.concatenate([positive[train], negative[train]], axis=0)
+        x_train = np.concatenate(
+            [positive_projected[train], negative_projected[train]], axis=0
+        )
         y_train = np.concatenate(
             [np.ones(len(train), dtype=int), np.zeros(len(train), dtype=int)]
         )
         classifier = LogisticRegression(
             C=best[1],
             penalty="l2",
-            solver="liblinear",
-            dual=True,
+            solver="lbfgs",
             max_iter=2000,
+            tol=1e-8,
             random_state=5,
         ).fit(x_train, y_train)
-        positive_oof[test] = classifier.decision_function(positive[test])
-        negative_oof[test] = classifier.decision_function(negative[test])
+        positive_oof[test] = classifier.decision_function(
+            positive_projected[test]
+        )
+        negative_oof[test] = classifier.decision_function(
+            negative_projected[test]
+        )
     if not np.isfinite(positive_oof).all() or not np.isfinite(negative_oof).all():
         raise FloatingPointError("Nested logistic regression left nonfinite OOF scores.")
     return positive_oof, negative_oof
@@ -1661,6 +1709,48 @@ def run_mean_cancellation_audit(
                     "probe_preservation_claim_authorized": False,
                 }
             )
+            current_layer_rows = [
+                row
+                for row in layer_rows
+                if (
+                    row["model_name"] == model_name
+                    and row["layer"] == layer
+                    and row["family"]
+                    in {"global_wc", "b_conditioned_wc", "belief_conflict"}
+                )
+            ]
+            write_strict_json(
+                target
+                / f"progress_model_{cell_index}_layer_{layer}.json",
+                {
+                    "model_name": model_name,
+                    "model_index": int(cell_index),
+                    "layer": layer,
+                    "completed_layers": int(layer_index + 1),
+                    "total_layers": int(len(artifact.layers)),
+                    "families": {
+                        str(row["family"]): {
+                            "diffmean_auroc": row["diffmean_auroc"],
+                            "bootstrap_ci_low": row["bootstrap_ci_low"],
+                            "bootstrap_ci_high": row["bootstrap_ci_high"],
+                            "split_half_similarity_median": row[
+                                "split_half_similarity_median"
+                            ],
+                            "permutation_null_p95": row.get(
+                                "permutation_null_p95"
+                            ),
+                        }
+                        for row in current_layer_rows
+                    },
+                },
+            )
+            print(
+                "[audit] "
+                f"model={model_name} "
+                f"layer={layer} "
+                f"completed_layers={layer_index + 1}/{len(artifact.layers)}",
+                flush=True,
+            )
 
         conditioned_arrays = _full_conditioned_arrays(
             artifact,
@@ -1722,6 +1812,25 @@ def run_mean_cancellation_audit(
                     artifact.metadata["question_keys_sha256"]
                 ),
             }
+        )
+        pd.DataFrame(
+            [row for row in layer_rows if row["model_name"] == model_name]
+        ).to_csv(target / f"partial_layer_table_model_{cell_index}.csv", index=False)
+        pd.DataFrame(
+            [
+                row
+                for row in permutation_rows
+                if row["model_name"] == model_name
+            ]
+        ).to_csv(
+            target / f"partial_permutation_table_model_{cell_index}.csv",
+            index=False,
+        )
+        print(
+            "[audit] "
+            f"model={model_name} completed=true "
+            f"conditioned_artifact={conditioned_artifact.path}",
+            flush=True,
         )
 
     layer_table = pd.DataFrame(layer_rows)

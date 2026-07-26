@@ -5,11 +5,14 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+from sklearn.linear_model import LogisticRegression
 
 from llmssycoph.interventions.conditioned_audit import (
     _binding_vectors,
     _fold_geometry,
+    _nested_logistic_scores,
     _permuted_bank_aucs,
+    _question_auc,
     _sum_to_zero_label_binding,
     deterministic_stratified_folds,
     fit_weighted_binary_leace,
@@ -22,6 +25,102 @@ from llmssycoph.interventions.controlled import (
 
 
 class ConditionedAuditContractTests(unittest.TestCase):
+    def test_nested_logistic_row_span_matches_full_width_predictions(self):
+        rng = np.random.default_rng(29)
+        n_questions = 25
+        latent = rng.normal(size=(n_questions, 4))
+        decoder = rng.normal(size=(4, 40))
+        direction = rng.normal(size=(1, 40))
+        positive = latent @ decoder + direction
+        negative = latent @ decoder - direction
+        folds = np.arange(n_questions, dtype=int) % 5
+
+        positive_scores, negative_scores = _nested_logistic_scores(
+            positive,
+            negative,
+            folds,
+            c_grid=(0.1, 1.0),
+        )
+        reference_positive = np.full(n_questions, np.nan)
+        reference_negative = np.full(n_questions, np.nan)
+        for outer_fold in range(5):
+            train = np.flatnonzero(folds != outer_fold)
+            test = np.flatnonzero(folds == outer_fold)
+            best_score = -np.inf
+            best_c = 0.1
+            for c_value in (0.1, 1.0):
+                inner_scores = []
+                for inner_fold in sorted(set(folds[train].tolist())):
+                    inner_train = train[folds[train] != inner_fold]
+                    inner_test = train[folds[train] == inner_fold]
+                    classifier = LogisticRegression(
+                        C=c_value,
+                        penalty="l2",
+                        solver="lbfgs",
+                        max_iter=2000,
+                        tol=1e-8,
+                        random_state=5,
+                    ).fit(
+                        np.concatenate(
+                            [positive[inner_train], negative[inner_train]]
+                        ),
+                        np.concatenate(
+                            [
+                                np.ones(len(inner_train), dtype=int),
+                                np.zeros(len(inner_train), dtype=int),
+                            ]
+                        ),
+                    )
+                    inner_scores.append(
+                        _question_auc(
+                            classifier.decision_function(
+                                positive[inner_test]
+                            ),
+                            classifier.decision_function(
+                                negative[inner_test]
+                            ),
+                        )
+                    )
+                candidate = float(np.mean(inner_scores))
+                if candidate > best_score:
+                    best_score = candidate
+                    best_c = c_value
+            classifier = LogisticRegression(
+                C=best_c,
+                penalty="l2",
+                solver="lbfgs",
+                max_iter=2000,
+                tol=1e-8,
+                random_state=5,
+            ).fit(
+                np.concatenate([positive[train], negative[train]]),
+                np.concatenate(
+                    [
+                        np.ones(len(train), dtype=int),
+                        np.zeros(len(train), dtype=int),
+                    ]
+                ),
+            )
+            reference_positive[test] = classifier.decision_function(
+                positive[test]
+            )
+            reference_negative[test] = classifier.decision_function(
+                negative[test]
+            )
+
+        self.assertTrue(np.isfinite(positive_scores).all())
+        self.assertTrue(np.isfinite(negative_scores).all())
+        np.testing.assert_allclose(
+            positive_scores, reference_positive, rtol=2e-4, atol=2e-4
+        )
+        np.testing.assert_allclose(
+            negative_scores, reference_negative, rtol=2e-4, atol=2e-4
+        )
+        self.assertGreater(
+            np.mean(positive_scores > negative_scores),
+            0.95,
+        )
+
     def test_anisotropy_geometry_is_reported_on_heldout_questions(self):
         neutral = np.zeros((4, 2), dtype=np.float64)
         wrong = np.asarray(
