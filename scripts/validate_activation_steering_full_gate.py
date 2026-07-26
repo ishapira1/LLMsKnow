@@ -117,9 +117,33 @@ def validate_inspection(
         )
     if int(report.get("n_questions", -1)) != expected_questions:
         raise ValueError("Inspection report question count is not eight.")
+    dry_run = dict(config.get("dry_run", {}) or {})
+    model_config = dict(
+        dict(config.get("models", {}) or {}).get(
+            str(dry_run.get("model_key", "")),
+            {},
+        )
+        or {}
+    )
+    runtime = dict(report.get("runtime", {}) or {})
+    if (
+        str(runtime.get("device", "")).lower() != "cuda"
+        or "bfloat16" not in str(runtime.get("model_dtype", "")).lower()
+        or runtime.get("model_name_or_path") != model_config.get("identifier")
+        or runtime.get("model_commit_hash") != model_config.get("revision")
+        or runtime.get("tokenizer_name_or_path") != model_config.get("identifier")
+        or runtime.get("tokenizer_commit_hash") != model_config.get("revision")
+        or not str(runtime.get("chat_template_sha256", "") or "")
+        or report.get("model_revision") != model_config.get("revision")
+        or report.get("tokenizer_revision") != model_config.get("revision")
+    ):
+        raise ValueError("Inspection runtime identity is invalid.")
+    inspection_commit = str(report.get("git_commit", "") or "")
+    if not inspection_commit or report.get("dirty") is not False:
+        raise ValueError("Inspection did not use a clean Git revision.")
     layers = [int(value) for value in report.get("layers", [])]
     configured_layers = [
-        int(value) for value in dict(config.get("dry_run", {}) or {}).get("layers", [])
+        int(value) for value in dry_run.get("layers", [])
     ]
     if not layers or layers != configured_layers:
         raise ValueError(
@@ -193,6 +217,7 @@ def validate_inspection(
         "n_questions": expected_questions,
         "n_rows": expected_rows,
         "layers": layers,
+        "git_commit": inspection_commit,
     }
 
 
@@ -381,6 +406,7 @@ def validate_tiny_compute(
         "projected_gpu_hours": projected_hours,
         "any_forced_batch_size_one": any_forced,
         "real_model_bf16_gate_sha256": real_gate_hash,
+        "real_model_git_commit": str(provenance["git_commit"]),
         "n_noop_rows": no_op_rows,
     }
 
@@ -500,6 +526,10 @@ def main() -> int:
         )
     inspection = validate_inspection(args.inspection_report.resolve(), config=config)
     tiny = validate_tiny_compute(args.tiny_compute_report.resolve(), config=config)
+    if inspection["git_commit"] != commit:
+        raise ValueError("Inspection evidence was produced by a different Git commit.")
+    if tiny["real_model_git_commit"] != commit:
+        raise ValueError("Real-model BF16 evidence was produced by a different Git commit.")
     evidence_hashes = {
         "config_sha256": sha256_file(args.config),
         "full_question_manifest_sha256": sha256_file(args.question_manifest),

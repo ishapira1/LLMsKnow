@@ -197,7 +197,7 @@ finish_structured_task_log() {
   ended="$(date +%s)"
   elapsed=$((ended - TASK_STARTED_EPOCH))
   if command -v sstat >/dev/null 2>&1 && [[ -n "${SLURM_JOB_ID:-}" ]]; then
-    sstat -j "${SLURM_JOB_ID}.batch" --format=JobID,Elapsed,MaxRSS,AveRSS,MaxVMSize,AveCPU || true
+    sstat -j "${SLURM_JOB_ID}.batch" --format=JobID,MaxRSS,AveRSS,MaxVMSize,AveCPU || true
   fi
   command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi || true
   printf '[task] end_time=%s exit_status=%s elapsed_seconds=%s\n' \

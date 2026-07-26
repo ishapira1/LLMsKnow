@@ -81,6 +81,24 @@ def _raise_helpful_hf_auth_error(model_name: str, exc: Exception) -> None:
     ) from exc
 
 
+def _record_pinned_tokenizer_revision(tokenizer: Any, revision: Optional[str]) -> None:
+    """Retain the exact requested tokenizer commit when Transformers omits it."""
+
+    pinned = str(revision or "")
+    if not pinned:
+        return
+    init_kwargs = dict(getattr(tokenizer, "init_kwargs", {}) or {})
+    observed = str(init_kwargs.get("_commit_hash", "") or "")
+    if observed and observed != pinned:
+        raise RuntimeError(
+            "Tokenizer revision mismatch: "
+            f"requested={pinned!r} observed={observed!r}."
+        )
+    init_kwargs["_commit_hash"] = pinned
+    tokenizer.init_kwargs = init_kwargs
+    tokenizer._llmsknow_revision_source = "requested_exact_commit"
+
+
 class HuggingFaceLLM(BaseLLM):
     def __init__(
         self,
@@ -163,6 +181,7 @@ class HuggingFaceLLM(BaseLLM):
                 model = model.to("cpu")
 
             tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, **load_kwargs)
+            _record_pinned_tokenizer_revision(tokenizer, revision)
         except Exception as exc:
             if _is_gated_repo_error(exc):
                 _raise_helpful_hf_auth_error(model_name, exc)

@@ -155,10 +155,30 @@ class FullSubmissionGateTests(unittest.TestCase):
                     "n_rows": len(inspection_rows),
                     "layers": [17, 18],
                     "output_sha256": sha256_file(output),
+                    "git_commit": "a" * 40,
+                    "dirty": False,
+                    "model_revision": "revision",
+                    "tokenizer_revision": "revision",
+                    "runtime": {
+                        "device": "cuda",
+                        "model_dtype": "torch.bfloat16",
+                        "model_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
+                        "model_commit_hash": "revision",
+                        "tokenizer_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
+                        "tokenizer_commit_hash": "revision",
+                        "chat_template_sha256": "template",
+                    },
                 },
             )
             evidence = validate_inspection(report, config=_config())
             self.assertEqual(evidence["n_rows"], 64)
+            self.assertEqual(evidence["git_commit"], "a" * 40)
+            bad_runtime = json.loads(report.read_text(encoding="utf-8"))
+            bad_runtime["runtime"]["tokenizer_commit_hash"] = ""
+            bad_runtime["tokenizer_revision"] = ""
+            _write_json(root / "bad_runtime.json", bad_runtime)
+            with self.assertRaisesRegex(ValueError, "runtime identity"):
+                validate_inspection(root / "bad_runtime.json", config=_config())
             inspection_rows.pop()
             _write_jsonl(root / "truncated.jsonl", inspection_rows)
             report_payload = json.loads(report.read_text(encoding="utf-8"))

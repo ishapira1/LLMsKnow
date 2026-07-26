@@ -17,7 +17,12 @@ from llmssycoph.llm import (
     resolve_llm_backend,
     unregister_llm,
 )
-from llmssycoph.llm.huggingface import _device_uses_gpu, _resolve_torch_dtype, _warn_if_not_using_gpu
+from llmssycoph.llm.huggingface import (
+    _device_uses_gpu,
+    _record_pinned_tokenizer_revision,
+    _resolve_torch_dtype,
+    _warn_if_not_using_gpu,
+)
 from llmssycoph.llm.generation import (
     _resolve_model_inputs,
     _strict_mc_generated_answer_complete,
@@ -154,6 +159,23 @@ class ModelUtilsContractTests(unittest.TestCase):
             torch_dtype=None,
             revision="0123456789abcdef",
         )
+
+    def test_pinned_tokenizer_revision_is_recorded_and_mismatch_fails(self):
+        tokenizer = SimpleNamespace(init_kwargs={})
+        _record_pinned_tokenizer_revision(tokenizer, "0123456789abcdef")
+        self.assertEqual(
+            tokenizer.init_kwargs["_commit_hash"],
+            "0123456789abcdef",
+        )
+        self.assertEqual(
+            tokenizer._llmsknow_revision_source,
+            "requested_exact_commit",
+        )
+        with self.assertRaisesRegex(RuntimeError, "revision mismatch"):
+            _record_pinned_tokenizer_revision(
+                SimpleNamespace(init_kwargs={"_commit_hash": "different"}),
+                "0123456789abcdef",
+            )
 
     def test_gpu_device_detection_accepts_cuda_and_mps(self):
         self.assertTrue(_device_uses_gpu("cuda"))
