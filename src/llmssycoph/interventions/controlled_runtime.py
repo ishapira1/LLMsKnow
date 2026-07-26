@@ -77,6 +77,21 @@ def _read_controlled_config(path: Path) -> Dict[str, Any]:
     return config
 
 
+def _semantic_approval_required(config: Mapping[str, Any]) -> bool:
+    """Return whether this configuration requires per-row human b approval.
+
+    The controlled confirmatory protocol defaults to requiring approval. A
+    deliberately exploratory configuration may disable the gate, but the
+    resulting provenance and manifest validation continue to record that
+    human approval was not required.
+    """
+
+    splits = dict(config.get("splits", {}) or {})
+    return bool(
+        splits.get("semantic_wrong_option_requires_human_approval", True)
+    )
+
+
 def _snapshot_exact_file(source: Path, target: Path) -> str:
     """Copy an immutable input snapshot without normalizing its bytes."""
 
@@ -626,7 +641,7 @@ def fit_controlled_directions(
         source_run_dirs,
         manifest_path=question_manifest_path,
         splits=("train",),
-        require_human_approval=True,
+        require_human_approval=_semantic_approval_required(config),
     )
     source = sources[0]
     model, tokenizer, runtime = load_controlled_runtime(
@@ -823,7 +838,7 @@ def run_controlled_interventions(
         [source_run_dir],
         manifest_path=question_manifest_path,
         splits=(split,),
-        require_human_approval=True,
+        require_human_approval=_semantic_approval_required(config),
     )
     source = sources[0]
     artifact = load_controlled_direction_artifact(directions_path)
@@ -1616,7 +1631,7 @@ def run_controlled_geometry(
         [source_run_dir],
         manifest_path=question_manifest_path,
         splits=(split,),
-        require_human_approval=True,
+        require_human_approval=_semantic_approval_required(config),
     )
     source = sources[0]
     artifact = load_controlled_direction_artifact(directions_path)

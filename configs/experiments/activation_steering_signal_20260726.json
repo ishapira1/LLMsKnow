@@ -1,0 +1,95 @@
+{
+  "protocol_version": "controlled_prompt_only_v1_20260725",
+  "study_scope": "exploratory_benchmark_label_signal_v1_20260726",
+  "description": "Lean prompt-only W-N signal experiment. Benchmark answer keys define wrongness; outputs are exploratory and not human-semantics-confirmatory.",
+  "models": {
+    "llama31_8b": {
+      "identifier": "meta-llama/Llama-3.1-8B-Instruct",
+      "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+      "hidden_size": 4096,
+      "nonterminal_layers": [1, 31],
+      "source_random_all_probe_layer": 15
+    },
+    "qwen25_7b": {
+      "identifier": "Qwen/Qwen2.5-7B-Instruct",
+      "revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+      "hidden_size": 3584,
+      "nonterminal_layers": [1, 27],
+      "source_random_all_probe_layer": 27
+    }
+  },
+  "datasets": ["arc_challenge", "commonsense_qa"],
+  "stable_question_key": ["dataset", "source_example_id"],
+  "splits": {
+    "reuse_existing_membership": true,
+    "signal_target_per_dataset": {
+      "train": 90,
+      "val": 30,
+      "test": 30
+    },
+    "semantic_wrong_option_requires_human_approval": false,
+    "wrongness_policy": "benchmark_answer_key_only_exploratory"
+  },
+  "conditions": {
+    "neutral": "neutral",
+    "wrong_ordinary": "incorrect_suggestion",
+    "wrong_strong": "incorrect_suggestion_strong",
+    "correct_ordinary": "suggest_correct"
+  },
+  "direction_formulas": {
+    "wn": "mean_i(h_i^incorrect_suggestion - h_i^neutral)",
+    "cn": "mean_i(h_i^suggest_correct - h_i^neutral)",
+    "wc": "mean_i(h_i^incorrect_suggestion - h_i^suggest_correct)",
+    "sw": "mean_i(h_i^incorrect_suggestion_strong - h_i^incorrect_suggestion)"
+  },
+  "primary_direction": "wn",
+  "positive_alpha_meaning": "more_like_wrong_pressure",
+  "alpha_one_meaning": "one_raw_paired_mean_shift",
+  "alpha_grid": [-8, -4, -2, -1, 0, 1, 2, 4, 8],
+  "generation_diagnostic_alphas": [],
+  "compute_projection": {
+    "full_strict_choice_rows": 240000,
+    "full_fixed_probe_candidate_passes": 7200,
+    "tiny_report_required_before_full_submission": true
+  },
+  "full_controls": {
+    "seeds": [0, 1, 2],
+    "types": [
+      "isotropic",
+      "coordinate_sign",
+      "item_sign_native",
+      "item_sign_matched"
+    ],
+    "framing_directions_native_and_wn_norm_matched": []
+  },
+  "activation_site": {
+    "module": "decoder block producing the requested Hugging Face hidden_states index",
+    "stream": "post_block_residual",
+    "token_position": "final_rendered_prompt_token",
+    "prompt_scoring_use_cache": false,
+    "direction_construction_includes_assistant_answer_token": false
+  },
+  "numeric_gates": {
+    "same_shape_max_probability_error": 0.0,
+    "cross_batch_max_probability_error": 0.005,
+    "cross_batch_max_margin_error": 0.05,
+    "cross_batch_top_choice_agreement": 1.0,
+    "hard_fail_on_nonfinite": true,
+    "force_batch_size_one_after_failure": true
+  },
+  "selection": {
+    "split": "val",
+    "test_split": "test",
+    "selected_layer_neighbors": 1,
+    "preserve_full_test_dose_curve": true,
+    "interpretation": "descriptive_reasonable_signal"
+  },
+  "output": {
+    "refuse_overwrite": true,
+    "question_table": "question_results.jsonl",
+    "save_all_option_log_scores": true,
+    "save_all_option_probabilities": true,
+    "save_fixed_probe_scores": true,
+    "save_git_dirty_patch_hash": true
+  }
+}
