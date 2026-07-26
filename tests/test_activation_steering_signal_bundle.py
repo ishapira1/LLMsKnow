@@ -166,6 +166,12 @@ class ExploratorySignalContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("#SBATCH --array=0-1", probe)
+        plot_source = (
+            REPO / "src/llmssycoph/interventions/controlled_plots.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("10-seed controls", plot_source)
+        self.assertIn("n_control_seeds", plot_source)
+        self.assertIn("n_control_directions", plot_source)
 
 
 if __name__ == "__main__":

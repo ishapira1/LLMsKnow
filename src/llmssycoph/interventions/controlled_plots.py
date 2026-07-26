@@ -58,6 +58,11 @@ def plot_controlled_dose_response(frame: pd.DataFrame, output_dir: Path) -> Dict
     for axis, model_name in zip(axes[0], model_names):
         model_curve = learned_curve[learned_curve["model_name"].eq(model_name)]
         ribbon = control_ribbon[control_ribbon["model_name"].eq(model_name)]
+        model_controls = control_seed_curve[
+            control_seed_curve["model_name"].eq(model_name)
+        ]
+        n_control_seeds = int(model_controls["control_seed"].nunique())
+        n_control_directions = int(model_controls["direction_name"].nunique())
         layers = sorted(int(value) for value in model_curve["layer"].unique())
         if len(layers) <= 3:
             for layer_index, layer in enumerate(layers):
@@ -92,7 +97,10 @@ def plot_controlled_dose_response(frame: pd.DataFrame, output_dir: Path) -> Dict
                 ribbon["control_high"].to_numpy(dtype=float),
                 color=CONTROL_COLOR,
                 alpha=0.3,
-                label="10-seed controls (95%)",
+                label=(
+                    f"{n_control_seeds} seeds × {n_control_directions} "
+                    "controls (95%)"
+                ),
             )
         axis.axhline(0.0, color="black", linewidth=1)
         axis.set_xscale("symlog", linthresh=0.25)
