@@ -152,9 +152,11 @@ positionally to canonical `A–E` fields for balance checks, manifests, probe
 ranks, and result tables. Both label systems and the exact mapping are saved.
 
 `configs/experiments/activation_steering_preflight_8_20260725.jsonl` contains
-three train, two validation, and three test examples. All eight are marked
-`pending`; inspection is allowed, but direction fitting and interventions refuse
-to run until a researcher changes each status to `approved`.
+three train, two validation, and three test examples. All eight were explicitly
+approved by `itaishapira@g.harvard.edu` on 2026-07-25 after review of inspection
+job `35149100`; the recorded decision depends only on semantic wrongness of
+`b`. Direction fitting and interventions still refuse any manifest containing
+a non-approved row or incomplete reviewer provenance.
 
 The full audited manifest is intentionally absent. Its schema and quotas are in
 `configs/experiments/activation_steering_audited_1000_20260725.schema.json`.

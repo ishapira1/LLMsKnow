@@ -6,7 +6,8 @@ contrast, aggregation, and alpha units are different.
 
 ## Hard gates
 
-- The eight-row manifest may be inspected while review status is `pending`.
+- The eight-row manifest was explicitly approved by
+  `itaishapira@g.harvard.edu` after inspection job `35149100`.
 - Fitting or intervention requires every included row to have
   `semantic_b_review_status="approved"`.
 - Same-shape alpha zero must be bitwise exact.
