@@ -30,15 +30,20 @@ class SupplementaryAggregationTests(unittest.TestCase):
             probe_path = root / "probe.jsonl"
             probe_rows = []
             for question_index in range(2):
+                dataset = (
+                    "commonsense_qa"
+                    if question_index == 0
+                    else "arc_challenge"
+                )
                 for alpha in (0.0, 1.0):
                     probe_rows.append(
                         {
                             "protocol_version": PROTOCOL_VERSION,
                             "stage": "score_fixed_probe",
                             "scoring_mode": "strict_choice",
-                            "stable_question_key": f"csqa::{question_index}",
+                            "stable_question_key": f"{dataset}::{question_index}",
                             "model_name": "model",
-                            "dataset": "commonsense_qa",
+                            "dataset": dataset,
                             "condition": "incorrect_suggestion",
                             "layer": 17,
                             "direction_name": "wn",
@@ -54,14 +59,41 @@ class SupplementaryAggregationTests(unittest.TestCase):
                             "external_probe_margin_sign_agreement": True,
                         }
                     )
+                probe_rows.append(
+                    {
+                        **probe_rows[-1],
+                        "direction_name": "isotropic",
+                        "scale_convention": "wn_norm_matched",
+                        "control_seed": 0,
+                        "treatment_type": "control",
+                    }
+                )
             _write_jsonl(probe_path, probe_rows)
             probe_summary = aggregate_fixed_probe(
                 [probe_path],
                 n_bootstrap=20,
                 seed=5,
             )
-            self.assertEqual(len(probe_summary), 2)
-            self.assertEqual(set(probe_summary["n_units"]), {2})
+            self.assertEqual(len(probe_summary), 9)
+            self.assertEqual(set(probe_summary["n_units"]), {1, 2})
+            self.assertEqual(
+                set(probe_summary["dataset"]),
+                {
+                    "arc_challenge",
+                    "commonsense_qa",
+                    "pooled_arc_csqa",
+                },
+            )
+            compacted_controls = probe_summary[
+                probe_summary["treatment_type"].eq("control")
+            ]
+            self.assertEqual(
+                set(compacted_controls["interval_status"]),
+                {"not_bootstrapped_compacted_control"},
+            )
+            self.assertTrue(
+                compacted_controls["probe_correct_rank_ci_low"].isna().all()
+            )
 
             alpaca_path = root / "alpaca.jsonl"
             alpaca_rows = []

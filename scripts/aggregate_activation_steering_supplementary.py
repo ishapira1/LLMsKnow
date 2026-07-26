@@ -40,6 +40,7 @@ def _paired_bootstrap_summary(
     metrics: Sequence[str],
     n_bootstrap: int,
     seed: int,
+    aggregate_count_column: str | None = None,
 ) -> pd.DataFrame:
     rng = np.random.default_rng(int(seed))
     output: list[dict[str, Any]] = []
@@ -49,7 +50,23 @@ def _paired_bootstrap_summary(
         units = list(group.groupby(unit_column))
         if not units:
             continue
-        row["n_units"] = len(units)
+        compacted = bool(
+            aggregate_count_column
+            and aggregate_count_column in group
+            and group[aggregate_count_column].notna().all()
+        )
+        weights = np.asarray(
+            [
+                (
+                    float(unit_frame[aggregate_count_column].iloc[0])
+                    if compacted and aggregate_count_column is not None
+                    else 1.0
+                )
+                for _, unit_frame in units
+            ],
+            dtype=np.float64,
+        )
+        row["n_units"] = int(weights.sum())
         for metric in metrics:
             values = np.asarray(
                 [
@@ -64,15 +81,30 @@ def _paired_bootstrap_summary(
             )
             if not np.isfinite(values).all():
                 raise ValueError(f"Non-finite {metric} in supplementary aggregation.")
-            samples = rng.integers(
-                0,
-                len(values),
-                size=(int(n_bootstrap), len(values)),
-            )
-            bootstrap = values[samples].mean(axis=1)
-            row[f"{metric}_mean"] = float(values.mean())
-            row[f"{metric}_ci_low"] = float(np.quantile(bootstrap, 0.025))
-            row[f"{metric}_ci_high"] = float(np.quantile(bootstrap, 0.975))
+            row[f"{metric}_mean"] = float(np.average(values, weights=weights))
+            if not compacted and int(n_bootstrap) > 0:
+                samples = rng.integers(
+                    0,
+                    len(values),
+                    size=(int(n_bootstrap), len(values)),
+                )
+                bootstrap = values[samples].mean(axis=1)
+                row[f"{metric}_ci_low"] = float(
+                    np.quantile(bootstrap, 0.025)
+                )
+                row[f"{metric}_ci_high"] = float(
+                    np.quantile(bootstrap, 0.975)
+                )
+            else:
+                row[f"{metric}_ci_low"] = None
+                row[f"{metric}_ci_high"] = None
+        row["interval_status"] = (
+            "paired_question_bootstrap"
+            if not compacted and int(n_bootstrap) > 0
+            else "not_bootstrapped_compacted_control"
+            if compacted
+            else "bootstrap_disabled"
+        )
         output.append(row)
     return pd.DataFrame(output)
 
@@ -83,14 +115,6 @@ def aggregate_fixed_probe(
     n_bootstrap: int,
     seed: int,
 ) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-    for path in paths:
-        file_rows = read_jsonl(path)
-        _require_protocol(file_rows, stage="score_fixed_probe", source=path)
-        rows.extend(file_rows)
-    frame = pd.DataFrame(rows)
-    if "scoring_mode" in frame:
-        frame = frame[frame["scoring_mode"].eq("strict_choice")].copy()
     metrics = (
         "probe_correct_top1",
         "probe_correct_rank",
@@ -99,10 +123,11 @@ def aggregate_fixed_probe(
         "external_probe_correctness_agreement",
         "external_probe_margin_sign_agreement",
     )
-    required = {
-        "stable_question_key",
+    group_columns = (
         "model_name",
         "dataset",
+        "split",
+        "direction_fit_scope",
         "condition",
         "layer",
         "direction_name",
@@ -110,31 +135,129 @@ def aggregate_fixed_probe(
         "control_seed",
         "alpha",
         "probe_structurally_informative",
-        *metrics,
-    }
-    missing = sorted(required - set(frame.columns))
-    if missing:
-        raise ValueError(f"Fixed-probe rows are missing fields: {missing}")
-    for metric in metrics:
-        frame[metric] = pd.to_numeric(frame[metric], errors="raise")
-    return _paired_bootstrap_summary(
+        "treatment_type",
+    )
+    compact_frames: list[pd.DataFrame] = []
+    input_wide_rows = 0
+    retained_learned_rows = 0
+    compacted_control_rows = 0
+    for path in paths:
+        file_rows = read_jsonl(path)
+        _require_protocol(file_rows, stage="score_fixed_probe", source=path)
+        shard = pd.DataFrame(file_rows)
+        del file_rows
+        input_wide_rows += len(shard)
+        if "scoring_mode" in shard:
+            shard = shard[shard["scoring_mode"].eq("strict_choice")].copy()
+        if shard.empty:
+            continue
+        if "split" not in shard:
+            shard["split"] = "unknown"
+        if "direction_fit_scope" not in shard:
+            shard["direction_fit_scope"] = "unknown"
+        if "treatment_type" not in shard:
+            shard["treatment_type"] = np.where(
+                shard["control_seed"].notna(),
+                "control",
+                "learned",
+            )
+        else:
+            inferred_treatment = pd.Series(
+                np.where(
+                    shard["control_seed"].notna(),
+                    "control",
+                    "learned",
+                ),
+                index=shard.index,
+            )
+            shard["treatment_type"] = shard["treatment_type"].fillna(
+                inferred_treatment
+            )
+        required = {
+            "stable_question_key",
+            *group_columns,
+            *metrics,
+        }
+        missing = sorted(required - set(shard.columns))
+        if missing:
+            raise ValueError(f"Fixed-probe rows are missing fields: {missing}")
+        for metric in metrics:
+            shard[metric] = pd.to_numeric(shard[metric], errors="raise")
+            if not np.isfinite(shard[metric].to_numpy(dtype=np.float64)).all():
+                raise ValueError(f"Non-finite fixed-probe metric: {metric}.")
+        learned = shard[shard["treatment_type"].eq("learned")].copy()
+        controls = shard[shard["treatment_type"].eq("control")].copy()
+        retained_learned_rows += len(learned)
+        learned["aggregated_n_units"] = np.nan
+        if not controls.empty:
+            controls = (
+                controls.groupby(
+                    list(group_columns),
+                    dropna=False,
+                    as_index=False,
+                )
+                .agg(
+                    {
+                        **{metric: "mean" for metric in metrics},
+                        "stable_question_key": "nunique",
+                    }
+                )
+                .rename(
+                    columns={
+                        "stable_question_key": "aggregated_n_units",
+                    }
+                )
+            )
+            controls["stable_question_key"] = [
+                "__probe_control_summary__::"
+                + "::".join(str(value) for value in row)
+                for row in controls[list(group_columns)].itertuples(
+                    index=False,
+                    name=None,
+                )
+            ]
+            compacted_control_rows += len(controls)
+        compact_frames.append(
+            pd.concat((learned, controls), ignore_index=True, sort=False)[
+                [
+                    "stable_question_key",
+                    *group_columns,
+                    *metrics,
+                    "aggregated_n_units",
+                ]
+            ]
+        )
+        del shard
+    if not compact_frames:
+        raise ValueError("Fixed-probe inputs contain no strict-choice rows.")
+    frame = pd.concat(compact_frames, ignore_index=True)
+    if {"arc_challenge", "commonsense_qa"}.issubset(
+        set(frame["dataset"].astype(str))
+    ):
+        pooled = frame.copy()
+        pooled["dataset"] = "pooled_arc_csqa"
+        frame = pd.concat((frame, pooled), ignore_index=True)
+    summary = _paired_bootstrap_summary(
         frame,
-        group_columns=(
-            "model_name",
-            "dataset",
-            "condition",
-            "layer",
-            "direction_name",
-            "scale_convention",
-            "control_seed",
-            "alpha",
-            "probe_structurally_informative",
-        ),
+        group_columns=group_columns,
         unit_column="stable_question_key",
         metrics=metrics,
         n_bootstrap=n_bootstrap,
         seed=seed,
+        aggregate_count_column="aggregated_n_units",
     )
+    summary.attrs["aggregation_memory_policy"] = {
+        "raw_wide_shards_preserved": True,
+        "learned_rows_retained_at_question_level": True,
+        "controls_compacted_to_seed_level_weighted_means": True,
+        "compacted_control_intervals": (
+            "not_bootstrapped; null uncertainty is represented across seeds"
+        ),
+        "input_wide_rows": int(input_wide_rows),
+        "retained_learned_rows": int(retained_learned_rows),
+        "compacted_control_rows": int(compacted_control_rows),
+    }
+    return summary
 
 
 def aggregate_alpaca(
@@ -298,6 +421,10 @@ def main() -> int:
             "stage": "aggregate_supplementary",
             "n_bootstrap": int(args.n_bootstrap),
             "seed": int(args.seed),
+            "fixed_probe_aggregation_memory_policy": fixed_probe.attrs.get(
+                "aggregation_memory_policy",
+                {},
+            ),
             "inputs": {
                 "fixed_probe": {
                     str(path.resolve()): sha256_file(path)

@@ -28,10 +28,10 @@ def plot_controlled_dose_response(frame: pd.DataFrame, output_dir: Path) -> Dict
         & biased["scale_convention"].eq("native")
     ]
     controls = biased[biased["treatment_type"].eq("control")]
-    learned_curve = (
-        learned.groupby(["model_name", "alpha"], as_index=False)["delta_p_endorsed"]
-        .mean()
-    )
+    learned_curve = learned.groupby(
+        ["model_name", "layer", "alpha"],
+        as_index=False,
+    )["delta_p_endorsed"].mean()
     control_seed_curve = (
         controls.groupby(
             ["model_name", "direction_name", "control_seed", "alpha"],
@@ -56,16 +56,35 @@ def plot_controlled_dose_response(frame: pd.DataFrame, output_dir: Path) -> Dict
         squeeze=False,
     )
     for axis, model_name in zip(axes[0], model_names):
-        curve = learned_curve[learned_curve["model_name"].eq(model_name)]
+        model_curve = learned_curve[learned_curve["model_name"].eq(model_name)]
         ribbon = control_ribbon[control_ribbon["model_name"].eq(model_name)]
-        axis.plot(
-            curve["alpha"],
-            curve["delta_p_endorsed"],
-            color=LEARNED_COLOR,
-            marker="o",
-            linewidth=2.5,
-            label="Learned W−N",
-        )
+        layers = sorted(int(value) for value in model_curve["layer"].unique())
+        if len(layers) <= 3:
+            for layer_index, layer in enumerate(layers):
+                curve = model_curve[model_curve["layer"].eq(layer)]
+                central_selected = len(layers) == 3 and layer_index == 1
+                axis.plot(
+                    curve["alpha"],
+                    curve["delta_p_endorsed"],
+                    color=LEARNED_COLOR,
+                    marker="o",
+                    linewidth=2.8 if central_selected else 2.0,
+                    alpha=1.0 if central_selected else 0.75,
+                    linestyle=("-", "--", ":")[layer_index],
+                    label=f"Learned W−N layer {layer}",
+                )
+        else:
+            curve = model_curve.groupby("alpha", as_index=False)[
+                "delta_p_endorsed"
+            ].mean()
+            axis.plot(
+                curve["alpha"],
+                curve["delta_p_endorsed"],
+                color=LEARNED_COLOR,
+                marker="o",
+                linewidth=2.5,
+                label=f"Learned W−N mean ({len(layers)} layers)",
+            )
         if not ribbon.empty:
             axis.fill_between(
                 ribbon["alpha"].to_numpy(dtype=float),

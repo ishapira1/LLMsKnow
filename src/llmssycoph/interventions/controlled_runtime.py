@@ -1944,10 +1944,193 @@ def aggregate_controlled_results(
     n_bootstrap: int,
     seed: int,
 ) -> Path:
-    frames = []
+    compact_columns = [
+        "stable_question_key",
+        "dataset",
+        "split",
+        "condition",
+        "model_name",
+        "layer",
+        "direction_fit_scope",
+        "direction_name",
+        "scale_convention",
+        "control_seed",
+        "alpha",
+        "treatment_type",
+        "is_correct",
+        "equals_endorsed",
+        "error_indicator",
+        "targeted_error_indicator",
+        "p_correct",
+        "p_endorsed",
+        "delta_p_correct",
+        "delta_p_endorsed",
+        "delta_log_score_margin",
+        "log_score_margin_correct_minus_endorsed",
+        "predicted_option",
+        "scoring_mode",
+        *[f"prob_{choice}" for choice in "ABCDE"],
+    ]
+    generation_columns = [
+        "stable_question_key",
+        "dataset",
+        "split",
+        "condition",
+        "model_name",
+        "layer",
+        "direction_name",
+        "scale_convention",
+        "alpha",
+        "scoring_mode",
+        "generation_steering_mode",
+        "valid_answer",
+        "answer_format_failure",
+        "repetition_failure",
+        "collapse_failure",
+        "nonfinite_failure",
+        "hit_max_new_tokens",
+    ]
+    control_group_columns = [
+        "dataset",
+        "split",
+        "condition",
+        "model_name",
+        "layer",
+        "direction_fit_scope",
+        "direction_name",
+        "scale_convention",
+        "control_seed",
+        "alpha",
+        "treatment_type",
+    ]
+    control_mean_columns = [
+        "is_correct",
+        "equals_endorsed",
+        "error_indicator",
+        "targeted_error_indicator",
+        "p_correct",
+        "p_endorsed",
+        "delta_p_correct",
+        "delta_p_endorsed",
+        "delta_log_score_margin",
+        "log_score_margin_correct_minus_endorsed",
+        *[f"prob_{choice}" for choice in "ABCDE"],
+    ]
+    frames: list[pd.DataFrame] = []
+    input_wide_rows = 0
+    retained_strict_rows = 0
+    compacted_control_rows = 0
+    retained_generation_rows = 0
     for path in input_paths:
         rows = read_jsonl(path)
-        frames.append(pd.DataFrame(rows))
+        shard = pd.DataFrame(rows)
+        del rows
+        input_wide_rows += len(shard)
+        if shard.empty:
+            continue
+        if "scoring_mode" not in shard:
+            shard["scoring_mode"] = "strict_choice"
+        strict = shard[shard["scoring_mode"].eq("strict_choice")].copy()
+        if not strict.empty:
+            if "error_indicator" not in strict:
+                strict["error_indicator"] = (
+                    ~strict["is_correct"].astype(bool)
+                ).astype(int)
+            if "targeted_error_indicator" not in strict:
+                strict["targeted_error_indicator"] = (
+                    strict["equals_endorsed"].astype(bool)
+                    & ~strict["is_correct"].astype(bool)
+                ).astype(int)
+            if "direction_fit_scope" not in strict:
+                strict["direction_fit_scope"] = "unknown"
+            learned = strict[strict["treatment_type"].eq("learned")].copy()
+            controls = strict[strict["treatment_type"].eq("control")].copy()
+            # Preserve all alpha-zero rows at question level so the cross-shard
+            # replay gate can compare every learned/control no-op. Nonzero
+            # stochastic controls are only needed as per-seed null summaries.
+            control_zero = controls[controls["alpha"].eq(0.0)].copy()
+            controls = controls[~controls["alpha"].eq(0.0)].copy()
+            if not controls.empty:
+                available_control_means = [
+                    column
+                    for column in control_mean_columns
+                    if column in controls
+                ]
+                compact_controls = (
+                    controls.groupby(
+                        control_group_columns,
+                        dropna=False,
+                        as_index=False,
+                    )
+                    .agg(
+                        {
+                            **{
+                                column: "mean"
+                                for column in available_control_means
+                            },
+                            "stable_question_key": "nunique",
+                        }
+                    )
+                    .rename(
+                        columns={
+                            "stable_question_key": "aggregated_n_questions"
+                        }
+                    )
+                )
+                compact_controls["stable_question_key"] = [
+                    (
+                        "__control_summary__::"
+                        + "::".join(str(value) for value in row)
+                    )
+                    for row in compact_controls[
+                        control_group_columns
+                    ].itertuples(index=False, name=None)
+                ]
+                compact_controls["predicted_option"] = ""
+                compact_controls["scoring_mode"] = "strict_choice"
+                compacted_control_rows += len(compact_controls)
+            else:
+                compact_controls = pd.DataFrame()
+            learned["aggregated_n_questions"] = np.nan
+            control_zero["aggregated_n_questions"] = np.nan
+            strict_compact = pd.concat(
+                (learned, control_zero, compact_controls),
+                ignore_index=True,
+                sort=False,
+            )
+            retained_strict_rows += len(strict_compact)
+            frames.append(
+                strict_compact[
+                    [
+                        column
+                        for column in (
+                            *compact_columns,
+                            "aggregated_n_questions",
+                        )
+                        if column in strict_compact
+                    ]
+                ]
+            )
+        generation = shard[shard["scoring_mode"].eq("free_generation")].copy()
+        if not generation.empty:
+            generation = generation[
+                generation["direction_name"].eq("wn")
+                & generation["scale_convention"].eq("native")
+            ]
+            if not generation.empty:
+                retained_generation_rows += len(generation)
+                frames.append(
+                    generation[
+                        [
+                            column
+                            for column in generation_columns
+                            if column in generation
+                        ]
+                    ]
+                )
+        del shard
+    if not frames:
+        raise ValueError("Controlled aggregation inputs contain no result rows.")
     all_frame = pd.concat(frames, ignore_index=True)
     frame = all_frame
     if "scoring_mode" in all_frame.columns:
@@ -1959,6 +2142,8 @@ def aggregate_controlled_results(
             frame["equals_endorsed"].astype(bool)
             & ~frame["is_correct"].astype(bool)
         ).astype(int)
+    if "direction_fit_scope" not in frame:
+        frame["direction_fit_scope"] = "unknown"
     required = {
         "stable_question_key",
         "dataset",
@@ -1968,6 +2153,7 @@ def aggregate_controlled_results(
         "direction_name",
         "scale_convention",
         "alpha",
+        "treatment_type",
         "is_correct",
         "equals_endorsed",
         "p_correct",
@@ -1979,6 +2165,21 @@ def aggregate_controlled_results(
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ValueError(f"Controlled results missing columns: {missing}")
+    for column in (
+        "is_correct",
+        "equals_endorsed",
+        "p_correct",
+        "p_endorsed",
+        "delta_p_correct",
+        "delta_p_endorsed",
+        "delta_log_score_margin",
+        "error_indicator",
+        "targeted_error_indicator",
+    ):
+        values = pd.to_numeric(frame[column], errors="raise")
+        if not np.isfinite(values.to_numpy(dtype=np.float64)).all():
+            raise ValueError(f"Controlled results contain non-finite {column}.")
+        frame[column] = values
     cross_shard_replay: Dict[str, Any] = {
         "evaluated": False,
         "top_choice_agreement": None,
@@ -2055,36 +2256,69 @@ def aggregate_controlled_results(
         "targeted_error_indicator",
         "p_correct",
         "p_endorsed",
+        "delta_p_correct",
+        "delta_p_endorsed",
         "delta_log_score_margin",
     )
     group_columns = [
         "model_name",
         "dataset",
+        "split",
+        "direction_fit_scope",
         "condition",
         "layer",
         "direction_name",
         "scale_convention",
         "control_seed",
         "alpha",
+        "treatment_type",
     ]
     rng = np.random.default_rng(int(seed))
     summary_rows: list[Dict[str, Any]] = []
-    for group_key, group in frame.groupby(group_columns, dropna=False):
+    if {"arc_challenge", "commonsense_qa"}.issubset(
+        set(frame["dataset"].astype(str))
+    ):
+        pooled_frame = frame.copy()
+        pooled_frame["dataset"] = "pooled_arc_csqa"
+        summary_frame = pd.concat((frame, pooled_frame), ignore_index=True)
+    else:
+        summary_frame = frame
+    for group_key, group in summary_frame.groupby(group_columns, dropna=False):
         row = dict(zip(group_columns, group_key))
         question_groups = list(group.groupby("stable_question_key"))
+        compacted_controls = bool(
+            "aggregated_n_questions" in group
+            and group["aggregated_n_questions"].notna().all()
+        )
+        unit_weights = np.asarray(
+            [
+                (
+                    float(question_frame["aggregated_n_questions"].iloc[0])
+                    if compacted_controls
+                    else 1.0
+                )
+                for _, question_frame in question_groups
+            ],
+            dtype=np.float64,
+        )
         for metric in metrics:
             values = np.asarray(
                 [float(question_frame[metric].mean()) for _, question_frame in question_groups],
                 dtype=np.float64,
             )
-            boot = np.empty(int(n_bootstrap), dtype=np.float64)
-            for index in range(int(n_bootstrap)):
-                boot[index] = float(
-                    values[rng.integers(0, len(values), size=len(values))].mean()
-                )
-            row[f"{metric}_mean"] = float(values.mean())
-            row[f"{metric}_ci_low"] = float(np.quantile(boot, 0.025))
-            row[f"{metric}_ci_high"] = float(np.quantile(boot, 0.975))
+            row[f"{metric}_mean"] = float(
+                np.average(values, weights=unit_weights)
+            )
+            if not compacted_controls and int(n_bootstrap) > 0:
+                boot = np.empty(int(n_bootstrap), dtype=np.float64)
+                for index in range(int(n_bootstrap)):
+                    sample = rng.integers(0, len(values), size=len(values))
+                    boot[index] = float(values[sample].mean())
+                row[f"{metric}_ci_low"] = float(np.quantile(boot, 0.025))
+                row[f"{metric}_ci_high"] = float(np.quantile(boot, 0.975))
+            else:
+                row[f"{metric}_ci_low"] = None
+                row[f"{metric}_ci_high"] = None
         targeted = np.asarray(
             [
                 float(question_frame["targeted_error_indicator"].mean())
@@ -2099,18 +2333,19 @@ def aggregate_controlled_results(
             ],
             dtype=np.float64,
         )
-        error_total = float(errors.sum())
+        error_total = float(np.sum(errors * unit_weights))
         if error_total > 0:
             ratio_bootstrap: list[float] = []
-            for _ in range(int(n_bootstrap)):
-                sample = rng.integers(0, len(errors), size=len(errors))
-                denominator = float(errors[sample].sum())
-                if denominator > 0:
-                    ratio_bootstrap.append(
-                        float(targeted[sample].sum() / denominator)
-                    )
+            if not compacted_controls:
+                for _ in range(int(n_bootstrap)):
+                    sample = rng.integers(0, len(errors), size=len(errors))
+                    denominator = float(errors[sample].sum())
+                    if denominator > 0:
+                        ratio_bootstrap.append(
+                            float(targeted[sample].sum() / denominator)
+                        )
             row["targeted_error_share_among_errors"] = float(
-                targeted.sum() / error_total
+                np.sum(targeted * unit_weights) / error_total
             )
             row["targeted_error_share_ci_low"] = (
                 float(np.quantile(ratio_bootstrap, 0.025))
@@ -2126,7 +2361,14 @@ def aggregate_controlled_results(
             row["targeted_error_share_among_errors"] = None
             row["targeted_error_share_ci_low"] = None
             row["targeted_error_share_ci_high"] = None
-        row["n_questions"] = len(question_groups)
+        row["n_questions"] = int(unit_weights.sum())
+        row["interval_status"] = (
+            "paired_question_bootstrap"
+            if not compacted_controls and int(n_bootstrap) > 0
+            else "not_bootstrapped_compacted_control"
+            if compacted_controls
+            else "bootstrap_disabled"
+        )
         summary_rows.append(row)
     target = Path(output_dir).expanduser().resolve()
     target.mkdir(parents=True, exist_ok=False)
@@ -2593,6 +2835,20 @@ def aggregate_controlled_results(
             },
             "n_bootstrap": int(n_bootstrap),
             "seed": int(seed),
+            "aggregation_memory_policy": {
+                "raw_wide_shards_preserved": True,
+                "learned_rows_retained_at_question_level": True,
+                "alpha_zero_control_rows_retained_for_replay": True,
+                "nonzero_controls_compacted_to_seed_level_weighted_means": True,
+                "compacted_control_intervals": (
+                    "not_bootstrapped; null uncertainty is the declared "
+                    "across-seed ribbon"
+                ),
+                "input_wide_rows": int(input_wide_rows),
+                "retained_strict_rows": int(retained_strict_rows),
+                "compacted_control_rows": int(compacted_control_rows),
+                "retained_generation_rows": int(retained_generation_rows),
+            },
             "cross_shard_replay": cross_shard_replay,
             "output_sha256": sha256_file(output_path),
             "layer_selection_sha256": sha256_file(selection_path),

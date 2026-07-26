@@ -447,6 +447,54 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                     seed=5,
                 )
 
+    def test_aggregate_replays_alpha_zero_controls_before_compaction(self):
+        base = {
+            "stable_question_key": "commonsense_qa::one",
+            "dataset": "commonsense_qa",
+            "split": "val",
+            "condition": "neutral",
+            "model_name": "fake-model",
+            "layer": 1,
+            "direction_name": "isotropic",
+            "scale_convention": "wn_norm_matched",
+            "control_seed": 0,
+            "alpha": 0.0,
+            "treatment_type": "control",
+            "is_correct": True,
+            "equals_endorsed": False,
+            "p_correct": 0.8,
+            "p_endorsed": 0.2,
+            "delta_p_correct": 0.0,
+            "delta_p_endorsed": 0.0,
+            "delta_log_score_margin": 0.0,
+            "log_score_margin_correct_minus_endorsed": 1.0,
+            "scoring_mode": "strict_choice",
+            "predicted_option": "A",
+            "prob_A": 0.8,
+            "prob_B": 0.2,
+        }
+        rows = [
+            base,
+            {
+                **base,
+                "layer": 2,
+                "predicted_option": "B",
+                "prob_A": 0.7,
+                "prob_B": 0.3,
+                "log_score_margin_correct_minus_endorsed": 0.8,
+            },
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            input_path = Path(temporary) / "rows.jsonl"
+            write_strict_jsonl(input_path, rows)
+            with self.assertRaisesRegex(AssertionError, "Cross-shard"):
+                aggregate_controlled_results(
+                    input_paths=[input_path],
+                    output_dir=Path(temporary) / "aggregate",
+                    n_bootstrap=10,
+                    seed=5,
+                )
+
     def test_geometry_uses_derangements_and_training_mean(self):
         rng = np.random.default_rng(11)
         neutral = rng.normal(size=(7, 5))
@@ -495,6 +543,11 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
         rows = []
         for layer in (1, 2):
             for question_index in range(4):
+                dataset = (
+                    "commonsense_qa"
+                    if question_index % 2 == 0
+                    else "arc_challenge"
+                )
                 for alpha in (-1.0, 0.0, 1.0):
                     for condition in ("neutral", "incorrect_suggestion"):
                         learned_effect = (
@@ -504,8 +557,10 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                         )
                         rows.append(
                             {
-                                "stable_question_key": f"commonsense_qa::q{question_index}",
-                                "dataset": "commonsense_qa",
+                                "stable_question_key": (
+                                    f"{dataset}::q{question_index}"
+                                ),
+                                "dataset": dataset,
                                 "split": "val",
                                 "condition": condition,
                                 "model_name": "fake-model",
@@ -552,9 +607,9 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                             rows.append(
                                 {
                                     "stable_question_key": (
-                                        f"commonsense_qa::q{question_index}"
+                                        f"{dataset}::q{question_index}"
                                     ),
-                                    "dataset": "commonsense_qa",
+                                    "dataset": dataset,
                                     "split": "val",
                                     "condition": condition,
                                     "model_name": "fake-model",
@@ -597,6 +652,29 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
             self.assertIn(
                 "targeted_error_share_among_errors",
                 aggregate_summary.columns,
+            )
+            self.assertIn(
+                "pooled_arc_csqa",
+                set(aggregate_summary["dataset"]),
+            )
+            control_summary = aggregate_summary[
+                aggregate_summary["treatment_type"].eq("control")
+                & ~aggregate_summary["alpha"].eq(0.0)
+            ]
+            self.assertEqual(
+                set(control_summary["interval_status"]),
+                {"not_bootstrapped_compacted_control"},
+            )
+            aggregation_manifest = json.loads(
+                (output.parent / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertGreater(
+                aggregation_manifest["aggregation_memory_policy"][
+                    "input_wide_rows"
+                ],
+                aggregation_manifest["aggregation_memory_policy"][
+                    "retained_strict_rows"
+                ],
             )
             self.assertEqual(selected_dose["selected"]["negative_alpha"], -1.0)
             self.assertEqual(selected_dose["selected"]["positive_alpha"], 1.0)

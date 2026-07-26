@@ -223,7 +223,19 @@ distinguished from free-generation validity diagnostics.
 Aggregation uses paired question bootstrap intervals. The primary plots are a
 dose-response curve with 10-seed control ribbons and a sycophancy-reduction
 versus neutral-damage Pareto plot. Plotting follows repository Seaborn styling
-and places legends below plots.
+and places legends below plots. Whenever both datasets are present, tables
+include an explicit pooled ARC+CSQA scope in addition to dataset-specific rows.
+Held-out dose plots retain separate selected-layer/neighbor curves instead of
+averaging the three intervention sites together.
+
+The immutable shard JSONL files remain the explicit wide question-level table.
+To keep the CPU aggregation stages bounded, aggregation retains learned
+treatments and every alpha-zero replay row at question level, while reducing
+nonzero stochastic controls to exact per-seed weighted means after each shard
+is read. Paired question bootstrap intervals therefore apply to learned
+treatments; compacted controls are explicitly marked as not bootstrapped and
+their declared uncertainty is the across-seed null ribbon. Fixed-probe
+aggregation applies the same bounded-memory policy.
 
 ## Geometry
 
