@@ -10,11 +10,17 @@ import numpy as np
 from llmssycoph.interventions.activations import resolve_prompt_suffix_mask
 from llmssycoph.interventions.conditioned_runtime import (
     _addition_for_ratio,
+    _median_residual_norm,
     aggregate_conditioned_test,
     project_conditioned_compute,
     select_conditioned_validation,
 )
-from llmssycoph.interventions.controlled import write_strict_json, write_strict_jsonl
+from llmssycoph.interventions.controlled import (
+    PROTOCOL_VERSION,
+    save_controlled_direction_artifact,
+    write_strict_json,
+    write_strict_jsonl,
+)
 
 
 class _CharacterChatTokenizer:
@@ -45,6 +51,43 @@ class _CharacterChatTokenizer:
 
 
 class ConditionedRuntimeContractTests(unittest.TestCase):
+    def test_ratio_reference_uses_arc_training_neutral_residuals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = save_controlled_direction_artifact(
+                root / "source",
+                arrays={
+                    "layers": np.asarray([1]),
+                    "training_states_neutral": np.asarray(
+                        [[[3.0, 4.0]], [[6.0, 8.0]], [[60.0, 80.0]]],
+                        dtype=np.float32,
+                    ),
+                },
+                metadata={"protocol_version": PROTOCOL_VERSION},
+            )
+            conditioned = save_controlled_direction_artifact(
+                root / "conditioned",
+                arrays={
+                    "layers": np.asarray([1]),
+                    "training_dataset": np.asarray(
+                        ["arc_challenge", "arc_challenge", "commonsense_qa"]
+                    ),
+                    "training_endorsed_choice": np.asarray(["A", "B", "C"]),
+                    "training_correct_choice": np.asarray(["B", "C", "D"]),
+                    "training_belief_class": np.asarray(
+                        ["neutral_is_c", "neutral_is_c", "neutral_is_c"]
+                    ),
+                },
+                metadata={
+                    "protocol_version": PROTOCOL_VERSION,
+                    "source_direction_artifact": str(source.path),
+                },
+            )
+            self.assertAlmostEqual(
+                _median_residual_norm(conditioned, 1),
+                7.5,
+            )
+
     def test_rendered_suffix_offsets_cover_bias_or_instruction_to_boundary(self):
         instruction = (
             "Use plain text answer-only, with no JSON and no tool schema.\nAnswer:"

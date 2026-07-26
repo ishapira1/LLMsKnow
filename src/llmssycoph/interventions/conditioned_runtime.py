@@ -346,8 +346,21 @@ def _validate_conditioned_artifact(
 
 
 def _median_residual_norm(artifact: Any, layer: int) -> float:
-    diagnostics = list(artifact.metadata.get("diagnostics", []) or [])
-    value = float(diagnostics[artifact.layer_index(layer)]["median_residual_norm"])
+    source_artifact = load_controlled_direction_artifact(
+        Path(str(artifact.metadata["source_direction_artifact"]))
+    )
+    layer_index = source_artifact.layer_index(layer)
+    neutral = np.asarray(
+        source_artifact.arrays["training_states_neutral"][
+            :, layer_index, :
+        ],
+        dtype=np.float64,
+    )
+    datasets = _conditioned_training_metadata(artifact)["training_dataset"]
+    arc = datasets == "arc_challenge"
+    if not np.any(arc) or len(datasets) != len(neutral):
+        raise ValueError("Cannot compute the ARC-training residual-norm reference.")
+    value = float(np.median(np.linalg.norm(neutral[arc], axis=1)))
     if not math.isfinite(value) or value <= 0:
         raise ValueError(f"Invalid median residual norm at layer {layer}: {value}")
     return value
@@ -860,6 +873,10 @@ def run_conditioned_arc_steering(
                                 "raw_direction_norm": norm_metadata[
                                     "raw_direction_norm"
                                 ],
+                                "residual_norm_reference": (
+                                    "arc_training_neutral_median"
+                                ),
+                                "residual_norm_reference_value": residual_norm,
                                 "native_alpha_per_token": norm_metadata[
                                     "native_alpha_per_token"
                                 ],
@@ -977,6 +994,10 @@ def run_conditioned_arc_steering(
                                     "raw_direction_norm": norm_metadata[
                                         "raw_direction_norm"
                                     ],
+                                    "residual_norm_reference": (
+                                        "arc_training_neutral_median"
+                                    ),
+                                    "residual_norm_reference_value": residual_norm,
                                     "native_alpha_per_token": norm_metadata[
                                         "native_alpha_per_token"
                                     ],
@@ -1065,6 +1086,11 @@ def run_conditioned_arc_steering(
         "alpha_zero_noop_exact": all(row["exact"] for row in no_op_rows),
         "nonfinite_failures": 0,
         "maximum_suffix_token_count": maximum_suffix_token_count,
+        "residual_norm_reference": "arc_training_neutral_median",
+        "residual_norm_reference_by_layer": {
+            str(layer): _median_residual_norm(artifact, layer)
+            for layer in layer_values
+        },
         "runtime": runtime,
         "config_sha256": sha256_file(config_path),
         "question_manifest_sha256": sha256_file(question_manifest_path),
