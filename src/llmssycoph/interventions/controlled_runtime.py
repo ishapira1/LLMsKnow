@@ -228,6 +228,7 @@ def _load_sources_and_pairs(
     manifest_path: Path,
     splits: Sequence[str],
     require_human_approval: bool,
+    require_probe: bool = True,
 ) -> tuple[list[SourceBundle], list[Dict[str, Any]], Dict[str, Any]]:
     manifest_rows, manifest_by_key, manifest_summary = _manifest_rows_by_key(
         manifest_path,
@@ -243,6 +244,7 @@ def _load_sources_and_pairs(
             source_dir,
             probe_name=DEFAULT_PROBE_NAME,
             record_conditions=REQUIRED_CONDITIONS,
+            require_probe=require_probe,
         )
         sources.append(source)
         model_names.add(source.model_name)
@@ -343,6 +345,7 @@ def validate_controlled_sources(
         manifest_path=question_manifest_path,
         splits=("train", "val", "test"),
         require_human_approval=require_human_approval,
+        require_probe=bool(config.get("source_random_all_probe_required", True)),
     )
     summary = {
         "protocol_version": PROTOCOL_VERSION,
@@ -355,7 +358,9 @@ def validate_controlled_sources(
                 "run_dir": str(source.run_dir),
                 "dataset": source.dataset_name,
                 "sampling_records_sha256": sha256_file(source.sampling_records_path),
-                "chosen_probe_layer": source.chosen_layer,
+                "chosen_probe_layer": (
+                    source.chosen_layer if source.probe_metadata else None
+                ),
             }
             for source in sources
         ],
@@ -642,6 +647,7 @@ def fit_controlled_directions(
         manifest_path=question_manifest_path,
         splits=("train",),
         require_human_approval=_semantic_approval_required(config),
+        require_probe=bool(config.get("source_random_all_probe_required", True)),
     )
     source = sources[0]
     model, tokenizer, runtime = load_controlled_runtime(
@@ -839,6 +845,7 @@ def run_controlled_interventions(
         manifest_path=question_manifest_path,
         splits=(split,),
         require_human_approval=_semantic_approval_required(config),
+        require_probe=bool(score_fixed_probe),
     )
     source = sources[0]
     artifact = load_controlled_direction_artifact(directions_path)
@@ -1632,6 +1639,7 @@ def run_controlled_geometry(
         manifest_path=question_manifest_path,
         splits=(split,),
         require_human_approval=_semantic_approval_required(config),
+        require_probe=True,
     )
     source = sources[0]
     artifact = load_controlled_direction_artifact(directions_path)

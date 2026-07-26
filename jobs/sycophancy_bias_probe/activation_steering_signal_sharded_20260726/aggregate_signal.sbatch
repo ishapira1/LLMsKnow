@@ -20,8 +20,8 @@ mapfile -t PROBE_INPUTS < <(find "$INTERVENTION_ROOT/models" -path '*/fixed_prob
   printf 'Expected selected-layer test outputs, found %s\n' "${#TEST_INPUTS[@]}" >&2
   exit 1
 }
-(( ${#PROBE_INPUTS[@]} == 4 )) || {
-  printf 'Expected four fixed-probe outputs, found %s\n' "${#PROBE_INPUTS[@]}" >&2
+(( ${#PROBE_INPUTS[@]} == 2 )) || {
+  printf 'Expected two CSQA fixed-probe outputs, found %s\n' "${#PROBE_INPUTS[@]}" >&2
   exit 1
 }
 cmd=(

@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=80G
 #SBATCH --time=08:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-1
 #SBATCH --output=jobs/sycophancy_bias_probe/logs/activation_steering_signal_sharded_20260726/slurm/probe/%x.%A_%a.out
 #SBATCH --error=jobs/sycophancy_bias_probe/logs/activation_steering_signal_sharded_20260726/slurm/probe/%x.%A_%a.err
 #SBATCH --mail-type=END,FAIL

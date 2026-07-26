@@ -19,6 +19,7 @@
     }
   },
   "datasets": ["arc_challenge", "commonsense_qa"],
+  "source_random_all_probe_required": false,
   "stable_question_key": ["dataset", "source_example_id"],
   "splits": {
     "reuse_existing_membership": true,

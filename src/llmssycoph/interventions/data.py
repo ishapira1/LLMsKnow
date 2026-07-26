@@ -40,6 +40,10 @@ class SourceBundle:
 
     @property
     def chosen_layer(self) -> int:
+        if "layer" not in self.probe_metadata:
+            raise ValueError(
+                f"Source bundle {self.run_dir} has no chosen probe layer."
+            )
         return int(self.probe_metadata["layer"])
 
 
@@ -141,29 +145,46 @@ def load_source_bundle(
     probe_name: str = DEFAULT_PROBE_NAME,
     *,
     record_conditions: Optional[Sequence[str]] = DEFAULT_REQUIRED_CONDITIONS,
+    require_probe: bool = True,
 ) -> SourceBundle:
     resolved_run_dir = Path(run_dir).expanduser().resolve()
     if not resolved_run_dir.is_dir():
         raise FileNotFoundError(f"Source run directory does not exist: {resolved_run_dir}")
     run_config_path = resolve_run_config_path(resolved_run_dir)
     sampling_records_path = resolve_sampling_records_path(resolved_run_dir)
-    probe_scores_path = resolve_probe_scores_path(resolved_run_dir)
-    chosen_probe_dir = resolve_chosen_probe_dir(resolved_run_dir, probe_name)
+    try:
+        probe_scores_path = resolve_probe_scores_path(resolved_run_dir)
+    except FileNotFoundError:
+        if require_probe:
+            raise
+        probe_scores_path = resolved_run_dir / "query" / "probe_scores_by_prompt.csv"
+    try:
+        chosen_probe_dir = resolve_chosen_probe_dir(resolved_run_dir, probe_name)
+    except FileNotFoundError:
+        if require_probe:
+            raise
+        chosen_probe_dir = (
+            resolved_run_dir / "probes" / "chosen" / "families" / probe_name
+        )
     metadata_path = chosen_probe_dir / "metadata.json"
     model_path = chosen_probe_dir / "model.pkl"
-    if not metadata_path.exists():
+    if require_probe and not metadata_path.exists():
         raise FileNotFoundError(f"Missing chosen-probe metadata: {metadata_path}")
-    if not model_path.exists():
+    if require_probe and not model_path.exists():
         raise FileNotFoundError(f"Missing chosen-probe model: {model_path}")
 
     run_config = load_json(run_config_path)
-    probe_metadata = load_json(metadata_path)
-    if str(probe_metadata.get("probe_name", probe_name) or probe_name) != str(probe_name):
+    probe_metadata = load_json(metadata_path) if metadata_path.exists() else {}
+    if probe_metadata and str(
+        probe_metadata.get("probe_name", probe_name) or probe_name
+    ) != str(probe_name):
         raise ValueError(
             f"Probe metadata name mismatch: expected {probe_name!r}, "
             f"got {probe_metadata.get('probe_name')!r}."
         )
-    if str(probe_metadata.get("template_type", "") or "") != "random_all":
+    if probe_metadata and str(
+        probe_metadata.get("template_type", "") or ""
+    ) != "random_all":
         raise ValueError(
             f"Expected a random_all probe, got template_type={probe_metadata.get('template_type')!r}."
         )
@@ -181,7 +202,11 @@ def load_source_bundle(
         run_config=run_config,
         probe_metadata=probe_metadata,
         records=load_jsonl(sampling_records_path, template_types=record_conditions),
-        probe_scores=pd.read_csv(probe_scores_path),
+        probe_scores=(
+            pd.read_csv(probe_scores_path)
+            if probe_scores_path.exists() and probe_scores_path.stat().st_size
+            else pd.DataFrame()
+        ),
     )
 
 
