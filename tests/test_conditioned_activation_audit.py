@@ -8,6 +8,7 @@ import numpy as np
 
 from llmssycoph.interventions.conditioned_audit import (
     _binding_vectors,
+    _fold_geometry,
     _permuted_bank_aucs,
     _sum_to_zero_label_binding,
     deterministic_stratified_folds,
@@ -21,6 +22,27 @@ from llmssycoph.interventions.controlled import (
 
 
 class ConditionedAuditContractTests(unittest.TestCase):
+    def test_anisotropy_geometry_is_reported_on_heldout_questions(self):
+        neutral = np.zeros((4, 2), dtype=np.float64)
+        wrong = np.asarray(
+            [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
+        )
+        correct = np.asarray(
+            [[1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 1.0]]
+        )
+        geometry = _fold_geometry(
+            {
+                "neutral": neutral,
+                "incorrect_suggestion": wrong,
+                "suggest_correct": correct,
+                "incorrect_suggestion_strong": 2.0 * wrong,
+            },
+            np.asarray([0, 1], dtype=int),
+            np.asarray([2, 3], dtype=int),
+        )
+        self.assertAlmostEqual(geometry["raw_wn_cn_cosine"], 0.0)
+        self.assertEqual(geometry["common_centering_max_abs_difference"], 0.0)
+
     def test_question_disjoint_folds_are_deterministic_and_stratified(self):
         datasets = np.asarray(["arc"] * 20 + ["csqa"] * 20)
         labels = np.asarray(list("ABCD") * 10)

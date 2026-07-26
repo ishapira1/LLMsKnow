@@ -543,17 +543,19 @@ def _fold_geometry(
     singular = singular[positive]
     left_vectors = left_vectors[:, positive]
     eigenvalues = eigenvalues[positive]
+    # Transform statistics are fitted on train_pooled above, but every reported
+    # direction below is a centroid difference from the held-out questions.
     wn = (
-        states["incorrect_suggestion"][train_indices]
-        - states["neutral"][train_indices]
+        states["incorrect_suggestion"][test_indices]
+        - states["neutral"][test_indices]
     ).mean(axis=0, dtype=np.float64)
     cn = (
-        states["suggest_correct"][train_indices]
-        - states["neutral"][train_indices]
+        states["suggest_correct"][test_indices]
+        - states["neutral"][test_indices]
     ).mean(axis=0, dtype=np.float64)
     wc = (
-        states["incorrect_suggestion"][train_indices]
-        - states["suggest_correct"][train_indices]
+        states["incorrect_suggestion"][test_indices]
+        - states["suggest_correct"][test_indices]
     ).mean(axis=0, dtype=np.float64)
     wn_norm = max(float(np.linalg.norm(wn)), np.finfo(np.float64).tiny)
     result: Dict[str, float] = {
