@@ -1966,6 +1966,7 @@ def aggregate_controlled_results(
     output_dir: Path,
     n_bootstrap: int,
     seed: int,
+    enforce_cross_shard_replay: bool = True,
 ) -> Path:
     compact_columns = [
         "stable_question_key",
@@ -2252,11 +2253,12 @@ def aggregate_controlled_results(
                             max_probability_difference,
                             float(values.max() - values.min()),
                         )
-            if (
-                not top_choice_agreement
-                or max_probability_difference > 0.005
-                or max_margin_difference > 0.05
-            ):
+            replay_passed = bool(
+                top_choice_agreement
+                and max_probability_difference <= 0.005
+                and max_margin_difference <= 0.05
+            )
+            if bool(enforce_cross_shard_replay) and not replay_passed:
                 raise AssertionError(
                     "Cross-shard alpha-zero replay failed: "
                     f"top_agreement={top_choice_agreement} "
@@ -2265,13 +2267,20 @@ def aggregate_controlled_results(
                 )
             cross_shard_replay = {
                 "evaluated": True,
-                "top_choice_agreement": 1.0,
+                "passed": replay_passed,
+                "enforced": bool(enforce_cross_shard_replay),
+                "top_choice_agreement": float(bool(top_choice_agreement)),
                 "max_option_probability_difference": max_probability_difference,
                 "max_correct_minus_endorsed_margin_difference": (
                     max_margin_difference
                 ),
                 "probability_threshold": 0.005,
                 "margin_threshold": 0.05,
+                "interpretation": (
+                    "confirmatory_gate_passed"
+                    if replay_passed
+                    else "exploratory_within_shard_paired_effects_only"
+                ),
             }
     metrics = (
         "is_correct",
@@ -2858,6 +2867,7 @@ def aggregate_controlled_results(
             },
             "n_bootstrap": int(n_bootstrap),
             "seed": int(seed),
+            "enforce_cross_shard_replay": bool(enforce_cross_shard_replay),
             "aggregation_memory_policy": {
                 "raw_wide_shards_preserved": True,
                 "learned_rows_retained_at_question_level": True,

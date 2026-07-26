@@ -137,6 +137,16 @@ def build_parser() -> argparse.ArgumentParser:
     aggregate.add_argument("--output-dir", type=Path, required=True)
     aggregate.add_argument("--n-bootstrap", type=int, default=2000)
     aggregate.add_argument("--seed", type=int, default=5)
+    aggregate.add_argument(
+        "--enforce-cross-shard-replay",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Fail when independently launched alpha-zero shards exceed the replay "
+            "thresholds. Disable only for exploratory within-shard paired analyses; "
+            "the discrepancy is still reported."
+        ),
+    )
     return parser
 
 
@@ -239,6 +249,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             output_dir=args.output_dir,
             n_bootstrap=args.n_bootstrap,
             seed=args.seed,
+            enforce_cross_shard_replay=args.enforce_cross_shard_replay,
         )
     else:  # pragma: no cover - argparse enforces commands
         raise AssertionError(args.command)

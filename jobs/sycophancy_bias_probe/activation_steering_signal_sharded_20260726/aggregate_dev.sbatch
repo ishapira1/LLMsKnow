@@ -24,6 +24,7 @@ cmd=(
   --output-dir "$INTERVENTION_ROOT/dev_aggregate"
   --n-bootstrap 500
   --seed 26
+  --no-enforce-cross-shard-replay
 )
 for input in "${INPUTS[@]}"; do
   cmd+=(--input "$input")

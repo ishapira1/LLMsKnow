@@ -447,6 +447,69 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                     seed=5,
                 )
 
+    def test_exploratory_aggregate_reports_cross_shard_alpha_zero_drift(self):
+        base = {
+            "stable_question_key": "commonsense_qa::one",
+            "dataset": "commonsense_qa",
+            "split": "test",
+            "condition": "neutral",
+            "model_name": "fake-model",
+            "layer": 1,
+            "direction_fit_scope": "pooled",
+            "direction_name": "wn",
+            "scale_convention": "native",
+            "control_seed": None,
+            "alpha": 0.0,
+            "treatment_type": "learned",
+            "is_correct": True,
+            "equals_endorsed": False,
+            "p_correct": 0.8,
+            "p_endorsed": 0.2,
+            "delta_p_correct": 0.0,
+            "delta_p_endorsed": 0.0,
+            "delta_log_score_margin": 0.0,
+            "log_score_margin_correct_minus_endorsed": 1.0,
+            "error_indicator": 0,
+            "targeted_error_indicator": 0,
+            "valid_answer": True,
+            "scoring_mode": "strict_choice",
+            "predicted_option": "A",
+            "prob_A": 0.8,
+            "prob_B": 0.2,
+        }
+        rows = [
+            base,
+            {
+                **base,
+                "layer": 2,
+                "predicted_option": "B",
+                "prob_A": 0.7,
+                "prob_B": 0.3,
+                "log_score_margin_correct_minus_endorsed": 0.8,
+            },
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            input_path = Path(temporary) / "rows.jsonl"
+            write_strict_jsonl(input_path, rows)
+            output_dir = Path(temporary) / "aggregate"
+            aggregate_controlled_results(
+                input_paths=[input_path],
+                output_dir=output_dir,
+                n_bootstrap=0,
+                seed=5,
+                enforce_cross_shard_replay=False,
+            )
+            manifest = json.loads(
+                (output_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            replay = manifest["cross_shard_replay"]
+            self.assertFalse(replay["passed"])
+            self.assertFalse(replay["enforced"])
+            self.assertEqual(
+                replay["interpretation"],
+                "exploratory_within_shard_paired_effects_only",
+            )
+
     def test_aggregate_replays_alpha_zero_controls_before_compaction(self):
         base = {
             "stable_question_key": "commonsense_qa::one",

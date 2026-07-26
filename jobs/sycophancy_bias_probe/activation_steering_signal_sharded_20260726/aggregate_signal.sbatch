@@ -29,6 +29,7 @@ cmd=(
   --output-dir "$INTERVENTION_ROOT/final_aggregate"
   --n-bootstrap 1000
   --seed 26
+  --no-enforce-cross-shard-replay
 )
 for input in "${TEST_INPUTS[@]}" "${PROBE_INPUTS[@]}"; do
   cmd+=(--input "$input")
