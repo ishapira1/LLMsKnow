@@ -588,6 +588,7 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                 "validate-source",
                 "inspect-examples",
                 "fit-directions",
+                "audit-mean-cancellation",
                 "screen-layers",
                 "tiny-dry-run",
                 "run-selected",

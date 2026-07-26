@@ -15,6 +15,9 @@ from .controlled_runtime import (
     run_controlled_interventions,
     validate_controlled_sources,
 )
+from .conditioned_audit import run_mean_cancellation_audit
+from .controlled import load_controlled_direction_artifact
+from .data import load_source_bundle
 
 
 def _csv_strings(value: str) -> list[str]:
@@ -104,6 +107,33 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--control-seeds", default=",".join(str(value) for value in range(10)))
     fit.add_argument("--progress-every", type=int, default=25)
 
+    audit = subparsers.add_parser("audit-mean-cancellation")
+    audit.add_argument("--config", type=Path, required=True)
+    audit.add_argument("--question-manifest", type=Path, required=True)
+    audit.add_argument(
+        "--directions-path",
+        type=Path,
+        action="append",
+        required=True,
+        help="Repeat once per model.",
+    )
+    audit.add_argument(
+        "--source-run-dir",
+        type=Path,
+        action="append",
+        required=True,
+        help=(
+            "Repeat for every source run. Sources are matched to direction artifacts "
+            "by the pinned model identifier."
+        ),
+    )
+    audit.add_argument("--output-dir", type=Path, required=True)
+    audit.add_argument("--n-folds", type=int, default=5)
+    audit.add_argument("--n-permutations", type=int, default=1000)
+    audit.add_argument("--n-bootstrap", type=int, default=2000)
+    audit.add_argument("--n-split-half", type=int, default=200)
+    audit.add_argument("--seed", type=int, default=5)
+
     for command in ("screen-layers", "tiny-dry-run", "run-selected", "score-fixed-probe"):
         run = subparsers.add_parser(command)
         _run_arguments(run)
@@ -186,6 +216,43 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             hf_cache_dir=args.hf_cache_dir,
             torch_dtype=args.torch_dtype,
             progress_every=args.progress_every,
+        )
+    elif args.command == "audit-mean-cancellation":
+        artifacts = [
+            load_controlled_direction_artifact(path)
+            for path in args.directions_path
+        ]
+        source_models = {
+            Path(path): load_source_bundle(
+                path,
+                record_conditions=(),
+                require_probe=False,
+            ).model_name
+            for path in args.source_run_dir
+        }
+        cells = []
+        for artifact in artifacts:
+            model_name = str(artifact.metadata.get("model_name", "") or "")
+            matched = [
+                path
+                for path, source_model in source_models.items()
+                if str(source_model) == model_name
+            ]
+            if not matched:
+                raise ValueError(
+                    f"No source runs matched direction model {model_name!r}."
+                )
+            cells.append((artifact.path, matched))
+        output = run_mean_cancellation_audit(
+            config_path=args.config,
+            question_manifest_path=args.question_manifest,
+            cells=cells,
+            output_dir=args.output_dir,
+            n_folds=args.n_folds,
+            n_permutations=args.n_permutations,
+            n_bootstrap=args.n_bootstrap,
+            n_split_half=args.n_split_half,
+            seed=args.seed,
         )
     elif args.command in {
         "screen-layers",

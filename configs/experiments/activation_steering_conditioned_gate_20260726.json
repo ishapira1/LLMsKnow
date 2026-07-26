@@ -1,0 +1,145 @@
+{
+  "protocol_version": "controlled_prompt_only_v1_20260725",
+  "experiment_version": "mean_cancellation_conditioned_gate_v1_20260726",
+  "description": "Saved-activation mean-cancellation audit followed, only on a two-model CPU pass, by a bounded ARC conditioned-steering and token-position gate.",
+  "models": {
+    "llama31_8b": {
+      "identifier": "meta-llama/Llama-3.1-8B-Instruct",
+      "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+      "hidden_size": 4096,
+      "nonterminal_layers": [
+        1,
+        31
+      ]
+    },
+    "qwen25_7b": {
+      "identifier": "Qwen/Qwen2.5-7B-Instruct",
+      "revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+      "hidden_size": 3584,
+      "nonterminal_layers": [
+        1,
+        27
+      ]
+    }
+  },
+  "datasets": [
+    "arc_challenge",
+    "commonsense_qa"
+  ],
+  "splits": {
+    "reuse_existing_membership": true,
+    "semantic_wrong_option_requires_human_approval": false,
+    "semantic_policy": "benchmark_label_wrongness_exploratory_no_new_human_review"
+  },
+  "conditions": {
+    "neutral": "neutral",
+    "wrong_ordinary": "incorrect_suggestion",
+    "wrong_strong": "incorrect_suggestion_strong",
+    "correct_ordinary": "suggest_correct"
+  },
+  "stage_a": {
+    "input_split": "train",
+    "n_questions": 180,
+    "folds": 5,
+    "fold_strata": [
+      "dataset",
+      "endorsed_choice"
+    ],
+    "seed": 5,
+    "permutations": 1000,
+    "bootstrap_samples": 2000,
+    "split_half_repeats": 200,
+    "pca_candidate_ranks": [
+      1,
+      2,
+      4,
+      8,
+      16
+    ],
+    "gate": {
+      "minimum_auroc": 0.65,
+      "minimum_adjacent_layers": 2,
+      "minimum_improvement_over_global_wc": 0.05,
+      "minimum_placebo_quantile": 0.95,
+      "minimum_bootstrap_lower_bound": 0.5,
+      "minimum_split_half_subspace_similarity": 0.7,
+      "family_priority": [
+        "b_conditioned_wc",
+        "belief_conflict"
+      ],
+      "both_models_required": true
+    }
+  },
+  "stage_b": {
+    "dataset": "arc_challenge",
+    "models": [
+      "llama31_8b",
+      "qwen25_7b"
+    ],
+    "conditions": [
+      "neutral",
+      "incorrect_suggestion",
+      "suggest_correct"
+    ],
+    "maximum_validation_questions_per_model": 120,
+    "maximum_test_questions_per_model": 120,
+    "minimum_same_shard_neutral_correct_questions": 100,
+    "balance_endorsed_labels": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "injected_residual_ratios": [
+      -0.2,
+      -0.1,
+      -0.05,
+      0,
+      0.05,
+      0.1,
+      0.2
+    ],
+    "direction_comparators": [
+      "global_wc",
+      "global_wn"
+    ],
+    "position_modes": [
+      "boundary_only",
+      "suffix_energy_matched"
+    ],
+    "suffix_sensitivity": "suffix_same_per_position",
+    "validation_gate": {
+      "minimum_wrong_top1_reduction": 0.05,
+      "maximum_neutral_correctness_damage": 0.02,
+      "maximum_correct_suggestion_accuracy_damage": 0.02,
+      "maximum_injected_residual_ratio": 0.2,
+      "paired_probability_interval_must_exclude_zero": true
+    },
+    "test_controls": {
+      "item_sign_matched": 20,
+      "isotropic_matched": 20
+    },
+    "maximum_accelerator_hours": 48,
+    "compute_reduction_order": [
+      "drop_global_wn",
+      "reduce_neighbor_to_selected_dose_triplet",
+      "reduce_each_cohort_from_120_to_100"
+    ],
+    "never_reduce": [
+      "both_model_coverage",
+      "boundary_and_energy_matched_suffix_modes",
+      "twenty_item_sign_controls"
+    ]
+  },
+  "numeric_gates": {
+    "same_shard_alpha_zero_exact_noop": true,
+    "hard_fail_on_nonfinite": true,
+    "strict_choice_batch_size": 1,
+    "real_model_bf16_gate_required": true
+  },
+  "output": {
+    "refuse_overwrite": true,
+    "full_question_level_rows": true,
+    "immutable_audit_artifacts": true
+  }
+}

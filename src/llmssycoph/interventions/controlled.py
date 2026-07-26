@@ -533,12 +533,69 @@ class ControlledDirectionArtifact:
         return int(matches[0])
 
     def raw_direction(self, name: str, layer: int) -> np.ndarray:
-        if name not in DIRECTION_CONDITIONS:
+        array_name = f"{name}_raw"
+        if name not in DIRECTION_CONDITIONS and array_name not in self.arrays:
             raise KeyError(f"Unknown learned direction {name!r}.")
         return np.asarray(
-            self.arrays[f"{name}_raw"][self.layer_index(layer)],
+            self.arrays[array_name][self.layer_index(layer)],
             dtype=np.float32,
         )
+
+    @property
+    def artifact_schema_version(self) -> int:
+        return int(self.metadata.get("artifact_schema_version", 1))
+
+    def conditioned_direction(
+        self,
+        family: str,
+        layer: int,
+        *,
+        conditioning_key: Optional[str] = None,
+    ) -> np.ndarray:
+        """Resolve a schema-v2 vector while preserving legacy artifact loading."""
+
+        array_name = {
+            "b_conditioned_wc": "b_conditioned_wc_bank",
+            "label_binding_wc": "label_binding_wc_bank",
+            "belief_conflict": "belief_conflict_direction",
+        }.get(str(family))
+        if array_name is None or array_name not in self.arrays:
+            raise KeyError(
+                f"Conditioned family {family!r} is absent from artifact schema "
+                f"v{self.artifact_schema_version}."
+            )
+        values = np.asarray(self.arrays[array_name][self.layer_index(layer)])
+        if values.ndim == 1:
+            if conditioning_key not in {None, "", "belief_conflict"}:
+                raise KeyError(
+                    f"Family {family!r} does not take conditioning key "
+                    f"{conditioning_key!r}."
+                )
+            return values.astype(np.float32, copy=False)
+        if values.ndim != 2:
+            raise ValueError(
+                f"Conditioned array {array_name!r} must be [hidden] or [key, hidden], "
+                f"got {values.shape}."
+            )
+        if not conditioning_key:
+            raise KeyError(f"Family {family!r} requires a conditioning key.")
+        labels = [
+            str(value)
+            for value in np.asarray(
+                self.arrays.get(
+                    "conditioned_labels",
+                    np.asarray(self.metadata.get("conditioned_labels", [])),
+                )
+            ).tolist()
+        ]
+        matches = [
+            index for index, value in enumerate(labels) if value == str(conditioning_key)
+        ]
+        if len(matches) != 1:
+            raise KeyError(
+                f"Conditioning key {conditioning_key!r} absent from labels={labels}."
+            )
+        return values[matches[0]].astype(np.float32, copy=False)
 
     def control_direction(self, control_type: str, layer: int, seed: int) -> np.ndarray:
         array_name = {
