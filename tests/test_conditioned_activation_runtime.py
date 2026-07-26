@@ -207,7 +207,7 @@ class ConditionedRuntimeContractTests(unittest.TestCase):
                 path = root / f"{index}.json"
                 write_strict_json(
                     path,
-                    {"model_name": model, "seconds_per_forward": 0.95},
+                    {"model_name": model, "seconds_per_forward": 0.80},
                 )
                 manifests.append(path)
             output = root / "projection.json"
@@ -219,10 +219,11 @@ class ConditionedRuntimeContractTests(unittest.TestCase):
             )
             projection = json.loads(output.read_text())
             self.assertEqual(
-                projection["reductions_applied"][:2],
+                projection["reductions_applied"],
                 [
                     "drop_global_wn",
                     "reduce_neighbor_to_selected_dose_triplet",
+                    "reduce_each_cohort_from_120_to_100",
                 ],
             )
             self.assertLessEqual(

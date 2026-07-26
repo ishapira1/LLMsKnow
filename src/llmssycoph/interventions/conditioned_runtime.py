@@ -405,11 +405,6 @@ def _matched_controls(
     primary_family: str,
     seeds: Sequence[int],
 ) -> tuple[Dict[tuple[str, int, str], np.ndarray], Dict[str, np.ndarray]]:
-    if primary_family != "b_conditioned_wc":
-        raise ValueError(
-            "The first conditioned gate defines label-wise controls for the "
-            "b-conditioned bank only."
-        )
     source_artifact = load_controlled_direction_artifact(
         Path(str(artifact.metadata["source_direction_artifact"]))
     )
@@ -428,19 +423,49 @@ def _matched_controls(
     training_metadata = _conditioned_training_metadata(artifact)
     datasets = training_metadata["training_dataset"]
     labels = training_metadata["training_endorsed_choice"]
+    belief = training_metadata["training_belief_class"]
     arc = datasets == "arc_challenge"
     controls: Dict[tuple[str, int, str], np.ndarray] = {}
     saved: Dict[str, np.ndarray] = {}
-    for label_index, label in enumerate(CANONICAL_LABELS):
-        members = deltas[arc & (labels == label)]
+    if primary_family == "b_conditioned_wc":
+        groups = [
+            (
+                label,
+                deltas[arc & (labels == label)],
+                _arc_direction(
+                    artifact,
+                    family="b_conditioned_wc",
+                    layer=layer,
+                    endorsed_choice=label,
+                )[0],
+            )
+            for label in CANONICAL_LABELS
+        ]
+    elif primary_family == "belief_conflict":
+        eligible = arc & (belief != "neutral_is_other")
+        oriented = np.where(
+            (belief == "neutral_is_c")[:, None],
+            deltas,
+            -deltas,
+        )
+        groups = [
+            (
+                "global",
+                oriented[eligible],
+                _arc_direction(
+                    artifact,
+                    family="belief_conflict",
+                    layer=layer,
+                    endorsed_choice="A",
+                )[0],
+            )
+        ]
+    else:
+        raise ValueError(f"Unsupported primary control family {primary_family!r}.")
+    for label_index, (label, members, target_raw) in enumerate(groups):
         if not len(members):
             continue
-        target = _arc_direction(
-            artifact,
-            family="b_conditioned_wc",
-            layer=layer,
-            endorsed_choice=label,
-        )[0].astype(np.float64)
+        target = np.asarray(target_raw, dtype=np.float64)
         target_norm = float(np.linalg.norm(target))
         for seed in seeds:
             rng = np.random.default_rng(
@@ -575,6 +600,7 @@ def run_conditioned_arc_steering(
     position_modes: Sequence[str],
     ratios: Sequence[float],
     minimum_neutral_correct: int,
+    maximum_live_questions: Optional[int] = None,
     control_seeds: Sequence[int] = (),
     control_ratio: Optional[float] = None,
     device: str = "cuda",
@@ -644,6 +670,13 @@ def run_conditioned_arc_steering(
         if neutral_baselines[pair["stable_question_key"]][2]
         == pair["source_correct_choice"]
     ]
+    if maximum_live_questions is not None:
+        live_pairs = list(
+            _balanced_take(
+                live_pairs,
+                maximum=int(maximum_live_questions),
+            )
+        )
     if len(live_pairs) < int(minimum_neutral_correct):
         stopped = {
             "stage_b_version": CONDITIONED_STAGE_B_VERSION,
@@ -675,6 +708,7 @@ def run_conditioned_arc_steering(
 
     result_rows: list[Dict[str, Any]] = []
     no_op_rows: list[Dict[str, Any]] = []
+    maximum_suffix_token_count = 0
     for layer in layer_values:
         residual_norm = _median_residual_norm(artifact, layer)
         for pair_index, pair in enumerate(live_pairs, start=1):
@@ -693,6 +727,13 @@ def run_conditioned_arc_steering(
                 condition: _position_metadata(tokenizer, pair, condition)
                 for condition in STAGE_B_CONDITIONS
             }
+            maximum_suffix_token_count = max(
+                maximum_suffix_token_count,
+                *[
+                    int(value["suffix_token_count"])
+                    for value in position_by_condition.values()
+                ],
+            )
             for condition in STAGE_B_CONDITIONS:
                 if condition == "neutral":
                     baseline_probabilities, baseline_scores, _ = neutral_baselines[
@@ -867,7 +908,10 @@ def run_conditioned_arc_steering(
                     if control_ratio is None or float(control_ratio) <= 0:
                         raise ValueError("Control shards require a positive control_ratio.")
                     for (control_type, control_seed, label), direction in controls.items():
-                        if label != pair["canonical_endorsed_choice"]:
+                        if label not in {
+                            "global",
+                            pair["canonical_endorsed_choice"],
+                        }:
                             continue
                         for position_mode in position_modes:
                             for signed_ratio in (
@@ -1013,12 +1057,14 @@ def run_conditioned_arc_steering(
         "control_ratio": control_ratio,
         "source_manifest_questions": len(pairs),
         "same_shard_neutral_correct_questions": len(live_pairs),
+        "maximum_live_questions": maximum_live_questions,
         "question_results_rows": len(result_rows),
         "forward_calls": forward_calls,
         "elapsed_seconds": elapsed,
         "seconds_per_forward": elapsed / max(1, forward_calls),
         "alpha_zero_noop_exact": all(row["exact"] for row in no_op_rows),
         "nonfinite_failures": 0,
+        "maximum_suffix_token_count": maximum_suffix_token_count,
         "runtime": runtime,
         "config_sha256": sha256_file(config_path),
         "question_manifest_sha256": sha256_file(question_manifest_path),
@@ -1271,23 +1317,31 @@ def project_conditioned_compute(
         cohort: int,
     ) -> int:
         learned_families = 3 if include_wn else 2
-        # Validation: N/W/C × 3 layers × 2 modes × (six nonzero ratios)
-        # plus three disabled baselines and two exact-noop masks per condition.
+        # Every shard first scores the source-neutral prompt. Within every layer
+        # it then scores two non-neutral disabled baselines, six exact-noop
+        # masks (N/W/C × two positions), and all nonzero learned treatments.
         validation = cohort * (
-            1 + 2 + 3 * 2
-            + 3 * 3 * 2 * 6 * learned_families
+            1 + 3 * (2 + 3 * 2 + 3 * 2 * 6 * learned_families)
         )
-        test_layers_nonzero = (
-            2 * 3 * 2 * 6
+        selected_learned = 1 + 2 + 3 * 2 + 3 * 2 * 6
+        neighbor_learned = (
+            1 + 2 + 3 * 2 + 3 * 2 * 6
             if neighbor_full_curve
-            else (1 * 3 * 2 * 6 + 1 * 3 * 2 * 2)
+            else 1 + 2 + 3 * 2 + 3 * 2 * 2
         )
-        # Test learned primary plus 20×2 control families at ±rho, selected
-        # layer, both positions, all three conditions.
-        test = test_questions_per_model * (
-            1 + 2 + 2 * 3 * 2 + test_layers_nonzero + 40 * 2 * 2 * 3
+        # Each of the 20 control-seed shards contains both matched control
+        # families at ±rho, selected layer, both positions, and all conditions.
+        controls = 20 * (1 + 2 + 3 * 2 + 2 * 2 * 2 * 3)
+        # The same-per-position sensitivity is a separate shard with one mode.
+        sensitivity = 1 + 2 + 3 + 2 * 3
+        heldout_cohort = min(int(test_questions_per_model), int(cohort))
+        test = heldout_cohort * (
+            selected_learned + neighbor_learned + controls + sensitivity
         )
-        return validation + test
+        # The eight-question BF16/no-op gate uses one layer, two modes, and
+        # {-0.05, 0, +0.05} for the primary family.
+        bf16_gate = 8 * (1 + 2 + 3 * 2 + 3 * 2 * 2)
+        return bf16_gate + validation + test
 
     reductions = []
     include_wn = True

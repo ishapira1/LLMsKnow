@@ -165,6 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     conditioned.add_argument("--ratios", default="-0.2,-0.1,-0.05,0,0.05,0.1,0.2")
     conditioned.add_argument("--minimum-neutral-correct", type=int, default=100)
+    conditioned.add_argument("--maximum-live-questions", type=int, default=None)
     conditioned.add_argument("--control-seeds", default="")
     conditioned.add_argument("--control-ratio", type=float, default=None)
     conditioned.add_argument("--progress-every", type=int, default=10)
@@ -338,6 +339,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             position_modes=_csv_strings(args.position_modes),
             ratios=_csv_floats(args.ratios),
             minimum_neutral_correct=args.minimum_neutral_correct,
+            maximum_live_questions=args.maximum_live_questions,
             control_seeds=_csv_ints(args.control_seeds),
             control_ratio=args.control_ratio,
             device=args.device,

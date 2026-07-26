@@ -77,7 +77,34 @@ mkdir -p \
   "$INTERVENTION_ROOT" \
   "$LOG_ROOT/submit" \
   "$LOG_ROOT/slurm/audit" \
+  "$LOG_ROOT/slurm/cohort" \
+  "$LOG_ROOT/slurm/bf16" \
+  "$LOG_ROOT/slurm/projection" \
+  "$LOG_ROOT/slurm/validation" \
+  "$LOG_ROOT/slurm/selection" \
+  "$LOG_ROOT/slurm/test" \
+  "$LOG_ROOT/slurm/control" \
+  "$LOG_ROOT/slurm/sensitivity" \
+  "$LOG_ROOT/slurm/aggregate" \
   "$LOG_ROOT/by_task/stage_a/audit"
+
+MODEL_KEYS=(llama31_8b qwen25_7b)
+MODEL_IDENTIFIERS=(
+  meta-llama/Llama-3.1-8B-Instruct
+  Qwen/Qwen2.5-7B-Instruct
+)
+ARC_SOURCES=("$LLAMA_ARC_SOURCE" "$QWEN_ARC_SOURCE")
+
+resolve_conditioned_model() {
+  MODEL_INDEX="${1:?model index}"
+  MODEL_KEY="${MODEL_KEYS[$MODEL_INDEX]}"
+  MODEL_IDENTIFIER="${MODEL_IDENTIFIERS[$MODEL_INDEX]}"
+  ARC_SOURCE="${ARC_SOURCES[$MODEL_INDEX]}"
+  COHORT_MANIFEST="$INTERVENTION_ROOT/cohorts/${MODEL_KEY}_arc_neutral_correct.jsonl"
+  CONDITIONED_DIRECTIONS="$AUDIT_OUTPUT_DIR/conditioned_directions_model_${MODEL_INDEX}/directions.npz"
+  MODEL_ROOT="$INTERVENTION_ROOT/stage_b/$MODEL_KEY"
+  TASK_LABEL="${MODEL_KEY}_arc"
+}
 
 iso_now() {
   date '+%Y-%m-%dT%H:%M:%S%z'
@@ -92,12 +119,14 @@ print_command() {
 start_structured_task_log() {
   local stage="${1:?stage}"
   local job_id="${SLURM_JOB_ID:-local}"
-  local task_dir="$LOG_ROOT/by_task/stage_a/$stage/job_$job_id"
+  local task_dir="$LOG_ROOT/by_task/${TASK_LABEL:-stage_a}/$stage/job_$job_id"
   mkdir -p "$task_dir"
   TASK_STARTED_EPOCH="$(date +%s)"
   exec > >(tee -a "$task_dir/task_0.out") \
     2> >(tee -a "$task_dir/task_0.err" >&2)
-  printf '[task] stage=%s task_label=mean_cancellation_audit model=both dataset=arc_challenge,commonsense_qa\n' "$stage"
+  printf '[task] stage=%s task_label=%s model=%s dataset=%s\n' \
+    "$stage" "${TASK_LABEL:-mean_cancellation_audit}" \
+    "${MODEL_IDENTIFIER:-both}" "${DATASET_NAME:-arc_challenge,commonsense_qa}"
   printf '[task] run_name=%s run_directory=%s\n' "$EXPERIMENT_RUN_ID" "$INTERVENTION_ROOT"
   printf '[task] slurm_job_id=%s hostname=%s cwd=%s start_time=%s\n' \
     "${SLURM_JOB_ID:-}" "$(hostname)" "$PWD" "$(iso_now)"
