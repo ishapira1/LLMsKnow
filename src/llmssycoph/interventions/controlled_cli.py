@@ -16,6 +16,13 @@ from .controlled_runtime import (
     validate_controlled_sources,
 )
 from .conditioned_audit import run_mean_cancellation_audit
+from .conditioned_runtime import (
+    aggregate_conditioned_test,
+    build_conditioned_arc_cohort,
+    project_conditioned_compute,
+    run_conditioned_arc_steering,
+    select_conditioned_validation,
+)
 from .controlled import load_controlled_direction_artifact
 from .data import load_source_bundle
 
@@ -133,6 +140,62 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--n-bootstrap", type=int, default=2000)
     audit.add_argument("--n-split-half", type=int, default=200)
     audit.add_argument("--seed", type=int, default=5)
+
+    cohort = subparsers.add_parser("build-conditioned-arc-cohort")
+    cohort.add_argument("--source-run-dir", type=Path, required=True)
+    cohort.add_argument("--training-manifest", type=Path, required=True)
+    cohort.add_argument("--output", type=Path, required=True)
+    cohort.add_argument("--maximum-per-split", type=int, default=120)
+
+    conditioned = subparsers.add_parser("run-conditioned")
+    _source_arguments(conditioned, repeat=False)
+    _runtime_arguments(conditioned)
+    conditioned.add_argument("--directions-path", type=Path, required=True)
+    conditioned.add_argument("--output-dir", type=Path, required=True)
+    conditioned.add_argument("--split", choices=("val", "test"), required=True)
+    conditioned.add_argument("--layers", required=True)
+    conditioned.add_argument("--primary-family", required=True)
+    conditioned.add_argument(
+        "--direction-families",
+        default="b_conditioned_wc,global_wc,global_wn",
+    )
+    conditioned.add_argument(
+        "--position-modes",
+        default="boundary_only,suffix_energy_matched",
+    )
+    conditioned.add_argument("--ratios", default="-0.2,-0.1,-0.05,0,0.05,0.1,0.2")
+    conditioned.add_argument("--minimum-neutral-correct", type=int, default=100)
+    conditioned.add_argument("--control-seeds", default="")
+    conditioned.add_argument("--control-ratio", type=float, default=None)
+    conditioned.add_argument("--progress-every", type=int, default=10)
+
+    conditioned_select = subparsers.add_parser("select-conditioned-validation")
+    conditioned_select.add_argument(
+        "--input", type=Path, action="append", required=True
+    )
+    conditioned_select.add_argument("--cpu-decision", type=Path, required=True)
+    conditioned_select.add_argument("--output", type=Path, required=True)
+    conditioned_select.add_argument("--n-bootstrap", type=int, default=2000)
+    conditioned_select.add_argument("--seed", type=int, default=5)
+
+    projection = subparsers.add_parser("project-conditioned-compute")
+    projection.add_argument(
+        "--benchmark-manifest", type=Path, action="append", required=True
+    )
+    projection.add_argument(
+        "--validation-questions-per-model", type=int, default=120
+    )
+    projection.add_argument("--test-questions-per-model", type=int, default=120)
+    projection.add_argument("--output", type=Path, required=True)
+
+    conditioned_aggregate = subparsers.add_parser("aggregate-conditioned-test")
+    conditioned_aggregate.add_argument(
+        "--input", type=Path, action="append", required=True
+    )
+    conditioned_aggregate.add_argument("--selection", type=Path, required=True)
+    conditioned_aggregate.add_argument("--output-dir", type=Path, required=True)
+    conditioned_aggregate.add_argument("--n-bootstrap", type=int, default=2000)
+    conditioned_aggregate.add_argument("--seed", type=int, default=5)
 
     for command in ("screen-layers", "tiny-dry-run", "run-selected", "score-fixed-probe"):
         run = subparsers.add_parser(command)
@@ -252,6 +315,58 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             n_permutations=args.n_permutations,
             n_bootstrap=args.n_bootstrap,
             n_split_half=args.n_split_half,
+            seed=args.seed,
+        )
+    elif args.command == "build-conditioned-arc-cohort":
+        output = build_conditioned_arc_cohort(
+            source_run_dir=args.source_run_dir,
+            training_manifest_path=args.training_manifest,
+            output_path=args.output,
+            maximum_per_split=args.maximum_per_split,
+        )
+    elif args.command == "run-conditioned":
+        output = run_conditioned_arc_steering(
+            config_path=args.config,
+            source_run_dir=args.source_run_dir,
+            question_manifest_path=args.question_manifest,
+            directions_path=args.directions_path,
+            output_dir=args.output_dir,
+            split=args.split,
+            layers=_csv_ints(args.layers),
+            primary_family=args.primary_family,
+            direction_families=_csv_strings(args.direction_families),
+            position_modes=_csv_strings(args.position_modes),
+            ratios=_csv_floats(args.ratios),
+            minimum_neutral_correct=args.minimum_neutral_correct,
+            control_seeds=_csv_ints(args.control_seeds),
+            control_ratio=args.control_ratio,
+            device=args.device,
+            device_map_auto=args.device_map_auto,
+            hf_cache_dir=args.hf_cache_dir,
+            torch_dtype=args.torch_dtype,
+            progress_every=args.progress_every,
+        )
+    elif args.command == "select-conditioned-validation":
+        output = select_conditioned_validation(
+            input_paths=args.input,
+            cpu_decision_path=args.cpu_decision,
+            output_path=args.output,
+            n_bootstrap=args.n_bootstrap,
+            seed=args.seed,
+        )
+    elif args.command == "project-conditioned-compute":
+        output = project_conditioned_compute(
+            benchmark_manifests=args.benchmark_manifest,
+            validation_questions_per_model=args.validation_questions_per_model,
+            test_questions_per_model=args.test_questions_per_model,
+            output_path=args.output,
+        )
+    elif args.command == "aggregate-conditioned-test":
+        output = aggregate_conditioned_test(
+            input_paths=args.input,
+            selection_path=args.selection,
+            output_dir=args.output_dir,
+            n_bootstrap=args.n_bootstrap,
             seed=args.seed,
         )
     elif args.command in {

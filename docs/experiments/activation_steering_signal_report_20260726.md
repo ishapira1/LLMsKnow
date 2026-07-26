@@ -2,6 +2,24 @@
 
 **Exploratory experiment report and next-step decision memo — 2026-07-26**
 
+## Interpretation amendment: global estimator only
+
+The completed experiment supports a narrower conclusion than an absence claim:
+the **global, unaligned** `W−N` mean mainly captured a shared suggestion axis.
+It did not test whether item-, endorsed-label-, or model-belief-conditioned
+wrongness representations exist.
+
+In particular, the small norm of the global `W−C` mean is not evidence that
+item-level `W−C` information is absent. Endorsed and correct labels vary across
+questions, so answer-binding components can cancel in an unaligned global
+average. The follow-up
+`mean_cancellation_audit_v1_20260726` therefore measures item norms,
+label-conditioned banks, a sum-to-zero label-binding model, belief-conflict
+directions, and low-rank structure with question-disjoint cross-validation and
+within-dataset permutation placebos. This amendment supersedes any broader
+reading of “no wrongness representation” below; the original numerical results
+about the global vectors remain unchanged.
+
 ## Executive conclusion
 
 This experiment does not support scaling the present `W−N` mean-direction

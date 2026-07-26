@@ -140,8 +140,12 @@ def residual_addition_hook(
     residual_layer: int,
     addition_vectors: Any,
     token_index: int | Sequence[int] = -1,
+    token_mask: Any | None = None,
 ) -> Iterator[None]:
-    """Add one residual vector per batch row at a specific sequence position."""
+    """Add one vector per batch row at one token or a weighted token mask."""
+
+    if token_mask is not None and token_index != -1:
+        raise ValueError("Specify token_index or token_mask, not both.")
 
     block = block_for_residual_layer(model, residual_layer)
 
@@ -168,6 +172,28 @@ def residual_addition_hook(
         # object rather than cloning or adding representable zeros.
         if bool((vectors == 0).all().item()):
             return output
+        if token_mask is not None:
+            mask = torch.as_tensor(
+                token_mask,
+                dtype=hidden.dtype,
+                device=hidden.device,
+            )
+            if mask.ndim == 1:
+                mask = mask.unsqueeze(0)
+            if mask.shape[0] == 1 and hidden.shape[0] > 1:
+                mask = mask.expand(hidden.shape[0], -1)
+            if mask.shape != hidden.shape[:2]:
+                raise ValueError(
+                    "Residual token masks must have shape [batch, sequence]; "
+                    f"got {tuple(mask.shape)} for hidden {tuple(hidden.shape)}."
+                )
+            if not bool(torch.isfinite(mask).all().item()):
+                raise FloatingPointError("Nonfinite residual token-mask weights.")
+            if bool((mask == 0).all().item()):
+                return output
+            modified = hidden.clone()
+            modified = modified + mask.unsqueeze(-1) * vectors.unsqueeze(1)
+            return _replace_first_output(output, modified)
         if isinstance(token_index, Sequence) and not isinstance(token_index, (str, bytes)):
             indices = torch.as_tensor(
                 [int(value) for value in token_index],
@@ -459,6 +485,128 @@ def score_repeated_prompt_without_hook(
     )
 
 
+def resolve_prompt_suffix_mask(
+    tokenizer: Any,
+    messages: List[Dict[str, Any]],
+    *,
+    neutral_messages: List[Dict[str, Any]],
+    condition: str,
+) -> Dict[str, Any]:
+    """Resolve the framing/instruction suffix through exact rendered offsets."""
+
+    from ..llm.generation import _token_id_list_from_encoded, to_hf_chat
+
+    def user_content(items: List[Dict[str, Any]]) -> str:
+        human = [
+            str(item.get("content", ""))
+            for item in items
+            if str(item.get("type", "")) == "human"
+        ]
+        if len(human) != 1 or not human[0]:
+            raise ValueError("Suffix steering requires exactly one nonempty human message.")
+        return human[0]
+
+    content = user_content(messages)
+    neutral_content = user_content(neutral_messages)
+    instruction_marker = "Use plain text answer-only, with no JSON and no tool schema."
+    neutral_instruction_start = neutral_content.find(instruction_marker)
+    if neutral_instruction_start < 0:
+        raise ValueError("Could not locate the frozen answer-only instruction.")
+    if str(condition) == "neutral":
+        content_start = neutral_instruction_start
+    else:
+        question_prefix = neutral_content[:neutral_instruction_start].rstrip()
+        expected_prefix = question_prefix + "\n\n"
+        if not content.startswith(expected_prefix):
+            raise ValueError(
+                "Condition prompt does not preserve the neutral question prefix."
+            )
+        content_instruction_start = content.find(instruction_marker)
+        if content_instruction_start <= len(expected_prefix):
+            raise ValueError("Condition prompt has no framing insertion before instruction.")
+        if content[content_instruction_start:] != neutral_content[neutral_instruction_start:]:
+            raise ValueError(
+                "Condition and neutral answer-only instruction suffixes differ."
+            )
+        content_start = len(expected_prefix)
+
+    apply_chat_template = getattr(tokenizer, "apply_chat_template", None)
+    if not callable(apply_chat_template):
+        raise TypeError("Tokenizer does not expose apply_chat_template().")
+    hf_messages = to_hf_chat(messages)
+    rendered = str(
+        apply_chat_template(
+            hf_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    )
+    rendered_ids = _token_id_list_from_encoded(
+        apply_chat_template(
+            hf_messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors=None,
+        )
+    )
+    encoded_offsets = tokenizer(
+        rendered,
+        add_special_tokens=False,
+        return_offsets_mapping=True,
+    )
+    offset_ids = _token_id_list_from_encoded(encoded_offsets["input_ids"])
+    offsets_raw = encoded_offsets["offset_mapping"]
+    if hasattr(offsets_raw, "tolist"):
+        offsets_raw = offsets_raw.tolist()
+    if offsets_raw and isinstance(offsets_raw[0], list) and len(offsets_raw) == 1:
+        offsets_raw = offsets_raw[0]
+    offsets = [(int(start), int(end)) for start, end in offsets_raw]
+    if offset_ids != rendered_ids:
+        raise ValueError(
+            "Rendered-text offset tokenization does not exactly reproduce chat-template "
+            "token IDs."
+        )
+    if len(offsets) != len(rendered_ids):
+        raise ValueError("Offset count does not equal rendered prompt token count.")
+    content_occurrences = [
+        index
+        for index in range(len(rendered))
+        if rendered.startswith(content, index)
+    ]
+    if len(content_occurrences) != 1:
+        raise ValueError(
+            f"Expected the human content once in rendered chat, found {len(content_occurrences)}."
+        )
+    rendered_start = content_occurrences[0] + content_start
+    candidates = [
+        index
+        for index, (start, end) in enumerate(offsets)
+        if end > rendered_start and start <= rendered_start
+    ]
+    if not candidates:
+        candidates = [
+            index for index, (_start, end) in enumerate(offsets) if end > rendered_start
+        ]
+    if not candidates:
+        raise ValueError("No rendered token overlaps the requested suffix start.")
+    suffix_start = int(candidates[0])
+    suffix_end = len(rendered_ids) - 1
+    if suffix_start > suffix_end:
+        raise ValueError("Suffix start occurs after the assistant boundary.")
+    mask = np.zeros(len(rendered_ids), dtype=np.float32)
+    mask[suffix_start : suffix_end + 1] = 1.0
+    return {
+        "token_mask": mask,
+        "suffix_start_index": suffix_start,
+        "suffix_end_index": suffix_end,
+        "suffix_token_count": int(mask.sum()),
+        "prompt_token_count": len(rendered_ids),
+        "prompt_token_ids": rendered_ids,
+        "rendered_suffix_start_offset": int(rendered_start),
+        "rendered_text": rendered,
+    }
+
+
 def candidate_feature_with_prompt_steering(
     model: Any,
     tokenizer: Any,
@@ -716,6 +864,7 @@ def score_with_residual_additions(
     choices: Sequence[str],
     residual_layer: int,
     addition_vectors: np.ndarray,
+    token_masks: np.ndarray | None = None,
     max_batch_size: int | None = None,
 ) -> tuple[List[Dict[str, float]], List[Dict[str, float]]]:
     """Score one prompt under a batch of pre-answer residual additions."""
@@ -734,6 +883,22 @@ def score_with_residual_additions(
         model_device(model),
         add_generation_prompt=True,
     )
+    masks_np: np.ndarray | None = None
+    if token_masks is not None:
+        masks_np = np.asarray(token_masks, dtype=np.float32)
+        if masks_np.ndim == 1:
+            masks_np = masks_np[None, :]
+        if masks_np.shape[0] == 1 and vectors_np.shape[0] > 1:
+            masks_np = np.broadcast_to(
+                masks_np, (vectors_np.shape[0], masks_np.shape[1])
+            ).copy()
+        expected = (vectors_np.shape[0], int(input_ids_base.shape[1]))
+        if masks_np.shape != expected:
+            raise ValueError(
+                f"token_masks must have shape {expected}, got {masks_np.shape}."
+            )
+        if not np.isfinite(masks_np).all():
+            raise FloatingPointError("Nonfinite token-mask weights.")
     chunk_size = max(1, int(max_batch_size or vectors_np.shape[0]))
     all_probabilities: List[Dict[str, float]] = []
     all_log_scores: List[Dict[str, float]] = []
@@ -748,7 +913,12 @@ def score_with_residual_additions(
                 model,
                 residual_layer=int(residual_layer),
                 addition_vectors=chunk,
-                token_index=-1,
+                token_index=-1 if masks_np is None else -1,
+                token_mask=(
+                    None
+                    if masks_np is None
+                    else torch.as_tensor(masks_np[start:stop], dtype=torch.float32)
+                ),
             ):
                 outputs = model(
                     input_ids=input_ids,

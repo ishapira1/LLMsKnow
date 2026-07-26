@@ -589,6 +589,11 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                 "inspect-examples",
                 "fit-directions",
                 "audit-mean-cancellation",
+                "build-conditioned-arc-cohort",
+                "run-conditioned",
+                "select-conditioned-validation",
+                "project-conditioned-compute",
+                "aggregate-conditioned-test",
                 "screen-layers",
                 "tiny-dry-run",
                 "run-selected",
@@ -802,6 +807,46 @@ class PerExampleHookTests(unittest.TestCase):
             output = model.model.layers[0](hidden)
         self.assertIs(output, hidden)
         self.assertTrue(torch.equal(output, hidden))
+
+    def test_per_example_suffix_masks_and_energy_matching(self):
+        model = self._Model()
+        hidden = torch.zeros((2, 5, 2))
+        boundary_vectors = torch.tensor([[3.0, 4.0], [6.0, 8.0]])
+        masks = torch.tensor(
+            [
+                [0.0, 0.0, 1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0, 1.0, 1.0],
+            ]
+        )
+        counts = masks.sum(dim=1)
+        energy_matched = boundary_vectors / counts.sqrt().unsqueeze(1)
+        with residual_addition_hook(
+            model,
+            residual_layer=1,
+            addition_vectors=energy_matched,
+            token_mask=masks,
+        ):
+            output = model.model.layers[0](hidden)
+        injected = output - hidden
+        torch.testing.assert_close(
+            torch.linalg.vector_norm(injected, dim=(1, 2)),
+            torch.linalg.vector_norm(boundary_vectors, dim=1),
+        )
+        torch.testing.assert_close(output[0, 1], torch.zeros(2))
+        torch.testing.assert_close(output[0, 2], energy_matched[0])
+
+    def test_zero_suffix_mask_is_exact_noop_and_hook_is_removed(self):
+        model = self._Model()
+        hidden = torch.randn((1, 4, 2))
+        with residual_addition_hook(
+            model,
+            residual_layer=1,
+            addition_vectors=torch.ones((1, 2)),
+            token_mask=torch.zeros((1, 4)),
+        ):
+            output = model.model.layers[0](hidden)
+        self.assertIs(output, hidden)
+        self.assertTrue(torch.equal(model.model.layers[0](hidden), hidden))
 
 
 if __name__ == "__main__":

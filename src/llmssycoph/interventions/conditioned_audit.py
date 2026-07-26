@@ -135,6 +135,8 @@ def _paired_projection_scores(
     positive_states: np.ndarray,
     negative_states: np.ndarray,
     vectors: np.ndarray,
+    *,
+    training_centers: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     positive = np.asarray(positive_states, dtype=np.float64)
     negative = np.asarray(negative_states, dtype=np.float64)
@@ -143,11 +145,43 @@ def _paired_projection_scores(
         directions = np.broadcast_to(directions, positive.shape)
     if directions.shape != positive.shape or negative.shape != positive.shape:
         raise ValueError("State and per-question direction shapes must match.")
-    midpoint = 0.5 * (positive + negative)
+    centers = np.asarray(training_centers, dtype=np.float64)
+    if centers.ndim == 1:
+        centers = np.broadcast_to(centers, positive.shape)
+    if centers.shape != positive.shape:
+        raise ValueError("Training centers must be [hidden] or [question, hidden].")
     return (
-        np.einsum("ij,ij->i", positive - midpoint, directions),
-        np.einsum("ij,ij->i", negative - midpoint, directions),
+        np.einsum("ij,ij->i", positive - centers, directions),
+        np.einsum("ij,ij->i", negative - centers, directions),
     )
+
+
+def _centers_by_label(
+    positive_states: np.ndarray,
+    negative_states: np.ndarray,
+    labels: np.ndarray,
+    train_indices: np.ndarray,
+) -> np.ndarray:
+    positive = np.asarray(positive_states, dtype=np.float64)
+    negative = np.asarray(negative_states, dtype=np.float64)
+    label_values = np.asarray(labels, dtype=str)
+    global_center = 0.5 * (
+        positive[train_indices].mean(axis=0, dtype=np.float64)
+        + negative[train_indices].mean(axis=0, dtype=np.float64)
+    )
+    centers = np.empty((len(CANONICAL_LABELS), positive.shape[1]), dtype=np.float64)
+    for label_index, label in enumerate(CANONICAL_LABELS):
+        members = train_indices[label_values[train_indices] == label]
+        centers[label_index] = (
+            0.5
+            * (
+                positive[members].mean(axis=0, dtype=np.float64)
+                + negative[members].mean(axis=0, dtype=np.float64)
+            )
+            if len(members)
+            else global_center
+        )
+    return centers
 
 
 def _bootstrap_auc_interval(
@@ -212,7 +246,16 @@ def _split_half_stability(
             halves[1].extend(shuffled[1::2].tolist())
         first = np.asarray(sorted(halves[0]), dtype=int)
         second = np.asarray(sorted(halves[1]), dtype=int)
-        if family == "b_conditioned_wc":
+        if family == "global_wc":
+            similarities.append(
+                abs(
+                    _cosine(
+                        deltas[first].mean(axis=0, dtype=np.float64),
+                        deltas[second].mean(axis=0, dtype=np.float64),
+                    )
+                )
+            )
+        elif family == "b_conditioned_wc":
             left = _bank_from_labels(deltas, labels, first)
             right = _bank_from_labels(deltas, labels, second)
             similarities.append(_subspace_similarity(left, right))
@@ -681,18 +724,22 @@ def _permuted_bank_aucs(
     n = len(labels)
     results = np.empty(int(n_permutations), dtype=np.float64)
     rng = np.random.default_rng(int(seed))
-    fold_cache: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    fold_cache: list[
+        tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+    ] = []
     for fold in sorted(set(folds.tolist())):
         train = np.flatnonzero(folds != fold)
         test = np.flatnonzero(folds == fold)
-        # With a per-question W/C midpoint, the positive and negative scores are
-        # ±0.5 * delta_test dot bank.  Cache every test/train delta inner product
-        # so 1,000 placebos never repeat hidden-dimensional matrix products.
-        gram = (
-            np.asarray(wrong_states[test] - correct_states[test], dtype=np.float64)
-            @ np.asarray(deltas[train], dtype=np.float64).T
+        train_deltas = np.asarray(deltas[train], dtype=np.float64)
+        wrong_gram = np.asarray(wrong_states[test], dtype=np.float64) @ train_deltas.T
+        correct_gram = (
+            np.asarray(correct_states[test], dtype=np.float64) @ train_deltas.T
         )
-        fold_cache.append((train, test, gram))
+        train_midpoints = 0.5 * np.asarray(
+            wrong_states[train] + correct_states[train], dtype=np.float64
+        )
+        center_gram = train_midpoints @ train_deltas.T
+        fold_cache.append((train, test, wrong_gram, correct_gram, center_gram))
     for permutation_index in range(int(n_permutations)):
         permuted = labels.copy()
         for dataset in sorted(set(datasets.tolist())):
@@ -700,16 +747,100 @@ def _permuted_bank_aucs(
             permuted[members] = rng.permutation(permuted[members])
         positive_oof = np.full(n, np.nan, dtype=np.float64)
         negative_oof = np.full(n, np.nan, dtype=np.float64)
-        for train, test, gram in fold_cache:
-            projections = np.empty(len(test), dtype=np.float64)
+        for train, test, wrong_gram, correct_gram, center_gram in fold_cache:
+            positive_scores = np.empty(len(test), dtype=np.float64)
+            negative_scores = np.empty(len(test), dtype=np.float64)
+            offsets: Dict[str, float] = {}
+            for label in CANONICAL_LABELS:
+                members = permuted[train] == label
+                if not np.any(members):
+                    members = np.ones(len(train), dtype=bool)
+                member_indices = np.flatnonzero(members)
+                offsets[label] = float(
+                    center_gram[np.ix_(member_indices, member_indices)].mean()
+                )
             for test_row, question_index in enumerate(test):
                 members = permuted[train] == permuted[question_index]
                 if not np.any(members):
                     members = np.ones(len(train), dtype=bool)
-                projections[test_row] = float(gram[test_row, members].mean())
-            positive_oof[test] = 0.5 * projections
-            negative_oof[test] = -0.5 * projections
+                offset = offsets[str(permuted[question_index])]
+                positive_scores[test_row] = (
+                    float(wrong_gram[test_row, members].mean()) - offset
+                )
+                negative_scores[test_row] = (
+                    float(correct_gram[test_row, members].mean()) - offset
+                )
+            positive_oof[test] = positive_scores
+            negative_oof[test] = negative_scores
         results[permutation_index] = _question_auc(positive_oof, negative_oof)
+    return results
+
+
+def _permuted_belief_aucs(
+    deltas: np.ndarray,
+    wrong_states: np.ndarray,
+    correct_states: np.ndarray,
+    belief_classes: np.ndarray,
+    datasets: np.ndarray,
+    folds: np.ndarray,
+    *,
+    n_permutations: int,
+    seed: int,
+) -> np.ndarray:
+    n = len(belief_classes)
+    rng = np.random.default_rng(int(seed))
+    fold_cache = []
+    for fold in sorted(set(folds.tolist())):
+        train = np.flatnonzero(folds != fold)
+        test = np.flatnonzero(folds == fold)
+        train_deltas = np.asarray(deltas[train], dtype=np.float64)
+        wrong_gram = np.asarray(wrong_states[test], dtype=np.float64) @ train_deltas.T
+        correct_gram = (
+            np.asarray(correct_states[test], dtype=np.float64) @ train_deltas.T
+        )
+        center_gram = (
+            0.5
+            * np.asarray(
+                wrong_states[train] + correct_states[train], dtype=np.float64
+            )
+            @ train_deltas.T
+        )
+        fold_cache.append((train, test, wrong_gram, correct_gram, center_gram))
+    results = np.empty(int(n_permutations), dtype=np.float64)
+    for permutation_index in range(int(n_permutations)):
+        permuted = belief_classes.copy()
+        for dataset in sorted(set(datasets.tolist())):
+            members = np.flatnonzero(datasets == dataset)
+            permuted[members] = rng.permutation(permuted[members])
+        positives: list[float] = []
+        negatives: list[float] = []
+        for train, test, wrong_gram, correct_gram, center_gram in fold_cache:
+            train_eligible = permuted[train] != "neutral_is_other"
+            signs = np.where(
+                permuted[train] == "neutral_is_c",
+                1.0,
+                np.where(permuted[train] == "neutral_is_b", -1.0, 0.0),
+            )
+            count = int(np.count_nonzero(train_eligible))
+            if count <= 0:
+                continue
+            signed_weights = signs / count
+            center_rows = np.flatnonzero(train_eligible)
+            offset = float(
+                np.mean(center_gram[center_rows] @ signed_weights)
+            )
+            positive_wrong = wrong_gram @ signed_weights - offset
+            positive_correct = correct_gram @ signed_weights - offset
+            for row_index, question_index in enumerate(test):
+                if permuted[question_index] == "neutral_is_c":
+                    positives.append(float(positive_wrong[row_index]))
+                    negatives.append(float(positive_correct[row_index]))
+                elif permuted[question_index] == "neutral_is_b":
+                    positives.append(float(positive_correct[row_index]))
+                    negatives.append(float(positive_wrong[row_index]))
+        results[permutation_index] = _question_auc(
+            np.asarray(positives), np.asarray(negatives)
+        )
     return results
 
 
@@ -740,6 +871,29 @@ def _metadata_from_pairs(
             if neutral == endorsed
             else "neutral_is_other"
         )
+        condition_probabilities: Dict[str, float] = {}
+        for condition in REQUIRED_CONDITIONS:
+            probabilities = dict(
+                pair["records"][condition].get("choice_probabilities", {}) or {}
+            )
+            for semantic_name, canonical_label in (
+                ("correct", correct),
+                ("endorsed", endorsed),
+            ):
+                source_labels = [
+                    source_label
+                    for source_label, mapped in choice_map.items()
+                    if mapped == canonical_label
+                ]
+                value = (
+                    float(probabilities[source_labels[0]])
+                    if len(source_labels) == 1
+                    and source_labels[0] in probabilities
+                    else float("nan")
+                )
+                condition_probabilities[
+                    f"source_p_{semantic_name}_{condition}"
+                ] = value
         rows.append(
             {
                 "stable_question_key": pair["stable_question_key"],
@@ -750,6 +904,7 @@ def _metadata_from_pairs(
                 "source_neutral_choice": neutral,
                 "belief_class": belief_class,
                 "question_id": manifest.get("question_id", pair.get("question_id", "")),
+                **condition_probabilities,
             }
         )
     return pd.DataFrame(rows)
@@ -781,11 +936,19 @@ def _full_conditioned_arrays(
     labels = metadata["endorsed_choice"].to_numpy(dtype=str)
     correct = metadata["correct_choice"].to_numpy(dtype=str)
     belief = metadata["belief_class"].to_numpy(dtype=str)
+    datasets = metadata["dataset"].to_numpy(dtype=str)
     all_indices = np.arange(len(metadata), dtype=int)
+    arc_indices = np.flatnonzero(datasets == "arc_challenge")
+    if not len(arc_indices):
+        raise ValueError("Conditioned Stage-B artifacts require ARC training rows.")
     hidden = int(artifact.arrays["training_states_neutral"].shape[-1])
     label_banks = np.empty((len(layers), len(CANONICAL_LABELS), hidden), dtype=np.float32)
     binding_banks = np.empty_like(label_banks)
     belief_directions = np.empty((len(layers), hidden), dtype=np.float32)
+    arc_label_banks = np.empty_like(label_banks)
+    arc_belief_directions = np.empty_like(belief_directions)
+    arc_wc = np.empty_like(belief_directions)
+    arc_wn = np.empty_like(belief_directions)
     pca_bases = np.zeros(
         (len(layers), max(DEFAULT_PCA_RANKS), hidden),
         dtype=np.float32,
@@ -812,6 +975,18 @@ def _full_conditioned_arrays(
         )
         fit = belief != "neutral_is_other"
         belief_directions[layer_index] = oriented[fit].mean(axis=0).astype(np.float32)
+        arc_label_banks[layer_index] = _bank_from_labels(
+            deltas, labels, arc_indices
+        ).astype(np.float32)
+        arc_fit = arc_indices[belief[arc_indices] != "neutral_is_other"]
+        arc_belief_directions[layer_index] = oriented[arc_fit].mean(axis=0).astype(
+            np.float32
+        )
+        arc_wc[layer_index] = deltas[arc_indices].mean(axis=0).astype(np.float32)
+        arc_wn[layer_index] = (
+            states["incorrect_suggestion"][arc_indices]
+            - states["neutral"][arc_indices]
+        ).mean(axis=0).astype(np.float32)
         rank = int(selected_ranks[int(layer)])
         mean, basis = _fit_pca(deltas, rank)
         pca_means[layer_index] = mean.astype(np.float32)
@@ -827,9 +1002,17 @@ def _full_conditioned_arrays(
     arrays.update(
         {
             "conditioned_labels": np.asarray(CANONICAL_LABELS, dtype="U1"),
+            "training_dataset": datasets.astype("U32"),
+            "training_endorsed_choice": labels.astype("U1"),
+            "training_correct_choice": correct.astype("U1"),
+            "training_belief_class": belief.astype("U32"),
             "b_conditioned_wc_bank": label_banks,
             "label_binding_wc_bank": binding_banks,
             "belief_conflict_direction": belief_directions,
+            "arc_b_conditioned_wc_bank": arc_label_banks,
+            "arc_belief_conflict_direction": arc_belief_directions,
+            "arc_wc_raw": arc_wc,
+            "arc_wn_raw": arc_wn,
             "wc_low_rank_basis": pca_bases,
             "wc_low_rank_mean": pca_means,
             "wc_low_rank_selected_rank": pca_rank,
@@ -865,6 +1048,7 @@ def run_mean_cancellation_audit(
     geometry_rows: list[Dict[str, Any]] = []
     pca_rows: list[Dict[str, Any]] = []
     leace_rows: list[Dict[str, Any]] = []
+    behavioral_rows: list[Dict[str, Any]] = []
     model_summaries: list[Dict[str, Any]] = []
     audit_artifacts: list[Dict[str, Any]] = []
 
@@ -894,6 +1078,56 @@ def run_mean_cancellation_audit(
         metadata["fold"] = folds
         metadata_path = target / f"question_metadata_model_{cell_index}.csv"
         metadata.to_csv(metadata_path, index=False)
+        for dataset_scope, scope_frame in [
+            ("pooled", metadata),
+            *[
+                (str(dataset), group)
+                for dataset, group in metadata.groupby("dataset")
+            ],
+        ]:
+            for belief_scope, behavior_frame in [
+                ("all", scope_frame),
+                *[
+                    (str(value), group)
+                    for value, group in scope_frame.groupby("belief_class")
+                ],
+            ]:
+                for contrast, positive, negative in (
+                    (
+                        "wrong_minus_neutral",
+                        "incorrect_suggestion",
+                        "neutral",
+                    ),
+                    (
+                        "wrong_minus_correct_suggestion",
+                        "incorrect_suggestion",
+                        "suggest_correct",
+                    ),
+                ):
+                    p_b_gap = (
+                        behavior_frame[f"source_p_endorsed_{positive}"]
+                        - behavior_frame[f"source_p_endorsed_{negative}"]
+                    )
+                    p_c_gap = (
+                        behavior_frame[f"source_p_correct_{positive}"]
+                        - behavior_frame[f"source_p_correct_{negative}"]
+                    )
+                    behavioral_rows.append(
+                        {
+                            "model_name": model_name,
+                            "dataset": dataset_scope,
+                            "belief_class": belief_scope,
+                            "contrast": contrast,
+                            "n_questions": len(behavior_frame),
+                            "mean_source_delta_p_endorsed": float(
+                                p_b_gap.mean()
+                            ),
+                            "mean_source_delta_p_correct": float(p_c_gap.mean()),
+                            "finite_p_endorsed_questions": int(
+                                np.isfinite(p_b_gap.to_numpy(dtype=float)).sum()
+                            ),
+                        }
+                    )
 
         probe_coefficient: Optional[np.ndarray] = None
         for source in sources:
@@ -935,20 +1169,41 @@ def run_mean_cancellation_audit(
             for family in ("global_wc", "b_conditioned_wc", "belief_conflict"):
                 positive_oof = np.full(len(labels), np.nan, dtype=np.float64)
                 negative_oof = np.full(len(labels), np.nan, dtype=np.float64)
+                explained_energy: list[float] = []
                 for fold in range(int(n_folds)):
                     train = np.flatnonzero(folds != fold)
                     test = np.flatnonzero(folds == fold)
                     if family == "global_wc":
                         vector = wc_delta[train].mean(axis=0, dtype=np.float64)
-                        positive_oof[test], negative_oof[test] = _paired_projection_scores(
-                            wrong[test], correct_states[test], vector
+                        center = 0.5 * (
+                            wrong[train].mean(axis=0, dtype=np.float64)
+                            + correct_states[train].mean(axis=0, dtype=np.float64)
                         )
+                        positive_oof[test], negative_oof[test] = _paired_projection_scores(
+                            wrong[test],
+                            correct_states[test],
+                            vector,
+                            training_centers=center,
+                        )
+                        predicted_delta = np.broadcast_to(
+                            vector, wc_delta[test].shape
+                        )
+                        target_delta = wc_delta[test]
                     elif family == "b_conditioned_wc":
                         bank = _bank_from_labels(wc_delta, labels, train)
                         vectors = _vectors_for_labels(bank, labels[test])
-                        positive_oof[test], negative_oof[test] = _paired_projection_scores(
-                            wrong[test], correct_states[test], vectors
+                        center_bank = _centers_by_label(
+                            wrong, correct_states, labels, train
                         )
+                        centers = _vectors_for_labels(center_bank, labels[test])
+                        positive_oof[test], negative_oof[test] = _paired_projection_scores(
+                            wrong[test],
+                            correct_states[test],
+                            vectors,
+                            training_centers=centers,
+                        )
+                        predicted_delta = vectors
+                        target_delta = wc_delta[test]
                     else:
                         fit_train = train[belief[train] != "neutral_is_other"]
                         oriented_train = np.where(
@@ -957,6 +1212,20 @@ def run_mean_cancellation_audit(
                             -wc_delta[fit_train],
                         )
                         vector = oriented_train.mean(axis=0, dtype=np.float64)
+                        train_conflict = np.where(
+                            (belief[fit_train] == "neutral_is_c")[:, None],
+                            wrong[fit_train],
+                            correct_states[fit_train],
+                        )
+                        train_congruent = np.where(
+                            (belief[fit_train] == "neutral_is_c")[:, None],
+                            correct_states[fit_train],
+                            wrong[fit_train],
+                        )
+                        center = 0.5 * (
+                            train_conflict.mean(axis=0, dtype=np.float64)
+                            + train_congruent.mean(axis=0, dtype=np.float64)
+                        )
                         eligible = test[belief[test] != "neutral_is_other"]
                         conflict = np.where(
                             (belief[eligible] == "neutral_is_c")[:, None],
@@ -969,8 +1238,27 @@ def run_mean_cancellation_audit(
                             wrong[eligible],
                         )
                         positive_oof[eligible], negative_oof[eligible] = _paired_projection_scores(
-                            conflict, congruent, vector
+                            conflict,
+                            congruent,
+                            vector,
+                            training_centers=center,
                         )
+                        predicted_delta = np.broadcast_to(
+                            vector, (len(eligible), vector.shape[0])
+                        )
+                        target_delta = np.where(
+                            (belief[eligible] == "neutral_is_c")[:, None],
+                            wc_delta[eligible],
+                            -wc_delta[eligible],
+                        )
+                    denominator = float(np.square(target_delta).sum())
+                    explained_energy.append(
+                        1.0
+                        - float(
+                            np.square(target_delta - predicted_delta).sum()
+                        )
+                        / max(denominator, np.finfo(np.float64).tiny)
+                    )
                 eligible = np.isfinite(positive_oof) & np.isfinite(negative_oof)
                 observed, ci_low, ci_high = _bootstrap_auc_interval(
                     positive_oof[eligible],
@@ -982,7 +1270,7 @@ def run_mean_cancellation_audit(
                     wc_delta,
                     labels,
                     datasets,
-                    family=family if family != "global_wc" else "b_conditioned_wc",
+                    family=family,
                     belief_classes=belief,
                     n_repeats=int(n_split_half),
                     seed=int(seed) + 2000 * cell_index + 10 * layer,
@@ -999,13 +1287,33 @@ def run_mean_cancellation_audit(
                         "split_half_similarity_median": stability,
                         "split_half_similarity_ci_low": stability_low,
                         "split_half_similarity_ci_high": stability_high,
+                        "heldout_explained_energy": float(
+                            np.mean(explained_energy)
+                        ),
                         "global_wc_norm": float(np.linalg.norm(global_wc)),
                         "global_wn_norm": float(np.linalg.norm(global_wn)),
                         "median_item_wc_norm": float(
                             np.median(np.linalg.norm(wc_delta, axis=1))
                         ),
                         "rms_b_conditioned_wc_norm": rms_bank_norm,
+                        "rms_item_wc_norm": float(
+                            np.sqrt(
+                                np.mean(
+                                    np.square(
+                                        np.linalg.norm(wc_delta, axis=1)
+                                    )
+                                )
+                            )
+                        ),
                         "cancellation_factor": cancellation,
+                        **{
+                            f"b_conditioned_wc_norm_{label}": float(
+                                bank_norms[label_index]
+                            )
+                            for label_index, label in enumerate(
+                                CANONICAL_LABELS
+                            )
+                        },
                     }
                 )
                 oof[family] = (positive_oof, negative_oof)
@@ -1033,8 +1341,15 @@ def run_mean_cancellation_audit(
                 predicted = _binding_vectors(
                     binding_bank, labels[test], correct[test]
                 )
+                center_bank = _centers_by_label(
+                    wrong, correct_states, labels, train
+                )
+                centers = _vectors_for_labels(center_bank, labels[test])
                 binding_positive[test], binding_negative[test] = _paired_projection_scores(
-                    wrong[test], correct_states[test], predicted
+                    wrong[test],
+                    correct_states[test],
+                    predicted,
+                    training_centers=centers,
                 )
                 denominator = float(np.square(wc_delta[test]).sum())
                 binding_explained.append(
@@ -1094,8 +1409,9 @@ def run_mean_cancellation_audit(
                     {
                         "model_name": model_name,
                         "layer": layer,
+                        "family": "b_conditioned_wc",
                         "permutation_index": permutation_index,
-                        "b_conditioned_wc_auroc": float(auc),
+                        "placebo_auroc": float(auc),
                     }
                 )
             null_p95 = float(np.quantile(null_aucs, 0.95))
@@ -1109,6 +1425,43 @@ def run_mean_cancellation_audit(
                     row["permutation_exceedance_p"] = float(
                         (1 + np.sum(null_aucs >= row["diffmean_auroc"]))
                         / (1 + len(null_aucs))
+                    )
+            belief_null_aucs = _permuted_belief_aucs(
+                wc_delta,
+                wrong,
+                correct_states,
+                belief,
+                datasets,
+                folds,
+                n_permutations=int(n_permutations),
+                seed=int(seed) + 4500 * cell_index + layer,
+            )
+            for permutation_index, auc in enumerate(belief_null_aucs):
+                permutation_rows.append(
+                    {
+                        "model_name": model_name,
+                        "layer": layer,
+                        "family": "belief_conflict",
+                        "permutation_index": permutation_index,
+                        "placebo_auroc": float(auc),
+                    }
+                )
+            belief_p95 = float(np.quantile(belief_null_aucs, 0.95))
+            for row in layer_rows:
+                if (
+                    row["model_name"] == model_name
+                    and row["layer"] == layer
+                    and row["family"] == "belief_conflict"
+                ):
+                    row["permutation_null_p95"] = belief_p95
+                    row["permutation_exceedance_p"] = float(
+                        (
+                            1
+                            + np.sum(
+                                belief_null_aucs >= row["diffmean_auroc"]
+                            )
+                        )
+                        / (1 + len(belief_null_aucs))
                     )
 
             for fold in range(int(n_folds)):
@@ -1194,10 +1547,19 @@ def run_mean_cancellation_audit(
                     - transformed["suggest_correct"]
                 )
                 vector = train_delta.mean(axis=0, dtype=np.float64)
+                global_center = 0.5 * (
+                    train_transformed["incorrect_suggestion"].mean(
+                        axis=0, dtype=np.float64
+                    )
+                    + train_transformed["suggest_correct"].mean(
+                        axis=0, dtype=np.float64
+                    )
+                )
                 pos, neg = _paired_projection_scores(
                     transformed["incorrect_suggestion"],
                     transformed["suggest_correct"],
                     vector,
+                    training_centers=global_center,
                 )
                 leace_aucs["global_wc"].append(_question_auc(pos, neg))
                 bank = _bank_from_labels(
@@ -1206,10 +1568,20 @@ def run_mean_cancellation_audit(
                     np.arange(len(train), dtype=int),
                 )
                 vectors = _vectors_for_labels(bank, labels[test])
+                leace_center_bank = _centers_by_label(
+                    train_transformed["incorrect_suggestion"],
+                    train_transformed["suggest_correct"],
+                    labels[train],
+                    np.arange(len(train), dtype=int),
+                )
+                leace_centers = _vectors_for_labels(
+                    leace_center_bank, labels[test]
+                )
                 pos, neg = _paired_projection_scores(
                     transformed["incorrect_suggestion"],
                     transformed["suggest_correct"],
                     vectors,
+                    training_centers=leace_centers,
                 )
                 leace_aucs["b_conditioned_wc"].append(_question_auc(pos, neg))
                 belief_train = belief[train]
@@ -1220,6 +1592,20 @@ def run_mean_cancellation_audit(
                     -train_delta[eligible_train],
                 )
                 belief_vector = oriented.mean(axis=0, dtype=np.float64)
+                belief_train_conflict = np.where(
+                    (belief_train[eligible_train] == "neutral_is_c")[:, None],
+                    train_transformed["incorrect_suggestion"][eligible_train],
+                    train_transformed["suggest_correct"][eligible_train],
+                )
+                belief_train_congruent = np.where(
+                    (belief_train[eligible_train] == "neutral_is_c")[:, None],
+                    train_transformed["suggest_correct"][eligible_train],
+                    train_transformed["incorrect_suggestion"][eligible_train],
+                )
+                belief_center = 0.5 * (
+                    belief_train_conflict.mean(axis=0, dtype=np.float64)
+                    + belief_train_congruent.mean(axis=0, dtype=np.float64)
+                )
                 eligible_test = belief[test] != "neutral_is_other"
                 conflict = np.where(
                     (belief[test][eligible_test] == "neutral_is_c")[:, None],
@@ -1231,7 +1617,12 @@ def run_mean_cancellation_audit(
                     transformed["suggest_correct"][eligible_test],
                     transformed["incorrect_suggestion"][eligible_test],
                 )
-                pos, neg = _paired_projection_scores(conflict, congruent, belief_vector)
+                pos, neg = _paired_projection_scores(
+                    conflict,
+                    congruent,
+                    belief_vector,
+                    training_centers=belief_center,
+                )
                 leace_aucs["belief_conflict"].append(_question_auc(pos, neg))
                 raw_pooled = np.concatenate(
                     [states[condition][test] for condition in REQUIRED_CONDITIONS], axis=0
@@ -1289,6 +1680,14 @@ def run_mean_cancellation_audit(
                 "belief_conflict_direction": (
                     "mean(W-C) when neutral top1=c and mean(C-W) when neutral top1=b"
                 ),
+                "arc_b_conditioned_wc_bank": (
+                    "mean(W-C | endorsed label b) on saved ARC training rows"
+                ),
+                "arc_belief_conflict_direction": (
+                    "belief-oriented mean on saved ARC training rows"
+                ),
+                "arc_wc_raw": "mean(W-C) on saved ARC training rows",
+                "arc_wn_raw": "mean(W-N) on saved ARC training rows",
                 "wc_low_rank_basis": "PCA of centered item-level W-C deltas",
             },
             "conditioned_labels": list(CANONICAL_LABELS),
@@ -1328,12 +1727,14 @@ def run_mean_cancellation_audit(
     geometry_table = pd.DataFrame(geometry_rows)
     pca_table = pd.DataFrame(pca_rows)
     leace_table = pd.DataFrame(leace_rows)
+    behavioral_table = pd.DataFrame(behavioral_rows)
     for filename, frame in (
         ("layer_table.csv", layer_table),
         ("permutation_table.csv", permutation_table),
         ("anisotropy_table.csv", geometry_table),
         ("low_rank_table.csv", pca_table),
         ("leace_table.csv", leace_table),
+        ("behavioral_gap_table.csv", behavioral_table),
     ):
         frame.to_csv(target / filename, index=False)
 
@@ -1352,15 +1753,10 @@ def run_mean_cancellation_audit(
                 - float(global_by_layer[int(row["layer"])]),
                 axis=1,
             )
-            if family == "b_conditioned_wc":
-                family_frame["above_placebo"] = (
-                    family_frame["diffmean_auroc"]
-                    > family_frame["permutation_null_p95"]
-                )
-            else:
-                # The permutation placebo is label-specific; belief conflict is
-                # not authorized without its own null.
-                family_frame["above_placebo"] = False
+            family_frame["above_placebo"] = (
+                family_frame["diffmean_auroc"]
+                > family_frame["permutation_null_p95"]
+            )
             family_frame["layer_pass"] = (
                 (family_frame["diffmean_auroc"] >= 0.65)
                 & (family_frame["improvement_over_global"] >= 0.05)
@@ -1452,6 +1848,7 @@ def run_mean_cancellation_audit(
                 "anisotropy_table.csv",
                 "low_rank_table.csv",
                 "leace_table.csv",
+                "behavioral_gap_table.csv",
                 "decision.json",
             )
         },

@@ -558,6 +558,8 @@ class ControlledDirectionArtifact:
             "b_conditioned_wc": "b_conditioned_wc_bank",
             "label_binding_wc": "label_binding_wc_bank",
             "belief_conflict": "belief_conflict_direction",
+            "arc_b_conditioned_wc": "arc_b_conditioned_wc_bank",
+            "arc_belief_conflict": "arc_belief_conflict_direction",
         }.get(str(family))
         if array_name is None or array_name not in self.arrays:
             raise KeyError(
