@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=syco_cond_audit_20260726
-#SBATCH --partition=shared
+#SBATCH --partition=serial_requeue
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=96G
-#SBATCH --time=08:00:00
+#SBATCH --time=03:00:00
 #SBATCH --output=jobs/sycophancy_bias_probe/logs/activation_steering_conditioned_gate_sharded_20260726/slurm/audit/%x.%j.out
 #SBATCH --error=jobs/sycophancy_bias_probe/logs/activation_steering_conditioned_gate_sharded_20260726/slurm/audit/%x.%j.err
 #SBATCH --mail-type=END,FAIL
