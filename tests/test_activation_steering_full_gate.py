@@ -78,6 +78,18 @@ def _noop_row() -> dict:
 
 
 class FullSubmissionGateTests(unittest.TestCase):
+    def test_tiny_bundle_passes_negative_alpha_grid_as_one_argument(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        tiny_script = (
+            repo_root
+            / "jobs"
+            / "sycophancy_bias_probe"
+            / "activation_steering_controlled_sharded_20260725"
+            / "tiny_dry_run_qwen_csqa.sbatch"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"--alphas=$ALPHAS"', tiny_script)
+        self.assertNotIn('--alphas "$ALPHAS"', tiny_script)
+
     def test_submitter_reserves_a_hash_bound_non_overwriting_run_root(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         submitter = (

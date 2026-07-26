@@ -76,7 +76,7 @@ for split in train val test; do
     --output-dir "$TINY_ROOT/$split"
     --split "$split"
     --layers "$LAYERS"
-    --alphas "$ALPHAS"
+    "--alphas=$ALPHAS"
     --control-seeds "$CONTROL_SEEDS"
     --learned-directions wn,cn,wc,sw
     --max-batch-size "$MAX_BATCH_SIZE"
