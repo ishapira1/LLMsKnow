@@ -5,6 +5,18 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 cd "$REPO_DIR"
 BUNDLE="jobs/sycophancy_bias_probe/activation_steering_conditioned_gate_sharded_20260726"
+LOG_ROOT="$REPO_DIR/jobs/sycophancy_bias_probe/logs/activation_steering_conditioned_gate_sharded_20260726"
+mkdir -p \
+  "$LOG_ROOT/submit" \
+  "$LOG_ROOT/slurm/cohort" \
+  "$LOG_ROOT/slurm/bf16" \
+  "$LOG_ROOT/slurm/projection" \
+  "$LOG_ROOT/slurm/validation" \
+  "$LOG_ROOT/slurm/selection" \
+  "$LOG_ROOT/slurm/test" \
+  "$LOG_ROOT/slurm/control" \
+  "$LOG_ROOT/slurm/sensitivity" \
+  "$LOG_ROOT/slurm/aggregate"
 STAGE="${STAGE:-}"
 DEPENDENCY="${DEPENDENCY:-}"
 case "$STAGE" in
@@ -46,4 +58,6 @@ job_id="$(
     --export="ALL,SUBMISSION_GIT_COMMIT=$SUBMISSION_GIT_COMMIT" \
     "$script"
 )"
-printf 'Submitted conditioned Stage-B %s job %s\n' "$STAGE" "$job_id"
+printf 'Submitted conditioned Stage-B %s job %s at commit %s\n' \
+  "$STAGE" "$job_id" "$SUBMISSION_GIT_COMMIT" | tee \
+  "$LOG_ROOT/submit/${STAGE}_submission_${job_id}.log"
