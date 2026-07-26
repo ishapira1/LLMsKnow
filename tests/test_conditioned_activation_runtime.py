@@ -10,6 +10,7 @@ import numpy as np
 from llmssycoph.interventions.activations import resolve_prompt_suffix_mask
 from llmssycoph.interventions.conditioned_runtime import (
     _addition_for_ratio,
+    aggregate_conditioned_test,
     project_conditioned_compute,
     select_conditioned_validation,
 )
@@ -229,6 +230,150 @@ class ConditionedRuntimeContractTests(unittest.TestCase):
             self.assertLessEqual(
                 projection["projected_accelerator_hours_total"], 48.0
             )
+
+    def test_heldout_aggregate_supports_one_selected_model(self):
+        rows = []
+        questions = [f"arc::{index}" for index in range(20)]
+
+        def add_row(
+            *,
+            key,
+            layer,
+            mode,
+            condition,
+            ratio,
+            p_endorsed,
+            treatment_type="learned",
+            control_type=None,
+            control_seed=None,
+        ):
+            rows.append(
+                {
+                    "stable_question_key": key,
+                    "model_name": "model-a",
+                    "split": "test",
+                    "layer": layer,
+                    "position_mode": mode,
+                    "conditioning_family": "b_conditioned_wc",
+                    "treatment_type": treatment_type,
+                    "control_type": control_type,
+                    "control_seed": control_seed,
+                    "condition": condition,
+                    "injected_residual_ratio_target": ratio,
+                    "p_endorsed": p_endorsed,
+                    "delta_p_endorsed": p_endorsed
+                    - (0.60 if condition == "incorrect_suggestion" else 0.10),
+                    "p_correct": 0.8,
+                    "is_correct": condition != "incorrect_suggestion",
+                    "equals_endorsed": (
+                        condition == "incorrect_suggestion" and ratio == 0
+                    ),
+                    "alpha_zero_noop_exact": True,
+                    "nonfinite_failure": False,
+                }
+            )
+
+        for layer in (10, 11):
+            for mode in ("boundary_only", "suffix_energy_matched"):
+                negative_wrong = (
+                    0.30 if mode == "suffix_energy_matched" else 0.40
+                )
+                if layer == 11:
+                    negative_wrong += 0.05
+                for key in questions:
+                    for condition in (
+                        "neutral",
+                        "incorrect_suggestion",
+                        "suggest_correct",
+                    ):
+                        for ratio in (-0.10, 0.0, 0.10):
+                            if condition == "incorrect_suggestion":
+                                probability = (
+                                    negative_wrong
+                                    if ratio < 0
+                                    else 0.70
+                                    if ratio > 0
+                                    else 0.60
+                                )
+                            else:
+                                probability = 0.10
+                            add_row(
+                                key=key,
+                                layer=layer,
+                                mode=mode,
+                                condition=condition,
+                                ratio=ratio,
+                                p_endorsed=probability,
+                            )
+        for control_seed in range(20):
+            for control_type in ("item_sign_matched", "isotropic_matched"):
+                for mode in ("boundary_only", "suffix_energy_matched"):
+                    for key in questions:
+                        for condition in (
+                            "neutral",
+                            "incorrect_suggestion",
+                            "suggest_correct",
+                        ):
+                            for ratio in (-0.10, 0.10):
+                                probability = (
+                                    0.59
+                                    if condition == "incorrect_suggestion"
+                                    and ratio < 0
+                                    else 0.61
+                                    if condition == "incorrect_suggestion"
+                                    else 0.10
+                                )
+                                add_row(
+                                    key=key,
+                                    layer=10,
+                                    mode=mode,
+                                    condition=condition,
+                                    ratio=ratio,
+                                    p_endorsed=probability,
+                                    treatment_type="control",
+                                    control_type=control_type,
+                                    control_seed=control_seed,
+                                )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results = root / "test.jsonl"
+            selection = root / "selection.json"
+            output = root / "aggregate"
+            write_strict_jsonl(results, rows)
+            write_strict_json(
+                selection,
+                {
+                    "selections": [
+                        {
+                            "model_name": "model-a",
+                            "status": "selected",
+                            "selected": {
+                                "conditioning_family": "b_conditioned_wc",
+                                "layer": 10,
+                                "neighbor_layer": 11,
+                                "position_mode": "boundary_only",
+                                "ratio_magnitude": 0.10,
+                            },
+                        },
+                        {
+                            "model_name": "model-b",
+                            "status": "no_eligible_validation_candidate",
+                            "selected": None,
+                        },
+                    ]
+                },
+            )
+            decision = aggregate_conditioned_test(
+                input_paths=[results],
+                selection_path=selection,
+                output_dir=output,
+                n_bootstrap=100,
+                seed=5,
+            )
+            result = json.loads(decision.read_text())
+            self.assertEqual(result["conclusion"], "model_specific")
+            self.assertTrue(result["models"][0]["robust"])
+            self.assertTrue((output / "conditioned_dose_response.png").is_file())
 
 
 if __name__ == "__main__":

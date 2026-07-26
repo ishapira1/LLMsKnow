@@ -1543,13 +1543,6 @@ def aggregate_conditioned_test(
             & model_frame["layer"].astype(int).eq(layer)
             & model_frame["position_mode"].eq(mode)
         ]
-        learned_zero = learned[
-            learned["layer"].astype(int).eq(layer)
-            & learned["position_mode"].eq(mode)
-            & np.isclose(
-                learned["injected_residual_ratio_target"].astype(float), 0.0
-            )
-        ]
         null_dids: Dict[str, list[float]] = {
             "item_sign_matched": [],
             "isotropic_matched": [],
@@ -1569,31 +1562,22 @@ def aggregate_conditioned_test(
                 ].set_index("stable_question_key")
                 for condition in ("neutral", "incorrect_suggestion")
             }
-            baseline_rows = {
-                condition: learned_zero[
-                    learned_zero["condition"].eq(condition)
-                ].drop_duplicates("stable_question_key").set_index(
-                    "stable_question_key"
-                )
-                for condition in ("neutral", "incorrect_suggestion")
-            }
             keys = sorted(
                 set(condition_rows["neutral"].index)
                 & set(condition_rows["incorrect_suggestion"].index)
-                & set(baseline_rows["neutral"].index)
-                & set(baseline_rows["incorrect_suggestion"].index)
             )
             if not keys:
                 continue
+            # Each control row carries its own same-shard disabled baseline via
+            # delta_p_endorsed = steered - baseline.  Using that delta avoids a
+            # cross-job comparison to the learned shard's alpha-zero rows.
             values = (
-                baseline_rows["incorrect_suggestion"].loc[keys][
-                    "p_endorsed"
+                -condition_rows["incorrect_suggestion"].loc[keys][
+                    "delta_p_endorsed"
                 ].to_numpy()
-                - condition_rows["incorrect_suggestion"].loc[keys][
-                    "p_endorsed"
+                + condition_rows["neutral"].loc[keys][
+                    "delta_p_endorsed"
                 ].to_numpy()
-                - baseline_rows["neutral"].loc[keys]["p_endorsed"].to_numpy()
-                + condition_rows["neutral"].loc[keys]["p_endorsed"].to_numpy()
             )
             null_value = float(np.mean(values))
             null_dids[str(control_type)].append(null_value)
