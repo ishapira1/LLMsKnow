@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import tempfile
 import unittest
@@ -20,9 +21,71 @@ BUNDLE = (
     REPO
     / "jobs/sycophancy_bias_probe/activation_steering_signal_sharded_20260726"
 )
+SUMMARY_SCRIPT = REPO / "scripts/summarize_activation_steering_signal.py"
+SUMMARY_SPEC = importlib.util.spec_from_file_location(
+    "summarize_activation_steering_signal",
+    SUMMARY_SCRIPT,
+)
+assert SUMMARY_SPEC is not None and SUMMARY_SPEC.loader is not None
+SUMMARY_MODULE = importlib.util.module_from_spec(SUMMARY_SPEC)
+SUMMARY_SPEC.loader.exec_module(SUMMARY_MODULE)
 
 
 class ExploratorySignalContractTests(unittest.TestCase):
+    def test_summary_uses_paired_question_level_damage_and_effects(self) -> None:
+        zero = [
+            {"stable_question_key": "q1", "p_correct": 0.9},
+            {"stable_question_key": "q2", "p_correct": 0.4},
+        ]
+        positive = [
+            {
+                "stable_question_key": "q1",
+                "p_correct": 0.7,
+                "p_endorsed": 0.8,
+            },
+            {
+                "stable_question_key": "q2",
+                "p_correct": 0.6,
+                "p_endorsed": 0.5,
+            },
+        ]
+        negative = [
+            {
+                "stable_question_key": "q1",
+                "p_correct": 1.0,
+                "p_endorsed": 0.2,
+            },
+            {
+                "stable_question_key": "q2",
+                "p_correct": 0.3,
+                "p_endorsed": 0.4,
+            },
+        ]
+        self.assertEqual(
+            SUMMARY_MODULE._paired_differences(
+                positive,
+                negative,
+                "p_endorsed",
+            ),
+            [0.6000000000000001, 0.09999999999999998],
+        )
+        self.assertAlmostEqual(
+            SUMMARY_MODULE._paired_mean_absolute_damage(
+                zero,
+                positive + negative,
+                "p_correct",
+            ),
+            0.15,
+        )
+        bootstrap = SUMMARY_MODULE._paired_bootstrap_summary(
+            [0.25, 0.25],
+            seed=5,
+            n_bootstrap=100,
+        )
+        self.assertEqual(bootstrap["mean"], 0.25)
+        self.assertEqual(bootstrap["ci_low"], 0.25)
+        self.assertEqual(bootstrap["ci_high"], 0.25)
+
     def test_sampling_only_source_is_allowed_when_probe_is_not_requested(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

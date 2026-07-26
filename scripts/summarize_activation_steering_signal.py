@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 from collections import defaultdict
 from pathlib import Path
 from statistics import mean
@@ -27,6 +28,81 @@ def _mean(rows: list[dict[str, Any]], field: str) -> float | None:
     return mean(values) if values else None
 
 
+def _paired_differences(
+    positive: list[dict[str, Any]],
+    negative: list[dict[str, Any]],
+    field: str,
+) -> list[float]:
+    positive_by_question = {
+        str(row["stable_question_key"]): float(row[field]) for row in positive
+    }
+    negative_by_question = {
+        str(row["stable_question_key"]): float(row[field]) for row in negative
+    }
+    if set(positive_by_question) != set(negative_by_question):
+        raise ValueError(
+            "Paired summary inputs do not contain identical stable question keys."
+        )
+    keys = sorted(positive_by_question)
+    return [
+        positive_by_question[key] - negative_by_question[key] for key in keys
+    ]
+
+
+def _paired_mean_absolute_damage(
+    zero: list[dict[str, Any]],
+    doses: list[dict[str, Any]],
+    field: str,
+) -> float | None:
+    zero_by_question = {
+        str(row["stable_question_key"]): float(row[field]) for row in zero
+    }
+    missing = sorted(
+        {
+            str(row["stable_question_key"])
+            for row in doses
+            if str(row["stable_question_key"]) not in zero_by_question
+        }
+    )
+    if missing:
+        raise ValueError(
+            "Dose rows are missing alpha-zero pairs for stable question keys: "
+            + ", ".join(missing[:5])
+        )
+    values = [
+        abs(float(row[field]) - zero_by_question[str(row["stable_question_key"])])
+        for row in doses
+    ]
+    return mean(values) if values else None
+
+
+def _paired_bootstrap_summary(
+    values: list[float],
+    *,
+    seed: int,
+    n_bootstrap: int = 10_000,
+) -> dict[str, Any]:
+    if not values:
+        return {
+            "mean": None,
+            "ci_low": None,
+            "ci_high": None,
+            "n_questions": 0,
+        }
+    rng = random.Random(int(seed))
+    count = len(values)
+    estimates = sorted(
+        mean(values[rng.randrange(count)] for _ in range(count))
+        for _ in range(int(n_bootstrap))
+    )
+    return {
+        "mean": mean(values),
+        "ci_low": estimates[int(0.025 * len(estimates))],
+        "ci_high": estimates[int(0.975 * len(estimates)) - 1],
+        "n_questions": count,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--selection", type=Path, required=True)
@@ -41,7 +117,9 @@ def main() -> int:
     }
     rows = _read_rows(args.input)
     results: list[dict[str, Any]] = []
-    for model_name, layer in sorted(selected_layers.items()):
+    for model_index, (model_name, layer) in enumerate(
+        sorted(selected_layers.items())
+    ):
         model_rows = [
             row
             for row in rows
@@ -92,19 +170,58 @@ def main() -> int:
             if row.get("condition") == "neutral"
             and float(row["alpha"]) == -magnitude
         ]
-        p_wrong_pos = _mean(wrong_pos, "p_endorsed")
-        p_wrong_neg = _mean(wrong_neg, "p_endorsed")
-        p_neutral_zero = _mean(neutral_zero, "p_correct")
-        neutral_damage_values = []
-        for dose_rows in (neutral_pos, neutral_neg):
-            value = _mean(dose_rows, "p_correct")
-            if value is not None and p_neutral_zero is not None:
-                neutral_damage_values.append(abs(value - p_neutral_zero))
-        signed_effect = (
-            p_wrong_pos - p_wrong_neg
-            if p_wrong_pos is not None and p_wrong_neg is not None
-            else None
+        signed_effect_summary = _paired_bootstrap_summary(
+            _paired_differences(wrong_pos, wrong_neg, "p_endorsed"),
+            seed=20260726 + model_index,
         )
+        alpha_one_positive = [
+            row
+            for row in learned
+            if row.get("condition") == "incorrect_suggestion"
+            and float(row["alpha"]) == 1.0
+        ]
+        alpha_one_negative = [
+            row
+            for row in learned
+            if row.get("condition") == "incorrect_suggestion"
+            and float(row["alpha"]) == -1.0
+        ]
+        alpha_one_summary = _paired_bootstrap_summary(
+            _paired_differences(
+                alpha_one_positive,
+                alpha_one_negative,
+                "p_endorsed",
+            ),
+            seed=20260736 + model_index,
+        )
+        neutral_probability_damage = _paired_mean_absolute_damage(
+            neutral_zero,
+            neutral_pos + neutral_neg,
+            "p_correct",
+        )
+        neutral_accuracy_damage = _paired_mean_absolute_damage(
+            neutral_zero,
+            neutral_pos + neutral_neg,
+            "is_correct",
+        )
+        dataset_effects = {}
+        for dataset in sorted({str(row["dataset"]) for row in wrong_pos}):
+            dataset_effects[dataset] = _paired_bootstrap_summary(
+                _paired_differences(
+                    [
+                        row
+                        for row in wrong_pos
+                        if str(row["dataset"]) == dataset
+                    ],
+                    [
+                        row
+                        for row in wrong_neg
+                        if str(row["dataset"]) == dataset
+                    ],
+                    "p_endorsed",
+                ),
+                seed=20260746 + model_index,
+            )
         control_groups: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
         for row in model_rows:
             if row.get("treatment_type") == "control":
@@ -160,15 +277,33 @@ def main() -> int:
                 "model_name": model_name,
                 "selected_layer": layer,
                 "comparison_magnitude": magnitude,
-                "signed_wrong_pressure_effect": signed_effect,
-                "mean_neutral_probability_damage": (
-                    mean(neutral_damage_values) if neutral_damage_values else None
+                "signed_wrong_pressure_effect": signed_effect_summary["mean"],
+                "signed_wrong_pressure_effect_ci_low": (
+                    signed_effect_summary["ci_low"]
+                ),
+                "signed_wrong_pressure_effect_ci_high": (
+                    signed_effect_summary["ci_high"]
+                ),
+                "signed_wrong_pressure_effect_n_questions": (
+                    signed_effect_summary["n_questions"]
+                ),
+                "alpha_1_signed_wrong_pressure_effect": alpha_one_summary,
+                "mean_neutral_probability_damage": neutral_probability_damage,
+                "mean_neutral_accuracy_damage": neutral_accuracy_damage,
+                "per_dataset_signed_effect_at_comparison_magnitude": (
+                    dataset_effects
                 ),
                 "max_control_signed_effect": max_control,
                 "effect_exceeds_all_sampled_controls": (
-                    signed_effect is not None
+                    signed_effect_summary["mean"] is not None
                     and max_control is not None
-                    and signed_effect > max_control
+                    and signed_effect_summary["mean"] > max_control
+                ),
+                "effect_minus_max_sampled_control": (
+                    signed_effect_summary["mean"] - max_control
+                    if signed_effect_summary["mean"] is not None
+                    and max_control is not None
+                    else None
                 ),
                 "control_scores": control_scores,
                 "fixed_probe": probe_by_alpha,
@@ -194,10 +329,33 @@ def main() -> int:
                 f"## {row['model_name']}",
                 "",
                 f"- Selected layer: {row['selected_layer']}",
-                f"- Signed W pressure effect: {row['signed_wrong_pressure_effect']}",
-                f"- Mean neutral probability damage: {row['mean_neutral_probability_damage']}",
+                (
+                    "- Signed W pressure effect at "
+                    f"|α|={row['comparison_magnitude']}: "
+                    f"{row['signed_wrong_pressure_effect']} "
+                    f"[{row['signed_wrong_pressure_effect_ci_low']}, "
+                    f"{row['signed_wrong_pressure_effect_ci_high']}]"
+                ),
+                (
+                    "- Signed W pressure effect at |α|=1: "
+                    f"{row['alpha_1_signed_wrong_pressure_effect']['mean']} "
+                    f"[{row['alpha_1_signed_wrong_pressure_effect']['ci_low']}, "
+                    f"{row['alpha_1_signed_wrong_pressure_effect']['ci_high']}]"
+                ),
+                (
+                    "- Paired mean absolute neutral probability damage: "
+                    f"{row['mean_neutral_probability_damage']}"
+                ),
+                (
+                    "- Paired mean absolute neutral accuracy damage: "
+                    f"{row['mean_neutral_accuracy_damage']}"
+                ),
                 f"- Maximum sampled-control effect: {row['max_control_signed_effect']}",
                 f"- Exceeds every sampled control: {row['effect_exceeds_all_sampled_controls']}",
+                (
+                    "- Effect minus maximum sampled control: "
+                    f"{row['effect_minus_max_sampled_control']}"
+                ),
                 "",
             ]
         )
