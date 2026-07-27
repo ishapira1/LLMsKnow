@@ -187,6 +187,10 @@ class ConditionedRuntimeContractTests(unittest.TestCase):
             self.assertFalse(result["heldout_gpu_authorized"])
             self.assertFalse(result["operational_failure"])
             self.assertTrue(result["preregistered_stop_satisfied"])
+            self.assertEqual(
+                result["final_report_sha256"],
+                sha256_file(output / "final_report.md"),
+            )
             self.assertTrue((output / "final_report.md").is_file())
             self.assertTrue((output / "validation_gate.png").is_file())
 

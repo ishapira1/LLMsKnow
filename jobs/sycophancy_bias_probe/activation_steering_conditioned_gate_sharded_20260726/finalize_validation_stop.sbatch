@@ -14,7 +14,7 @@ source jobs/sycophancy_bias_probe/activation_steering_conditioned_gate_sharded_2
 TASK_LABEL="both_models_arc_validation_stop"
 start_structured_task_log validation_stop_finalization
 
-OUTPUT_DIR="$INTERVENTION_ROOT/final_aggregate"
+OUTPUT_DIR="${FINAL_AGGREGATE_DIR:-$INTERVENTION_ROOT/final_aggregate}"
 cmd=(
   "$ENV_PYTHON" "$REPO_DIR/run_activation_steering.py"
   finalize-conditioned-validation-stop

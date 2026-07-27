@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
@@ -1504,6 +1505,7 @@ def finalize_conditioned_validation_stop(
     """Materialize the preregistered negative stop when validation selects nothing."""
     import matplotlib.pyplot as plt
     import seaborn as sns
+    from matplotlib.lines import Line2D
 
     selection = read_json(selection_path)
     selections = list(selection.get("selections", []))
@@ -1722,10 +1724,35 @@ def finalize_conditioned_validation_stop(
         axis.tick_params(labelsize=12)
         axis.xaxis.label.set_size(15)
         axis.yaxis.label.set_size(15)
-    if grid.legend is not None:
-        grid.legend.set_bbox_to_anchor((0.5, -0.04))
-        grid.legend.set_loc("upper center")
-        grid.legend.set_ncols(2)
+    if getattr(grid, "_legend", None) is not None:
+        grid._legend.remove()
+    grid.figure.subplots_adjust(bottom=0.12)
+    grid.figure.legend(
+        [
+            Line2D(
+                [0],
+                [0],
+                color="#73b3ab",
+                marker="o",
+                linewidth=2,
+                label="Boundary only",
+            ),
+            Line2D(
+                [0],
+                [0],
+                color="#d4651a",
+                marker="o",
+                linewidth=2,
+                label="Energy-matched suffix",
+            ),
+        ],
+        ["Boundary only", "Energy-matched suffix"],
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.01),
+        ncols=2,
+        frameon=True,
+        fontsize=12,
+    )
     grid.figure.suptitle(
         "Conditioned steering validation: no eligible correction",
         fontsize=20,
@@ -1737,33 +1764,6 @@ def finalize_conditioned_validation_stop(
         bbox_inches="tight",
     )
     plt.close(grid.figure)
-
-    final = {
-        "stage_b_version": CONDITIONED_STAGE_B_VERSION,
-        "conclusion": "stopped_at_validation_no_eligible_candidate",
-        "scientific_interpretation": (
-            "Conditioned W/C information was more decodable than the global "
-            "W/C estimator, but no tested additive intervention produced the "
-            "preregistered behavioral correction."
-        ),
-        "preregistered_stop_satisfied": True,
-        "heldout_gpu_authorized": False,
-        "heldout_stage_status": "skipped_by_preregistered_validation_gate",
-        "operational_failure": False,
-        "models": model_rows,
-        "selection_sha256": sha256_file(selection_path),
-        "cpu_decision_sha256": sha256_file(cpu_decision_path),
-        "cpu_layer_table_sha256": sha256_file(layer_table_path),
-        "validation_input_sha256": {
-            str(Path(path).resolve()): sha256_file(path) for path in input_paths
-        },
-        "validation_candidates_sha256": sha256_file(
-            output / "validation_candidates.csv"
-        ),
-        "model_results_sha256": sha256_file(output / "model_results.csv"),
-        "plot_sha256": sha256_file(output / "validation_gate.png"),
-    }
-    write_strict_json(output / "final_decision.json", final)
 
     lines = [
         "# Conditioned steering gate: validation stop",
@@ -1814,6 +1814,39 @@ def finalize_conditioned_validation_stop(
     (output / "final_report.md").write_text(
         "\n".join(lines) + "\n", encoding="utf-8"
     )
+
+    final = {
+        "stage_b_version": CONDITIONED_STAGE_B_VERSION,
+        "conclusion": "stopped_at_validation_no_eligible_candidate",
+        "scientific_interpretation": (
+            "Conditioned W/C information was more decodable than the global "
+            "W/C estimator, but no tested additive intervention produced the "
+            "preregistered behavioral correction."
+        ),
+        "preregistered_stop_satisfied": True,
+        "heldout_gpu_authorized": False,
+        "heldout_stage_status": "skipped_by_preregistered_validation_gate",
+        "operational_failure": False,
+        "models": model_rows,
+        "finalizer_git_commit": (
+            os.environ.get("SUBMISSION_GIT_COMMIT")
+            or os.environ.get("RUNTIME_GIT_COMMIT")
+        ),
+        "finalizer_slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+        "selection_sha256": sha256_file(selection_path),
+        "cpu_decision_sha256": sha256_file(cpu_decision_path),
+        "cpu_layer_table_sha256": sha256_file(layer_table_path),
+        "validation_input_sha256": {
+            str(Path(path).resolve()): sha256_file(path) for path in input_paths
+        },
+        "validation_candidates_sha256": sha256_file(
+            output / "validation_candidates.csv"
+        ),
+        "model_results_sha256": sha256_file(output / "model_results.csv"),
+        "plot_sha256": sha256_file(output / "validation_gate.png"),
+        "final_report_sha256": sha256_file(output / "final_report.md"),
+    }
+    write_strict_json(output / "final_decision.json", final)
     return output / "final_decision.json"
 
 
