@@ -21,11 +21,15 @@ hashes. All output writers refuse overwrite.
 5. `validation_array.sbatch`: screen three nominated layers, two position
    modes, comparators, and the full ratio grid.
 6. `select_validation.sbatch`: apply the preregistered behavioral selection
-   rule. Models without an eligible candidate stop here.
-7. `test_learned_array.sbatch`, `test_controls_array.sbatch`, and
+   rule. Models without an eligible candidate stop here. A zero-candidate
+   result is a successful scientific stop, not an operational failure.
+7. `finalize_validation_stop.sbatch`: when no model is selected, materialize
+   the immutable negative decision, candidate/model tables, and validation
+   plot. Do not submit any held-out GPU stage in this branch.
+8. `test_learned_array.sbatch`, `test_controls_array.sbatch`, and
    `suffix_sensitivity_array.sbatch`: held-out learned curves, 20 item-sign and
    20 isotropic controls, and the capped same-per-position sensitivity.
-8. `aggregate_test.sbatch`: paired intervals, null comparison, position test,
+9. `aggregate_test.sbatch`: paired intervals, null comparison, position test,
    plot, and machine-readable final decision.
 
 Use the stage submitter with the same environment variables used for Stage A:
@@ -40,7 +44,9 @@ bash jobs/sycophancy_bias_probe/activation_steering_conditioned_gate_sharded_202
 ```
 
 Replace `cohort` with exactly one subsequent stage name after inspecting its
-gate artifact: `bf16`, `projection`, `validation`, `selection`, `test`,
-`controls`, `sensitivity`, or `aggregate`.
+gate artifact: `bf16`, `projection`, `validation`, `selection`,
+`finalize-stop`, `test`, `controls`, `sensitivity`, or `aggregate`. Use
+`finalize-stop` only when selection saved zero eligible models; use the
+held-out stages only for selected models.
 
 No script in this bundle automatically submits a broader DAG.
