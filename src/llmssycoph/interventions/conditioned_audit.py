@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import pickle
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
@@ -10,6 +11,7 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import roc_auc_score
 from sklearn.utils.extmath import randomized_svd
 
@@ -34,6 +36,7 @@ CONDITIONED_ARTIFACT_SCHEMA_VERSION = 2
 CANONICAL_LABELS = ("A", "B", "C", "D", "E")
 DEFAULT_PCA_RANKS = (1, 2, 4, 8, 16)
 DEFAULT_RIDGE_GRID = (1e-4, 1e-2, 1.0, 100.0)
+CONDITIONED_FAMILY_PRIORITY = ("b_conditioned_wc", "belief_conflict")
 
 
 def _unit(vector: np.ndarray) -> np.ndarray:
@@ -71,6 +74,24 @@ def _question_auc(positive_scores: np.ndarray, negative_scores: np.ndarray) -> f
         ),
         np.concatenate([positive, negative]),
     )
+
+
+def _common_primary_family(
+    model_decisions: Mapping[str, Mapping[str, Any]],
+    *,
+    expected_models: int = 2,
+) -> Optional[str]:
+    """Choose the first conditioned family that passes in every model."""
+
+    if len(model_decisions) != int(expected_models):
+        return None
+    for family in CONDITIONED_FAMILY_PRIORITY:
+        if all(
+            bool(decision["families"][family]["passes"])
+            for decision in model_decisions.values()
+        ):
+            return family
+    return None
 
 
 def deterministic_stratified_folds(
@@ -655,10 +676,11 @@ def _nested_logistic_scores(
     folds: np.ndarray,
     *,
     c_grid: Sequence[float] = (0.01, 0.1, 1.0, 10.0),
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, int]:
     n_questions = len(folds)
     positive_oof = np.full(n_questions, np.nan, dtype=np.float64)
     negative_oof = np.full(n_questions, np.nan, dtype=np.float64)
+    convergence_warnings = 0
     combined = np.concatenate([positive, negative], axis=0).astype(
         np.float64, copy=False
     )
@@ -716,10 +738,17 @@ def _nested_logistic_scores(
                     C=float(c_value),
                     penalty="l2",
                     solver="lbfgs",
-                    max_iter=2000,
-                    tol=1e-8,
+                    max_iter=5000,
+                    tol=1e-6,
                     random_state=5,
-                ).fit(x_train, y_train)
+                )
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always", ConvergenceWarning)
+                    classifier.fit(x_train, y_train)
+                convergence_warnings += sum(
+                    issubclass(warning.category, ConvergenceWarning)
+                    for warning in caught
+                )
                 inner_scores.append(
                     _question_auc(
                         classifier.decision_function(
@@ -743,10 +772,17 @@ def _nested_logistic_scores(
             C=best[1],
             penalty="l2",
             solver="lbfgs",
-            max_iter=2000,
-            tol=1e-8,
+            max_iter=5000,
+            tol=1e-6,
             random_state=5,
-        ).fit(x_train, y_train)
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ConvergenceWarning)
+            classifier.fit(x_train, y_train)
+        convergence_warnings += sum(
+            issubclass(warning.category, ConvergenceWarning)
+            for warning in caught
+        )
         positive_oof[test] = classifier.decision_function(
             positive_projected[test]
         )
@@ -755,7 +791,7 @@ def _nested_logistic_scores(
         )
     if not np.isfinite(positive_oof).all() or not np.isfinite(negative_oof).all():
         raise FloatingPointError("Nested logistic regression left nonfinite OOF scores.")
-    return positive_oof, negative_oof
+    return positive_oof, negative_oof, int(convergence_warnings)
 
 
 def _permuted_bank_aucs(
@@ -1436,13 +1472,18 @@ def run_mean_cancellation_audit(
                 }
             )
 
-            logistic_positive, logistic_negative = _nested_logistic_scores(
-                wrong, correct_states, folds
-            )
+            (
+                logistic_positive,
+                logistic_negative,
+                logistic_convergence_warnings,
+            ) = _nested_logistic_scores(wrong, correct_states, folds)
             logistic_auc = _question_auc(logistic_positive, logistic_negative)
             for row in reversed(layer_rows):
                 if row["model_name"] == model_name and row["layer"] == layer:
                     row["nested_logistic_wc_auroc"] = logistic_auc
+                    row["nested_logistic_convergence_warnings"] = (
+                        logistic_convergence_warnings
+                    )
 
             null_aucs = _permuted_bank_aucs(
                 wc_delta,
@@ -1901,37 +1942,35 @@ def run_mean_cancellation_audit(
                 "passing_adjacent_layers": adjacent,
                 "nominated_layer": nominated,
             }
-        primary_family = (
-            "b_conditioned_wc"
-            if family_decisions["b_conditioned_wc"]["passes"]
-            else "belief_conflict"
-            if family_decisions["belief_conflict"]["passes"]
-            else None
-        )
+        decisions[model_name] = {
+            "families": family_decisions,
+        }
+    primary_family = _common_primary_family(decisions)
+    for model_decision in decisions.values():
         nominated_layer = (
-            family_decisions[primary_family]["nominated_layer"]
+            model_decision["families"][primary_family]["nominated_layer"]
             if primary_family is not None
             else None
         )
-        decisions[model_name] = {
-            "families": family_decisions,
-            "primary_family": primary_family,
-            "nominated_layer": nominated_layer,
-            "nominated_layers_with_neighbors": (
-                [nominated_layer - 1, nominated_layer, nominated_layer + 1]
-                if nominated_layer is not None
-                else []
-            ),
-        }
-    both_models_pass = len(decisions) == 2 and all(
-        value["primary_family"] is not None for value in decisions.values()
-    )
+        model_decision.update(
+            {
+                "primary_family": primary_family,
+                "nominated_layer": nominated_layer,
+                "nominated_layers_with_neighbors": (
+                    [nominated_layer - 1, nominated_layer, nominated_layer + 1]
+                    if nominated_layer is not None
+                    else []
+                ),
+            }
+        )
     decision = {
         "audit_protocol_version": AUDIT_PROTOCOL_VERSION,
-        "gpu_stage_authorized": bool(both_models_pass),
+        "gpu_stage_authorized": primary_family is not None,
         "authorization_rule": (
-            "both models must pass the preregistered adjacent-layer conditioned-additive gate"
+            "one common conditioned family must pass the preregistered "
+            "adjacent-layer gate in both models"
         ),
+        "primary_family": primary_family,
         "models": decisions,
         "low_rank_or_leace_success_does_not_authorize_gpu": True,
         "n_permutations": int(n_permutations),
@@ -2037,6 +2076,27 @@ def _write_audit_report(
             f"{improvement:.3f} | "
             f"{float(null_p95):.3f} | {float(stability):.3f} |"
         )
+    decoder_rows = layer_table.drop_duplicates(["model_name", "layer"])
+    decoder_warning_count = int(
+        decoder_rows["nested_logistic_convergence_warnings"].sum()
+    )
+    lines.extend(
+        [
+            "",
+            "## Secondary decoder numerical status",
+            "",
+            (
+                "All nested-CV L2 logistic fits converged under the recorded "
+                "tolerance."
+                if decoder_warning_count == 0
+                else (
+                    f"The secondary nested-CV L2 logistic sweep recorded "
+                    f"{decoder_warning_count} convergence warnings. Its AUROCs "
+                    "are exploratory and do not enter the additive-family gate."
+                )
+            ),
+        ]
+    )
     lines.extend(
         [
             "",

@@ -9,6 +9,7 @@ from sklearn.linear_model import LogisticRegression
 
 from llmssycoph.interventions.conditioned_audit import (
     _binding_vectors,
+    _common_primary_family,
     _fold_geometry,
     _nested_logistic_scores,
     _permuted_bank_aucs,
@@ -25,6 +26,28 @@ from llmssycoph.interventions.controlled import (
 
 
 class ConditionedAuditContractTests(unittest.TestCase):
+    def test_primary_family_must_pass_in_both_models(self):
+        decisions = {
+            "llama": {
+                "families": {
+                    "b_conditioned_wc": {"passes": True},
+                    "belief_conflict": {"passes": True},
+                }
+            },
+            "qwen": {
+                "families": {
+                    "b_conditioned_wc": {"passes": False},
+                    "belief_conflict": {"passes": True},
+                }
+            },
+        }
+        self.assertEqual(
+            _common_primary_family(decisions),
+            "belief_conflict",
+        )
+        decisions["qwen"]["families"]["belief_conflict"]["passes"] = False
+        self.assertIsNone(_common_primary_family(decisions))
+
     def test_nested_logistic_row_span_matches_full_width_predictions(self):
         rng = np.random.default_rng(29)
         n_questions = 25
@@ -35,7 +58,11 @@ class ConditionedAuditContractTests(unittest.TestCase):
         negative = latent @ decoder - direction
         folds = np.arange(n_questions, dtype=int) % 5
 
-        positive_scores, negative_scores = _nested_logistic_scores(
+        (
+            positive_scores,
+            negative_scores,
+            convergence_warnings,
+        ) = _nested_logistic_scores(
             positive,
             negative,
             folds,
@@ -57,8 +84,8 @@ class ConditionedAuditContractTests(unittest.TestCase):
                         C=c_value,
                         penalty="l2",
                         solver="lbfgs",
-                        max_iter=2000,
-                        tol=1e-8,
+                        max_iter=5000,
+                        tol=1e-6,
                         random_state=5,
                     ).fit(
                         np.concatenate(
@@ -89,8 +116,8 @@ class ConditionedAuditContractTests(unittest.TestCase):
                 C=best_c,
                 penalty="l2",
                 solver="lbfgs",
-                max_iter=2000,
-                tol=1e-8,
+                max_iter=5000,
+                tol=1e-6,
                 random_state=5,
             ).fit(
                 np.concatenate([positive[train], negative[train]]),
@@ -110,6 +137,7 @@ class ConditionedAuditContractTests(unittest.TestCase):
 
         self.assertTrue(np.isfinite(positive_scores).all())
         self.assertTrue(np.isfinite(negative_scores).all())
+        self.assertEqual(convergence_warnings, 0)
         np.testing.assert_allclose(
             positive_scores, reference_positive, rtol=2e-4, atol=2e-4
         )
