@@ -25,12 +25,13 @@ case "$STAGE" in
   projection) script="$BUNDLE/project_compute.sbatch" ;;
   validation) script="$BUNDLE/validation_array.sbatch" ;;
   selection) script="$BUNDLE/select_validation.sbatch" ;;
+  finalize-stop) script="$BUNDLE/finalize_validation_stop.sbatch" ;;
   test) script="$BUNDLE/test_learned_array.sbatch" ;;
   controls) script="$BUNDLE/test_controls_array.sbatch" ;;
   sensitivity) script="$BUNDLE/suffix_sensitivity_array.sbatch" ;;
   aggregate) script="$BUNDLE/aggregate_test.sbatch" ;;
   *)
-    printf 'Set STAGE to one of: cohort bf16 projection validation selection test controls sensitivity aggregate\n' >&2
+    printf 'Set STAGE to one of: cohort bf16 projection validation selection finalize-stop test controls sensitivity aggregate\n' >&2
     exit 2
     ;;
 esac

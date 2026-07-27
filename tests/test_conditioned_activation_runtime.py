@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -12,12 +13,14 @@ from llmssycoph.interventions.conditioned_runtime import (
     _addition_for_ratio,
     _median_residual_norm,
     aggregate_conditioned_test,
+    finalize_conditioned_validation_stop,
     project_conditioned_compute,
     select_conditioned_validation,
 )
 from llmssycoph.interventions.controlled import (
     PROTOCOL_VERSION,
     save_controlled_direction_artifact,
+    sha256_file,
     write_strict_json,
     write_strict_jsonl,
 )
@@ -51,6 +54,142 @@ class _CharacterChatTokenizer:
 
 
 class ConditionedRuntimeContractTests(unittest.TestCase):
+    def test_negative_validation_gate_materializes_successful_final_stop(self):
+        models = (
+            "Qwen/Qwen2.5-7B-Instruct",
+            "meta-llama/Llama-3.1-8B-Instruct",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            audit = root / "audit"
+            audit.mkdir()
+            decision_path = audit / "decision.json"
+            write_strict_json(
+                decision_path,
+                {
+                    "gpu_stage_authorized": True,
+                    "primary_family": "belief_conflict",
+                    "models": {
+                        model: {
+                            "nominated_layer": 10,
+                            "nominated_layers_with_neighbors": [9, 10, 11],
+                        }
+                        for model in models
+                    },
+                },
+            )
+            with (audit / "layer_table.csv").open(
+                "w", encoding="utf-8", newline=""
+            ) as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=(
+                        "model_name",
+                        "layer",
+                        "family",
+                        "diffmean_auroc",
+                        "bootstrap_ci_low",
+                        "bootstrap_ci_high",
+                        "split_half_similarity_median",
+                    ),
+                )
+                writer.writeheader()
+                for model in models:
+                    writer.writerow(
+                        {
+                            "model_name": model,
+                            "layer": 10,
+                            "family": "belief_conflict",
+                            "diffmean_auroc": 0.8,
+                            "bootstrap_ci_low": 0.7,
+                            "bootstrap_ci_high": 0.9,
+                            "split_half_similarity_median": 0.8,
+                        }
+                    )
+                    writer.writerow(
+                        {
+                            "model_name": model,
+                            "layer": 10,
+                            "family": "global_wc",
+                            "diffmean_auroc": 0.6,
+                            "bootstrap_ci_low": 0.5,
+                            "bootstrap_ci_high": 0.7,
+                            "split_half_similarity_median": 0.4,
+                        }
+                    )
+
+            candidates = []
+            validation_paths = []
+            for index, model in enumerate(models):
+                path = root / f"validation_{index}.jsonl"
+                write_strict_jsonl(
+                    path,
+                    [
+                        {
+                            "model_name": model,
+                            "split": "val",
+                            "alpha_zero_noop_exact": True,
+                            "nonfinite_failure": False,
+                        }
+                    ],
+                )
+                validation_paths.append(path)
+                candidates.append(
+                    {
+                        "model_name": model,
+                        "conditioning_family": "belief_conflict",
+                        "layer": 10,
+                        "position_mode": "boundary_only",
+                        "ratio_magnitude": 0.05,
+                        "n_questions": 120,
+                        "difference_in_differences": 0.001,
+                        "did_ci_low": -0.001,
+                        "did_ci_high": 0.003,
+                        "wrong_top1_endorsement_reduction": 0.0,
+                        "neutral_accuracy_damage": 0.0,
+                        "correct_suggestion_accuracy_damage": 0.0,
+                        "positive_wrong_p_endorsed_increase": -0.001,
+                        "negative_wrong_p_endorsed_reduction": 0.001,
+                        "mean_absolute_neutral_p_correct_damage": 0.001,
+                        "selection_score": 0.0,
+                        "eligible": False,
+                    }
+                )
+            selection_path = root / "selection.json"
+            write_strict_json(
+                selection_path,
+                {
+                    "cpu_decision_sha256": sha256_file(decision_path),
+                    "selections": [
+                        {
+                            "model_name": model,
+                            "status": "no_eligible_validation_candidate",
+                            "selected": None,
+                        }
+                        for model in models
+                    ],
+                    "candidate_table": candidates,
+                    "all_models_have_eligible_candidate": False,
+                },
+            )
+            output = root / "final"
+            result_path = finalize_conditioned_validation_stop(
+                input_paths=validation_paths,
+                selection_path=selection_path,
+                cpu_audit_dir=audit,
+                output_dir=output,
+            )
+            result = json.loads(result_path.read_text())
+            self.assertEqual(
+                result["conclusion"],
+                "stopped_at_validation_no_eligible_candidate",
+            )
+            self.assertFalse(result["heldout_gpu_authorized"])
+            self.assertFalse(result["operational_failure"])
+            self.assertTrue(result["preregistered_stop_satisfied"])
+            self.assertTrue((output / "final_report.md").is_file())
+            self.assertTrue((output / "validation_gate.png").is_file())
+
     def test_ratio_reference_uses_arc_training_neutral_residuals(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

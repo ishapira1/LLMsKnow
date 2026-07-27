@@ -19,6 +19,7 @@ from .conditioned_audit import run_mean_cancellation_audit
 from .conditioned_runtime import (
     aggregate_conditioned_test,
     build_conditioned_arc_cohort,
+    finalize_conditioned_validation_stop,
     project_conditioned_compute,
     run_conditioned_arc_steering,
     select_conditioned_validation,
@@ -198,6 +199,16 @@ def build_parser() -> argparse.ArgumentParser:
     conditioned_aggregate.add_argument("--n-bootstrap", type=int, default=2000)
     conditioned_aggregate.add_argument("--seed", type=int, default=5)
 
+    conditioned_stop = subparsers.add_parser(
+        "finalize-conditioned-validation-stop"
+    )
+    conditioned_stop.add_argument(
+        "--input", type=Path, action="append", required=True
+    )
+    conditioned_stop.add_argument("--selection", type=Path, required=True)
+    conditioned_stop.add_argument("--cpu-audit-dir", type=Path, required=True)
+    conditioned_stop.add_argument("--output-dir", type=Path, required=True)
+
     for command in ("screen-layers", "tiny-dry-run", "run-selected", "score-fixed-probe"):
         run = subparsers.add_parser(command)
         _run_arguments(run)
@@ -370,6 +381,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             output_dir=args.output_dir,
             n_bootstrap=args.n_bootstrap,
             seed=args.seed,
+        )
+    elif args.command == "finalize-conditioned-validation-stop":
+        output = finalize_conditioned_validation_stop(
+            input_paths=args.input,
+            selection_path=args.selection,
+            cpu_audit_dir=args.cpu_audit_dir,
+            output_dir=args.output_dir,
         )
     elif args.command in {
         "screen-layers",

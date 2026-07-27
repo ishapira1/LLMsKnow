@@ -594,6 +594,7 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                 "select-conditioned-validation",
                 "project-conditioned-compute",
                 "aggregate-conditioned-test",
+                "finalize-conditioned-validation-stop",
                 "screen-layers",
                 "tiny-dry-run",
                 "run-selected",

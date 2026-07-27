@@ -27,6 +27,15 @@ cmd=(
 )
 print_command "${cmd[@]}"
 "${cmd[@]}"
-"$ENV_PYTHON" -c \
-  'import json,sys; d=json.load(open(sys.argv[1])); assert any(x["selected"] for x in d["selections"]), "No model has an eligible validation candidate"' \
-  "$OUTPUT"
+SELECTED_MODELS="$(
+  "$ENV_PYTHON" -c \
+    'import json,sys; d=json.load(open(sys.argv[1])); print(sum(bool(x["selected"]) for x in d["selections"]))' \
+    "$OUTPUT"
+)"
+if (( SELECTED_MODELS == 0 )); then
+  printf 'Scientific stop: no model has an eligible validation candidate.\n'
+  printf 'Do not submit held-out GPU stages; run finalize-stop instead.\n'
+else
+  printf 'Validation selected %s model(s); held-out stages may proceed only for those models.\n' \
+    "$SELECTED_MODELS"
+fi

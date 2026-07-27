@@ -1494,6 +1494,329 @@ def _cell_contrast(
     }
 
 
+def finalize_conditioned_validation_stop(
+    *,
+    input_paths: Sequence[Path],
+    selection_path: Path,
+    cpu_audit_dir: Path,
+    output_dir: Path,
+) -> Path:
+    """Materialize the preregistered negative stop when validation selects nothing."""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    selection = read_json(selection_path)
+    selections = list(selection.get("selections", []))
+    if not selections or any(value.get("selected") for value in selections):
+        raise ValueError(
+            "Validation-stop finalization requires no eligible model selection."
+        )
+    if bool(selection.get("all_models_have_eligible_candidate")):
+        raise ValueError("Selection flags are inconsistent with a negative stop.")
+
+    audit_root = Path(cpu_audit_dir).expanduser().resolve()
+    cpu_decision_path = audit_root / "decision.json"
+    layer_table_path = audit_root / "layer_table.csv"
+    if not cpu_decision_path.is_file() or not layer_table_path.is_file():
+        raise FileNotFoundError(
+            "CPU audit decision.json and layer_table.csv are required."
+        )
+    if sha256_file(cpu_decision_path) != str(
+        selection.get("cpu_decision_sha256", "")
+    ):
+        raise ValueError("Validation selection does not match the CPU decision.")
+    cpu_decision = read_json(cpu_decision_path)
+    if not bool(cpu_decision.get("gpu_stage_authorized")):
+        raise ValueError("CPU audit did not authorize the validation stage.")
+
+    frames = [
+        pd.DataFrame(
+            [
+                json.loads(line)
+                for line in Path(path).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        )
+        for path in input_paths
+    ]
+    if not frames or any(frame.empty for frame in frames):
+        raise ValueError("One nonempty validation result file per model is required.")
+    frame = pd.concat(frames, ignore_index=True)
+    if set(frame["split"]) != {"val"}:
+        raise ValueError("Validation-stop finalization accepts validation rows only.")
+
+    candidate_frame = pd.DataFrame(selection.get("candidate_table", []))
+    if candidate_frame.empty:
+        raise ValueError("Validation selection has no candidate table.")
+    selected_models = {str(value["model_name"]) for value in selections}
+    if set(candidate_frame["model_name"].astype(str)) != selected_models:
+        raise ValueError("Candidate-table models do not match selection models.")
+    if set(frame["model_name"].astype(str)) != selected_models:
+        raise ValueError("Validation-result models do not match selection models.")
+    if candidate_frame["eligible"].astype(bool).any():
+        raise ValueError("Negative-stop candidate table contains an eligible row.")
+
+    layer_table = pd.read_csv(layer_table_path)
+    primary_family = str(cpu_decision["primary_family"])
+    model_rows: list[Dict[str, Any]] = []
+    for model_name in sorted(selected_models):
+        candidates = candidate_frame[
+            candidate_frame["model_name"].astype(str).eq(model_name)
+        ].copy()
+        validation_rows = frame[frame["model_name"].astype(str).eq(model_name)]
+        best_did = candidates.sort_values(
+            [
+                "difference_in_differences",
+                "wrong_top1_endorsement_reduction",
+            ],
+            ascending=[False, False],
+        ).iloc[0]
+        best_top1 = candidates.sort_values(
+            [
+                "wrong_top1_endorsement_reduction",
+                "difference_in_differences",
+            ],
+            ascending=[False, False],
+        ).iloc[0]
+        cpu_model = cpu_decision["models"][model_name]
+        nominated_layer = int(cpu_model["nominated_layer"])
+        conditioned_layer = layer_table[
+            layer_table["model_name"].astype(str).eq(model_name)
+            & layer_table["layer"].astype(int).eq(nominated_layer)
+            & layer_table["family"].astype(str).eq(primary_family)
+        ]
+        global_layer = layer_table[
+            layer_table["model_name"].astype(str).eq(model_name)
+            & layer_table["layer"].astype(int).eq(nominated_layer)
+            & layer_table["family"].astype(str).eq("global_wc")
+        ]
+        if len(conditioned_layer) != 1 or len(global_layer) != 1:
+            raise ValueError(
+                f"Missing unique CPU audit rows for {model_name} layer "
+                f"{nominated_layer}."
+            )
+        conditioned = conditioned_layer.iloc[0]
+        global_wc = global_layer.iloc[0]
+        bidirectional = (
+            candidates["positive_wrong_p_endorsed_increase"].astype(float).gt(0)
+            & candidates[
+                "negative_wrong_p_endorsed_reduction"
+            ].astype(float).gt(0)
+        )
+        model_rows.append(
+            {
+                "model_name": model_name,
+                "status": "stopped_at_validation_no_eligible_candidate",
+                "primary_family": primary_family,
+                "nominated_layer": nominated_layer,
+                "stage_a_conditioned_auroc": float(
+                    conditioned["diffmean_auroc"]
+                ),
+                "stage_a_conditioned_ci_low": float(
+                    conditioned["bootstrap_ci_low"]
+                ),
+                "stage_a_conditioned_ci_high": float(
+                    conditioned["bootstrap_ci_high"]
+                ),
+                "stage_a_global_wc_auroc": float(global_wc["diffmean_auroc"]),
+                "stage_a_auroc_improvement": float(
+                    conditioned["diffmean_auroc"]
+                    - global_wc["diffmean_auroc"]
+                ),
+                "stage_a_split_half_similarity": float(
+                    conditioned["split_half_similarity_median"]
+                ),
+                "n_validation_questions": int(candidates["n_questions"].max()),
+                "n_validation_candidates": int(len(candidates)),
+                "n_eligible_candidates": 0,
+                "n_bidirectional_candidates": int(bidirectional.sum()),
+                "n_positive_ci_candidates": int(
+                    candidates["did_ci_low"].astype(float).gt(0).sum()
+                ),
+                "n_top1_gate_candidates": int(
+                    candidates[
+                        "wrong_top1_endorsement_reduction"
+                    ].astype(float).ge(0.05).sum()
+                ),
+                "best_did": float(best_did["difference_in_differences"]),
+                "best_did_ci_low": float(best_did["did_ci_low"]),
+                "best_did_ci_high": float(best_did["did_ci_high"]),
+                "best_did_layer": int(best_did["layer"]),
+                "best_did_position_mode": str(best_did["position_mode"]),
+                "best_did_ratio_magnitude": float(
+                    best_did["ratio_magnitude"]
+                ),
+                "best_did_wrong_top1_reduction": float(
+                    best_did["wrong_top1_endorsement_reduction"]
+                ),
+                "best_did_neutral_accuracy_damage": float(
+                    best_did["neutral_accuracy_damage"]
+                ),
+                "best_top1_reduction": float(
+                    best_top1["wrong_top1_endorsement_reduction"]
+                ),
+                "best_top1_did": float(
+                    best_top1["difference_in_differences"]
+                ),
+                "best_top1_layer": int(best_top1["layer"]),
+                "best_top1_position_mode": str(best_top1["position_mode"]),
+                "best_top1_ratio_magnitude": float(
+                    best_top1["ratio_magnitude"]
+                ),
+                "best_top1_neutral_accuracy_damage": float(
+                    best_top1["neutral_accuracy_damage"]
+                ),
+                "alpha_zero_noop_exact": bool(
+                    validation_rows["alpha_zero_noop_exact"]
+                    .fillna(False)
+                    .astype(bool)
+                    .all()
+                ),
+                "no_nonfinite_values": bool(
+                    (
+                        ~validation_rows["nonfinite_failure"]
+                        .fillna(True)
+                        .astype(bool)
+                    ).all()
+                ),
+            }
+        )
+
+    output = Path(output_dir).expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    candidate_frame.to_csv(output / "validation_candidates.csv", index=False)
+    pd.DataFrame(model_rows).to_csv(output / "model_results.csv", index=False)
+
+    sns.set_style("white")
+    plot_frame = candidate_frame.copy()
+    plot_frame["model_layer"] = plot_frame.apply(
+        lambda row: (
+            ("Qwen" if str(row["model_name"]).startswith("Qwen/") else "Llama")
+            + f" L{int(row['layer'])}"
+        ),
+        axis=1,
+    )
+    grid = sns.relplot(
+        data=plot_frame,
+        x="ratio_magnitude",
+        y="difference_in_differences",
+        hue="position_mode",
+        col="model_layer",
+        col_wrap=3,
+        kind="line",
+        marker="o",
+        palette={
+            "boundary_only": "#73b3ab",
+            "suffix_energy_matched": "#d4651a",
+        },
+        height=4.2,
+        aspect=1.05,
+        facet_kws={"sharey": True},
+    )
+    grid.set_axis_labels(
+        "Injected / residual norm ratio", "Validation difference-in-differences"
+    )
+    grid.set_titles("{col_name}", size=17)
+    for axis in grid.axes.flat:
+        axis.axhline(0.0, color="#777777", linewidth=1, linestyle="--")
+        axis.tick_params(labelsize=12)
+        axis.xaxis.label.set_size(15)
+        axis.yaxis.label.set_size(15)
+    if grid.legend is not None:
+        grid.legend.set_bbox_to_anchor((0.5, -0.04))
+        grid.legend.set_loc("upper center")
+        grid.legend.set_ncols(2)
+    grid.figure.suptitle(
+        "Conditioned steering validation: no eligible correction",
+        fontsize=20,
+        y=1.02,
+    )
+    grid.figure.savefig(
+        output / "validation_gate.png",
+        dpi=200,
+        bbox_inches="tight",
+    )
+    plt.close(grid.figure)
+
+    final = {
+        "stage_b_version": CONDITIONED_STAGE_B_VERSION,
+        "conclusion": "stopped_at_validation_no_eligible_candidate",
+        "scientific_interpretation": (
+            "Conditioned W/C information was more decodable than the global "
+            "W/C estimator, but no tested additive intervention produced the "
+            "preregistered behavioral correction."
+        ),
+        "preregistered_stop_satisfied": True,
+        "heldout_gpu_authorized": False,
+        "heldout_stage_status": "skipped_by_preregistered_validation_gate",
+        "operational_failure": False,
+        "models": model_rows,
+        "selection_sha256": sha256_file(selection_path),
+        "cpu_decision_sha256": sha256_file(cpu_decision_path),
+        "cpu_layer_table_sha256": sha256_file(layer_table_path),
+        "validation_input_sha256": {
+            str(Path(path).resolve()): sha256_file(path) for path in input_paths
+        },
+        "validation_candidates_sha256": sha256_file(
+            output / "validation_candidates.csv"
+        ),
+        "model_results_sha256": sha256_file(output / "model_results.csv"),
+        "plot_sha256": sha256_file(output / "validation_gate.png"),
+    }
+    write_strict_json(output / "final_decision.json", final)
+
+    lines = [
+        "# Conditioned steering gate: validation stop",
+        "",
+        "## Conclusion",
+        "",
+        "The CPU audit found stable conditioned W/C information in both models, "
+        "but **no tested additive intervention passed the preregistered "
+        "behavioral validation gate**. Held-out learned, null-control, and "
+        "suffix-sensitivity GPU jobs were therefore not authorized.",
+        "",
+        "| Model | Stage-A conditioned AUROC | Global W/C AUROC | Best validation DID [95% CI] | Top-1 reduction at best DID | Largest top-1 reduction | Exact no-op |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in model_rows:
+        lines.append(
+            f"| {row['model_name']} | "
+            f"{row['stage_a_conditioned_auroc']:.3f} "
+            f"[{row['stage_a_conditioned_ci_low']:.3f}, "
+            f"{row['stage_a_conditioned_ci_high']:.3f}] | "
+            f"{row['stage_a_global_wc_auroc']:.3f} | "
+            f"{row['best_did']:.4f} "
+            f"[{row['best_did_ci_low']:.4f}, "
+            f"{row['best_did_ci_high']:.4f}] | "
+            f"{row['best_did_wrong_top1_reduction']:.3f} | "
+            f"{row['best_top1_reduction']:.3f} | "
+            f"{'yes' if row['alpha_zero_noop_exact'] else 'no'} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Interpretation",
+            "",
+            "- The mean-cancellation critique was supported at the "
+            "representation level: belief-conditioned scores improved over "
+            "global W/C in both models.",
+            "- Decodability was not sufficient for causal control. Neither "
+            "boundary-only nor energy-matched suffix addition produced the "
+            "required bidirectional, answer-changing correction with preserved "
+            "neutral and correct-suggestion behavior.",
+            "- This result rejects this conditioned one-vector additive "
+            "correction for the tested ARC setup. It does not establish the "
+            "absence of item-specific or nonlinear wrongness information.",
+            "- Alpha-zero was exact and no nonfinite values occurred, so the "
+            "negative result is not attributed to the previous no-op problem.",
+        ]
+    )
+    (output / "final_report.md").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+    return output / "final_decision.json"
+
+
 def aggregate_conditioned_test(
     *,
     input_paths: Sequence[Path],
@@ -1840,6 +2163,7 @@ __all__ = [
     "STAGE_B_CONDITIONS",
     "build_conditioned_arc_cohort",
     "aggregate_conditioned_test",
+    "finalize_conditioned_validation_stop",
     "project_conditioned_compute",
     "run_conditioned_arc_steering",
     "select_conditioned_validation",
