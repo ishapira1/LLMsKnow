@@ -12,7 +12,9 @@ from llmssycoph.interventions.activations import (
     block_for_residual_layer,
     extract_prompt_state,
     residual_addition_hook,
+    residual_additions_hooks,
     residual_replacement_hook,
+    score_with_multilayer_residual_additions,
     score_with_residual_additions,
 )
 from llmssycoph.interventions.data import build_intervention_pairs
@@ -218,6 +220,64 @@ class ActivationInterventionTests(unittest.TestCase):
         ):
             self.assertEqual(len(module._forward_hooks), before + 1)
         self.assertEqual(len(module._forward_hooks), before)
+
+    def test_multilayer_hooks_are_simultaneous_and_removed(self):
+        first = self.model.model.layers[0]
+        final = self.model.model.norm
+        before = (len(first._forward_hooks), len(final._forward_hooks))
+        additions = {
+            1: torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+            2: torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        }
+        with residual_additions_hooks(
+            self.model,
+            additions_by_layer=additions,
+        ):
+            self.assertEqual(len(first._forward_hooks), before[0] + 1)
+            self.assertEqual(len(final._forward_hooks), before[1] + 1)
+        self.assertEqual(
+            (len(first._forward_hooks), len(final._forward_hooks)),
+            before,
+        )
+
+        baseline = extract_prompt_state(
+            self.model,
+            self.tokenizer,
+            self.messages,
+            choices=["A", "B"],
+            residual_layers=[1, 2],
+        )
+        probabilities, _ = score_with_multilayer_residual_additions(
+            self.model,
+            self.tokenizer,
+            self.messages,
+            choices=["A", "B"],
+            addition_vectors_by_layer={
+                1: np.asarray([[1, 0, 0, 0]], dtype=np.float32),
+                2: np.asarray([[1, 0, 0, 0]], dtype=np.float32),
+            },
+        )
+        self.assertGreater(probabilities[0]["A"], baseline.choice_probabilities["A"])
+
+    def test_multilayer_zero_hook_is_exact(self):
+        baseline = extract_prompt_state(
+            self.model,
+            self.tokenizer,
+            self.messages,
+            choices=["A", "B"],
+            residual_layers=[1, 2],
+        )
+        probabilities, _ = score_with_multilayer_residual_additions(
+            self.model,
+            self.tokenizer,
+            self.messages,
+            choices=["A", "B"],
+            addition_vectors_by_layer={
+                1: np.zeros((1, 4), dtype=np.float32),
+                2: np.zeros((1, 4), dtype=np.float32),
+            },
+        )
+        self.assertEqual(probabilities[0], baseline.choice_probabilities)
 
     def test_replacement_hook_sets_exact_target_at_the_intervention_site(self):
         observed = []

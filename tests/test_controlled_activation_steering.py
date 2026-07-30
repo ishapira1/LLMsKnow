@@ -592,6 +592,8 @@ class ControlledScoringAndGeometryTests(unittest.TestCase):
                 "build-conditioned-arc-cohort",
                 "run-conditioned",
                 "select-conditioned-validation",
+                "run-multilayer",
+                "select-multilayer-validation",
                 "project-conditioned-compute",
                 "aggregate-conditioned-test",
                 "finalize-conditioned-validation-stop",

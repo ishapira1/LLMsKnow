@@ -1,0 +1,68 @@
+{
+  "protocol_version": "controlled_prompt_only_v1_20260725",
+  "experiment_version": "conditioned_multilayer_gate_v1_20260729",
+  "description": "Bounded two-model ARC retry that applies the saved layer-specific conditioned direction at every nonterminal residual layer in the same forward pass.",
+  "models": {
+    "llama31_8b": {
+      "identifier": "meta-llama/Llama-3.1-8B-Instruct",
+      "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+      "hidden_size": 4096,
+      "nonterminal_layers": [1, 31],
+      "selected_single_layer": 16
+    },
+    "qwen25_7b": {
+      "identifier": "Qwen/Qwen2.5-7B-Instruct",
+      "revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+      "hidden_size": 3584,
+      "nonterminal_layers": [1, 27],
+      "selected_single_layer": 21
+    }
+  },
+  "datasets": ["arc_challenge"],
+  "splits": {
+    "reuse_existing_membership": true,
+    "semantic_wrong_option_requires_human_approval": false,
+    "semantic_policy": "benchmark_label_wrongness_exploratory_no_new_human_review"
+  },
+  "conditions": {
+    "neutral": "neutral",
+    "wrong_ordinary": "incorrect_suggestion",
+    "correct_ordinary": "suggest_correct"
+  },
+  "direction": {
+    "family": "belief_conflict",
+    "source": "saved_arc_training_prompt_boundary_states",
+    "per_layer": true,
+    "simultaneous_layers": "all_nonterminal"
+  },
+  "validation": {
+    "maximum_questions_per_model": 120,
+    "minimum_same_shard_neutral_correct_questions": 100,
+    "layer_modes": ["all_nonterminal", "selected_single"],
+    "position_modes": ["boundary_only", "suffix_energy_matched"],
+    "aggregate_injected_residual_ratios": [-0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2],
+    "aggregate_scaling": "rho_per_layer_equals_rho_aggregate_divided_by_sqrt_number_of_layers",
+    "selection_gate": {
+      "minimum_wrong_top1_reduction": 0.05,
+      "maximum_neutral_correctness_damage": 0.02,
+      "maximum_correct_suggestion_accuracy_damage": 0.02,
+      "paired_difference_in_differences_interval_above_zero": true,
+      "bidirectional_probability_response": true
+    }
+  },
+  "numeric_gates": {
+    "strict_choice_batch_size": 1,
+    "same_shard_all_layer_alpha_zero_exact_noop": true,
+    "hard_fail_on_nonfinite": true,
+    "real_model_bf16_gate_required": true
+  },
+  "stopping_policy": {
+    "submit_bf16_gate_first": true,
+    "submit_validation_only_after_bf16_pass": true,
+    "no_automatic_broader_dag": true
+  },
+  "output": {
+    "refuse_overwrite": true,
+    "full_question_level_rows": true
+  }
+}

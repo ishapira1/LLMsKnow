@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Mapping, Sequence
 
@@ -227,6 +227,40 @@ def residual_addition_hook(
         yield
     finally:
         handle.remove()
+
+
+@contextmanager
+def residual_additions_hooks(
+    model: Any,
+    *,
+    additions_by_layer: Mapping[int, Any],
+    token_index: int | Sequence[int] = -1,
+    token_mask: Any | None = None,
+) -> Iterator[None]:
+    """Install residual additions at several layers for the same forward pass.
+
+    Each layer receives its own vector, while the selected prompt position(s)
+    are shared. ``ExitStack`` guarantees that every hook is removed even when
+    model execution fails partway through the forward pass.
+    """
+
+    layers = sorted(int(layer) for layer in additions_by_layer)
+    if not layers:
+        raise ValueError("additions_by_layer must contain at least one layer.")
+    if len(layers) != len(additions_by_layer):
+        raise ValueError("Residual layer keys must be unique integers.")
+    with ExitStack() as stack:
+        for layer in layers:
+            stack.enter_context(
+                residual_addition_hook(
+                    model,
+                    residual_layer=layer,
+                    addition_vectors=additions_by_layer[layer],
+                    token_index=token_index,
+                    token_mask=token_mask,
+                )
+            )
+        yield
 
 
 @contextmanager
@@ -919,6 +953,106 @@ def score_with_residual_additions(
                     if masks_np is None
                     else torch.as_tensor(masks_np[start:stop], dtype=torch.float32)
                 ),
+            ):
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    use_cache=False,
+                    output_hidden_states=False,
+                    return_dict=True,
+                )
+            probabilities, log_scores = choice_distributions_from_logits(
+                outputs.logits[:, -1],
+                tokenizer=tokenizer,
+                choices=choices,
+            )
+            all_probabilities.extend(probabilities)
+            all_log_scores.extend(log_scores)
+    return all_probabilities, all_log_scores
+
+
+def score_with_multilayer_residual_additions(
+    model: Any,
+    tokenizer: Any,
+    messages: List[Dict[str, Any]],
+    *,
+    choices: Sequence[str],
+    addition_vectors_by_layer: Mapping[int, np.ndarray],
+    token_masks: np.ndarray | None = None,
+    max_batch_size: int | None = None,
+) -> tuple[List[Dict[str, float]], List[Dict[str, float]]]:
+    """Score one prompt while adding layer-specific vectors simultaneously."""
+
+    import torch
+
+    if not addition_vectors_by_layer:
+        raise ValueError("addition_vectors_by_layer must not be empty.")
+    vectors_by_layer: Dict[int, np.ndarray] = {}
+    intervention_count: int | None = None
+    for raw_layer, raw_vectors in addition_vectors_by_layer.items():
+        layer = int(raw_layer)
+        vectors = np.asarray(raw_vectors, dtype=np.float32)
+        if vectors.ndim == 1:
+            vectors = vectors[None, :]
+        if vectors.ndim != 2 or vectors.shape[0] <= 0:
+            raise ValueError(
+                f"Layer {layer} additions must have shape [n_interventions, hidden]."
+            )
+        if not np.isfinite(vectors).all():
+            raise FloatingPointError(f"Nonfinite residual additions at layer {layer}.")
+        if intervention_count is None:
+            intervention_count = int(vectors.shape[0])
+        elif int(vectors.shape[0]) != intervention_count:
+            raise ValueError("Every layer must provide the same intervention count.")
+        vectors_by_layer[layer] = vectors
+    assert intervention_count is not None
+
+    input_ids_base, attention_mask_base = _resolve_model_inputs(
+        tokenizer,
+        messages,
+        model_device(model),
+        add_generation_prompt=True,
+    )
+    masks_np: np.ndarray | None = None
+    if token_masks is not None:
+        masks_np = np.asarray(token_masks, dtype=np.float32)
+        if masks_np.ndim == 1:
+            masks_np = masks_np[None, :]
+        if masks_np.shape[0] == 1 and intervention_count > 1:
+            masks_np = np.broadcast_to(
+                masks_np, (intervention_count, masks_np.shape[1])
+            ).copy()
+        expected = (intervention_count, int(input_ids_base.shape[1]))
+        if masks_np.shape != expected:
+            raise ValueError(
+                f"token_masks must have shape {expected}, got {masks_np.shape}."
+            )
+        if not np.isfinite(masks_np).all():
+            raise FloatingPointError("Nonfinite token-mask weights.")
+
+    chunk_size = max(1, int(max_batch_size or intervention_count))
+    all_probabilities: List[Dict[str, float]] = []
+    all_log_scores: List[Dict[str, float]] = []
+    with torch.no_grad():
+        for start in range(0, intervention_count, chunk_size):
+            stop = min(intervention_count, start + chunk_size)
+            additions = {
+                layer: torch.as_tensor(vectors[start:stop], dtype=torch.float32)
+                for layer, vectors in vectors_by_layer.items()
+            }
+            batch_size = stop - start
+            input_ids = input_ids_base.expand(batch_size, -1).contiguous()
+            attention_mask = attention_mask_base.expand(batch_size, -1).contiguous()
+            mask = (
+                None
+                if masks_np is None
+                else torch.as_tensor(masks_np[start:stop], dtype=torch.float32)
+            )
+            with residual_additions_hooks(
+                model,
+                additions_by_layer=additions,
+                token_index=-1,
+                token_mask=mask,
             ):
                 outputs = model(
                     input_ids=input_ids,

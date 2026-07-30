@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import csv
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -23,6 +24,10 @@ from llmssycoph.interventions.controlled import (
     sha256_file,
     write_strict_json,
     write_strict_jsonl,
+)
+from llmssycoph.interventions.multilayer_runtime import (
+    _multilayer_additions,
+    select_multilayer_validation,
 )
 
 
@@ -54,6 +59,93 @@ class _CharacterChatTokenizer:
 
 
 class ConditionedRuntimeContractTests(unittest.TestCase):
+    def test_multilayer_selection_uses_paired_same_shard_comparator(self):
+        rows = []
+        model = "fake/model"
+        for layer_mode in ("all_nonterminal", "selected_single"):
+            for question in ("q1", "q2", "q3", "q4"):
+                for condition in (
+                    "neutral",
+                    "incorrect_suggestion",
+                    "suggest_correct",
+                ):
+                    for ratio in (-0.1, 0.0, 0.1):
+                        p_endorsed = 0.1
+                        equals_endorsed = False
+                        if condition == "incorrect_suggestion":
+                            if layer_mode == "all_nonterminal":
+                                p_endorsed = {-0.1: 0.3, 0.0: 0.8, 0.1: 0.9}[ratio]
+                                equals_endorsed = ratio >= 0.0
+                            else:
+                                p_endorsed = {-0.1: 0.7, 0.0: 0.8, 0.1: 0.85}[ratio]
+                                equals_endorsed = True
+                        rows.append(
+                            {
+                                "model_name": model,
+                                "split": "val",
+                                "stable_question_key": question,
+                                "layer_mode": layer_mode,
+                                "position_mode": "boundary_only",
+                                "aggregate_ratio_target": ratio,
+                                "condition": condition,
+                                "p_endorsed": p_endorsed,
+                                "p_correct": 0.9,
+                                "equals_endorsed": equals_endorsed,
+                                "is_correct": condition != "incorrect_suggestion"
+                                or not equals_endorsed,
+                            }
+                        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs = root / "rows.jsonl"
+            output = root / "selection.json"
+            write_strict_jsonl(inputs, rows)
+            select_multilayer_validation(
+                input_paths=[inputs],
+                output_path=output,
+                n_bootstrap=20,
+                seed=5,
+            )
+            decision = json.loads(output.read_text())
+        self.assertTrue(decision["both_models_pass"])
+        self.assertEqual(
+            decision["selections"][0]["selected"]["layer_mode"],
+            "all_nonterminal",
+        )
+        comparison = decision["all_layers_vs_single_layer"][0]
+        self.assertGreater(comparison["all_layers_minus_single_layer_did"], 0)
+
+    def test_multilayer_scaling_matches_aggregate_normalized_energy(self):
+        with (
+            patch(
+                "llmssycoph.interventions.multilayer_runtime._arc_direction",
+                return_value=(np.asarray([3.0, 4.0]), "neutral_is_c"),
+            ),
+            patch(
+                "llmssycoph.interventions.multilayer_runtime._median_residual_norm",
+                side_effect=lambda _artifact, layer: float(layer * 10),
+            ),
+        ):
+            additions, mask, metadata = _multilayer_additions(
+                object(),
+                layers=[1, 2, 3, 4],
+                family="belief_conflict",
+                endorsed_choice="A",
+                aggregate_ratio=-0.2,
+                position_mode="suffix_energy_matched",
+                suffix_mask=np.asarray([0.0, 1.0, 1.0, 1.0, 1.0]),
+            )
+        self.assertEqual(set(additions), {1, 2, 3, 4})
+        self.assertEqual(int(np.count_nonzero(mask)), 4)
+        self.assertAlmostEqual(metadata["per_layer_ratio_target"], -0.1)
+        self.assertAlmostEqual(
+            metadata["actual_aggregate_normalized_ratio"],
+            0.2,
+        )
+        for layer, vector in additions.items():
+            total_norm = np.linalg.norm(vector) * 2.0
+            self.assertAlmostEqual(total_norm / (layer * 10.0), 0.1)
+
     def test_negative_validation_gate_materializes_successful_final_stop(self):
         models = (
             "Qwen/Qwen2.5-7B-Instruct",

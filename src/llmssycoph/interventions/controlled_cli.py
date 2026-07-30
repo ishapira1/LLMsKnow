@@ -24,6 +24,10 @@ from .conditioned_runtime import (
     run_conditioned_arc_steering,
     select_conditioned_validation,
 )
+from .multilayer_runtime import (
+    run_multilayer_arc_steering,
+    select_multilayer_validation,
+)
 from .controlled import load_controlled_direction_artifact
 from .data import load_source_bundle
 
@@ -179,6 +183,35 @@ def build_parser() -> argparse.ArgumentParser:
     conditioned_select.add_argument("--output", type=Path, required=True)
     conditioned_select.add_argument("--n-bootstrap", type=int, default=2000)
     conditioned_select.add_argument("--seed", type=int, default=5)
+
+    multilayer = subparsers.add_parser("run-multilayer")
+    _source_arguments(multilayer, repeat=False)
+    _runtime_arguments(multilayer)
+    multilayer.add_argument("--directions-path", type=Path, required=True)
+    multilayer.add_argument("--output-dir", type=Path, required=True)
+    multilayer.add_argument("--split", choices=("val",), default="val")
+    multilayer.add_argument("--selected-layer", type=int, required=True)
+    multilayer.add_argument("--primary-family", required=True)
+    multilayer.add_argument(
+        "--layer-modes",
+        default="all_nonterminal,selected_single",
+    )
+    multilayer.add_argument(
+        "--position-modes",
+        default="boundary_only,suffix_energy_matched",
+    )
+    multilayer.add_argument("--ratios", default="-0.2,-0.1,-0.05,0,0.05,0.1,0.2")
+    multilayer.add_argument("--minimum-neutral-correct", type=int, default=100)
+    multilayer.add_argument("--maximum-live-questions", type=int, default=None)
+    multilayer.add_argument("--progress-every", type=int, default=10)
+
+    multilayer_select = subparsers.add_parser("select-multilayer-validation")
+    multilayer_select.add_argument(
+        "--input", type=Path, action="append", required=True
+    )
+    multilayer_select.add_argument("--output", type=Path, required=True)
+    multilayer_select.add_argument("--n-bootstrap", type=int, default=2000)
+    multilayer_select.add_argument("--seed", type=int, default=5)
 
     projection = subparsers.add_parser("project-conditioned-compute")
     projection.add_argument(
@@ -363,6 +396,34 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         output = select_conditioned_validation(
             input_paths=args.input,
             cpu_decision_path=args.cpu_decision,
+            output_path=args.output,
+            n_bootstrap=args.n_bootstrap,
+            seed=args.seed,
+        )
+    elif args.command == "run-multilayer":
+        output = run_multilayer_arc_steering(
+            config_path=args.config,
+            source_run_dir=args.source_run_dir,
+            question_manifest_path=args.question_manifest,
+            directions_path=args.directions_path,
+            output_dir=args.output_dir,
+            split=args.split,
+            selected_layer=args.selected_layer,
+            primary_family=args.primary_family,
+            layer_modes=_csv_strings(args.layer_modes),
+            position_modes=_csv_strings(args.position_modes),
+            ratios=_csv_floats(args.ratios),
+            minimum_neutral_correct=args.minimum_neutral_correct,
+            maximum_live_questions=args.maximum_live_questions,
+            device=args.device,
+            device_map_auto=args.device_map_auto,
+            hf_cache_dir=args.hf_cache_dir,
+            torch_dtype=args.torch_dtype,
+            progress_every=args.progress_every,
+        )
+    elif args.command == "select-multilayer-validation":
+        output = select_multilayer_validation(
+            input_paths=args.input,
             output_path=args.output,
             n_bootstrap=args.n_bootstrap,
             seed=args.seed,
