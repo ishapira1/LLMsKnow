@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from llmssycoph import recipient_routing
 from llmssycoph.recipient_routing import (
     AUX_BLOCKS,
     BLOCK_1,
@@ -46,6 +47,12 @@ def _source() -> dict:
 
 
 class RecipientRoutingPromptTests(unittest.TestCase):
+    def setUp(self) -> None:
+        recipient_routing.configure_profile("terra")
+
+    def tearDown(self) -> None:
+        recipient_routing.configure_profile("terra")
+
     def test_terra_logprob_limit(self) -> None:
         self.assertLessEqual(TOP_LOGPROBS, 5)
 
@@ -162,6 +169,24 @@ class RecipientRoutingPromptTests(unittest.TestCase):
         )
         self.assertIn('"X wrong"', packet)
         self.assertNotIn("output option B", packet)
+
+    def test_nano_profile_is_full_cohort_focused_replication(self) -> None:
+        profile = recipient_routing.configure_profile("nano")
+        tasks = recipient_routing._condition_tasks([_source()])
+        self.assertEqual(profile["model"], "gpt-5.4-nano-2026-03-17")
+        self.assertEqual(
+            profile["target_by_dataset"],
+            {"commonsense_qa": 1000, "arc_challenge": 959},
+        )
+        self.assertEqual(
+            profile["system_versions"],
+            ["semantic_v1", "opaque_map_1", "opaque_map_2"],
+        )
+        self.assertTrue(profile["reuse_frozen_neutral"])
+        self.assertEqual(profile["operational_cap_usd"], 7.0)
+        self.assertEqual(len(tasks), 24)
+        self.assertEqual(len({task["condition"] for task in tasks}), 24)
+        self.assertTrue(all(task["model"] == profile["model"] for task in tasks))
 
 
 if __name__ == "__main__":

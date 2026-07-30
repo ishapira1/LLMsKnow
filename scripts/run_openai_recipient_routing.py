@@ -5,14 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from llmssycoph.recipient_routing import (
-    ExperimentPaths,
-    MAX_COST_USD,
-    analyze_experiment,
-    audit_completion,
-    prepare_experiment,
-    run_live,
-)
+from llmssycoph import recipient_routing as experiment
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,12 +16,19 @@ COHORT_MANIFEST = (
     / "openai_sycophancy_development_cohort_gpt54nano_v1.jsonl"
 )
 COHORT_SPEC = COHORT_MANIFEST.with_suffix(".json")
-DEFAULT_ROOT = (
+TERRA_ROOT = (
     REPO_ROOT
     / "results"
     / "sycophancy_bias_probe"
     / "openai_api"
     / "experiment_4_recipient_routing_gpt56terra_20260730"
+)
+NANO_ROOT = (
+    REPO_ROOT
+    / "results"
+    / "sycophancy_bias_probe"
+    / "openai_api"
+    / "experiment_4_recipient_routing_gpt54nano_replication_20260730"
 )
 
 
@@ -38,14 +38,24 @@ def main() -> None:
         "mode",
         choices=("prepare", "estimate", "run-live", "analyze", "audit", "all"),
     )
-    parser.add_argument("--output-root", type=Path, default=DEFAULT_ROOT)
+    parser.add_argument("--profile", choices=("terra", "nano"), default="terra")
+    parser.add_argument("--output-root", type=Path)
     parser.add_argument("--confirm-spend", action="store_true")
-    parser.add_argument("--max-cost-usd", type=float, default=MAX_COST_USD)
+    parser.add_argument("--max-cost-usd", type=float)
     args = parser.parse_args()
-    paths = ExperimentPaths(args.output_root.resolve())
+    profile = experiment.configure_profile(args.profile)
+    output_root = args.output_root or (
+        NANO_ROOT if args.profile == "nano" else TERRA_ROOT
+    )
+    max_cost_usd = (
+        float(args.max_cost_usd)
+        if args.max_cost_usd is not None
+        else float(experiment.MAX_COST_USD)
+    )
+    paths = experiment.ExperimentPaths(output_root.resolve())
     result = None
     if args.mode in {"prepare", "all"}:
-        result = prepare_experiment(
+        result = experiment.prepare_experiment(
             paths=paths,
             cohort_manifest=COHORT_MANIFEST,
             cohort_spec=COHORT_SPEC,
@@ -53,17 +63,17 @@ def main() -> None:
     if args.mode == "estimate":
         result = json.loads(paths.estimate.read_text(encoding="utf-8"))
     if args.mode in {"run-live", "all"}:
-        result = run_live(
+        result = experiment.run_live(
             paths=paths,
             repo_root=REPO_ROOT,
             confirm_spend=args.confirm_spend,
-            max_cost_usd=args.max_cost_usd,
+            max_cost_usd=max_cost_usd,
         )
     if args.mode in {"analyze", "all"}:
-        result = analyze_experiment(paths=paths)
+        result = experiment.analyze_experiment(paths=paths)
     if args.mode in {"audit", "all"}:
-        result = audit_completion(paths=paths)
-    print(json.dumps(result, indent=2, sort_keys=True))
+        result = experiment.audit_completion(paths=paths)
+    print(json.dumps({"profile": profile, "result": result}, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
