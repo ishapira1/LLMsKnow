@@ -15,6 +15,7 @@ from llmssycoph.recipient_routing import (
     SYSTEM_PROMPTS,
     SYSTEM_VERSIONS,
     TOP_LOGPROBS,
+    _complier_subset,
     _condition_tasks,
     _parse_output,
     _route_tag,
@@ -83,6 +84,35 @@ class RecipientRoutingPromptTests(unittest.TestCase):
         self.assertFalse(gate["strict_all_cells_passed"])
         self.assertNotIn("semantic_v2", gate["eligible_versions"])
         self.assertIn("semantic_v1", gate["eligible_versions"])
+
+    def test_complier_subset_requires_all_three_routes_per_question(self) -> None:
+        records = []
+        for version in recipient_routing.SYSTEM_VERSIONS:
+            for dataset in ("commonsense_qa", "arc_challenge"):
+                for question in ("q1", "q2"):
+                    for route in ROUTES:
+                        records.append(
+                            {
+                                "system_version": version,
+                                "dataset": dataset,
+                                "source_example_id": question,
+                                "route": route,
+                                "control_correct": int(
+                                    not (question == "q2" and route == "a_only")
+                                ),
+                            }
+                        )
+        questions, summary = _complier_subset(records)
+        self.assertTrue(
+            all(
+                row["complier"] == int(row["source_example_id"] == "q1")
+                for row in questions
+            )
+        )
+        self.assertTrue(
+            all(row["complier_questions"] == 1 for row in summary)
+        )
+        self.assertTrue(all(row["candidate_questions"] == 2 for row in summary))
 
     def test_numeric_option_index_compatibility_parser(self) -> None:
         self.assertEqual(_parse_output("1", "ABCDE", allow_none=False), "A")
@@ -187,6 +217,34 @@ class RecipientRoutingPromptTests(unittest.TestCase):
         self.assertEqual(len(tasks), 24)
         self.assertEqual(len({task["condition"] for task in tasks}), 24)
         self.assertTrue(all(task["model"] == profile["model"] for task in tasks))
+
+    def test_diverse_candidate_profiles_share_a_sub_ten_dollar_cap(self) -> None:
+        mini = recipient_routing.configure_profile("gpt54mini")
+        mini_tasks = recipient_routing._condition_tasks([_source()])
+        mini_body = recipient_routing._batch_body(mini_tasks[0])
+        self.assertEqual(mini["model"], "gpt-5.4-mini-2026-03-17")
+        self.assertEqual(mini["request_model"], "gpt-5.4-mini")
+        self.assertEqual(len(mini_tasks), 24)
+        self.assertEqual(mini["max_completion_tokens"], 8)
+        self.assertEqual(mini_body["model"], "gpt-5.4-mini")
+        self.assertEqual(mini_body["reasoning_effort"], "none")
+
+        older = recipient_routing.configure_profile("gpt41mini")
+        older_tasks = recipient_routing._condition_tasks([_source()])
+        older_body = recipient_routing._batch_body(older_tasks[0])
+        self.assertEqual(older["model"], "gpt-4.1-mini-2025-04-14")
+        self.assertEqual(len(older_tasks), 24)
+        self.assertEqual(older["max_completion_tokens"], 8)
+        self.assertNotIn("reasoning_effort", older_body)
+        luna = recipient_routing.configure_profile("gpt56luna")
+        luna_tasks = recipient_routing._condition_tasks([_source()])
+        self.assertEqual(luna["model"], "gpt-5.6-luna")
+        self.assertEqual(len(luna_tasks), 24)
+        self.assertEqual(luna["max_completion_tokens"], 8)
+        self.assertLess(
+            luna["operational_cap_usd"] + older["operational_cap_usd"],
+            10.0,
+        )
 
 
 if __name__ == "__main__":

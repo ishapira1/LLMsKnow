@@ -30,23 +30,61 @@ NANO_ROOT = (
     / "openai_api"
     / "experiment_4_recipient_routing_gpt54nano_replication_20260730"
 )
+GPT54MINI_ROOT = (
+    REPO_ROOT
+    / "results"
+    / "sycophancy_bias_probe"
+    / "openai_api"
+    / "experiment_4_recipient_routing_gpt54mini_20260730"
+)
+GPT41MINI_ROOT = (
+    REPO_ROOT
+    / "results"
+    / "sycophancy_bias_probe"
+    / "openai_api"
+    / "experiment_4_recipient_routing_gpt41mini_20260730"
+)
+GPT56LUNA_ROOT = (
+    REPO_ROOT
+    / "results"
+    / "sycophancy_bias_probe"
+    / "openai_api"
+    / "experiment_4_recipient_routing_gpt56luna_20260730"
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "mode",
-        choices=("prepare", "estimate", "run-live", "analyze", "audit", "all"),
+        choices=(
+            "prepare",
+            "estimate",
+            "run-live",
+            "run-compliers",
+            "analyze",
+            "audit",
+            "all",
+        ),
     )
-    parser.add_argument("--profile", choices=("terra", "nano"), default="terra")
+    parser.add_argument(
+        "--profile",
+        choices=("terra", "nano", "gpt54mini", "gpt41mini", "gpt56luna"),
+        default="terra",
+    )
     parser.add_argument("--output-root", type=Path)
     parser.add_argument("--confirm-spend", action="store_true")
     parser.add_argument("--max-cost-usd", type=float)
     args = parser.parse_args()
     profile = experiment.configure_profile(args.profile)
-    output_root = args.output_root or (
-        NANO_ROOT if args.profile == "nano" else TERRA_ROOT
-    )
+    default_roots = {
+        "terra": TERRA_ROOT,
+        "nano": NANO_ROOT,
+        "gpt54mini": GPT54MINI_ROOT,
+        "gpt41mini": GPT41MINI_ROOT,
+        "gpt56luna": GPT56LUNA_ROOT,
+    }
+    output_root = args.output_root or default_roots[args.profile]
     max_cost_usd = (
         float(args.max_cost_usd)
         if args.max_cost_usd is not None
@@ -64,6 +102,13 @@ def main() -> None:
         result = json.loads(paths.estimate.read_text(encoding="utf-8"))
     if args.mode in {"run-live", "all"}:
         result = experiment.run_live(
+            paths=paths,
+            repo_root=REPO_ROOT,
+            confirm_spend=args.confirm_spend,
+            max_cost_usd=max_cost_usd,
+        )
+    if args.mode == "run-compliers":
+        result = experiment.run_complier_subset(
             paths=paths,
             repo_root=REPO_ROOT,
             confirm_spend=args.confirm_spend,
