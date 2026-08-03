@@ -1,0 +1,18 @@
+{
+  "broad_seeds": [101, 503, 1009, 1511, 2003],
+  "confirmatory_control": "module_magnitude_matched",
+  "control_families": ["uniform_global", "module_magnitude_matched"],
+  "cross_model_rule": {
+    "both_models_required": true,
+    "equivalent_random_count_required": 0,
+    "learned_beats_every_matched_seed": true,
+    "neutral_guardrail_pp": 2.0
+  },
+  "empirical_rank_denominator": 21,
+  "equivalence_margins_pp": {"neutral_accuracy": 2.0, "strong_wrong_adoption": 3.0},
+  "experiment": "random_baseline",
+  "magnitude_bins": 20,
+  "primary_endpoint": "strong_wrong_adoption_conditioned_on_base_neutral_correct",
+  "seeds": [101, 211, 307, 401, 503, 601, 701, 809, 907, 1009, 1103, 1201, 1301, 1409, 1511, 1601, 1709, 1801, 1901, 2003],
+  "status": "preregistered_before_results"
+}

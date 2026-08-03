@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+
+BUNDLE = Path(__file__).parents[1] / "jobs/sycophancy_pruning/random_baseline"
+sys.path.insert(0, str(BUNDLE))
+import random_baseline as rb  # noqa: E402
+
+try:
+    import torch
+except ImportError:  # pragma: no cover - exercised only in minimal CPU environments
+    torch = None
+
+
+if torch is not None:
+    class ToyModel(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.block1 = torch.nn.Linear(20, 12, bias=False)
+            self.block2 = torch.nn.Linear(12, 10, bias=False)
+            self.lm_head = torch.nn.Linear(10, 5, bias=False)
+            with torch.no_grad():
+                self.block1.weight.copy_(torch.linspace(-3, 3, self.block1.weight.numel()).reshape_as(self.block1.weight))
+                self.block2.weight.copy_(torch.linspace(-2, 2, self.block2.weight.numel()).reshape_as(self.block2.weight))
+
+
+def target_mask():
+    if torch is None:
+        raise unittest.SkipTest("torch is unavailable")
+    return {
+        "block1": torch.tensor([0, 5, 40, 100, 180]),
+        "block2": torch.tensor([2, 20, 60, 90]),
+    }
+
+
+def metric(rate: float) -> dict[str, float | int]:
+    return {"rate": rate, "numerator": round(rate * 1000), "denominator": 1000}
+
+
+def scenario(learned_syco: float = 0.10, learned_neutral: float = 0.79,
+             random_syco: float = 0.20, random_neutral: float = 0.79):
+    summaries = {
+        "base": {"strong_wrong_adoption": metric(0.50), "neutral_accuracy": metric(0.80)},
+        "learned": {"strong_wrong_adoption": metric(learned_syco),
+                    "neutral_accuracy": metric(learned_neutral)},
+    }
+    rows = [{"family": "module_magnitude_matched", "seed": seed,
+             "strong_wrong_adoption": random_syco, "neutral_accuracy": random_neutral}
+            for seed in rb.SEEDS]
+    return summaries, rows
+
+
+@unittest.skipIf(torch is None, "torch is unavailable")
+class MaskTests(unittest.TestCase):
+    def test_uniform_reproducible_distinct_exact_and_disjoint(self) -> None:
+        modules = rb.eligible_linears(ToyModel())
+        target = target_mask()
+        first = rb.uniform_global_controls(modules, target, count=9, seeds=(101, 211))
+        second = rb.uniform_global_controls(modules, target, count=9, seeds=(101, 211))
+        self.assertEqual(rb.mask_logical_sha256(first[101]), rb.mask_logical_sha256(second[101]))
+        self.assertNotEqual(rb.mask_logical_sha256(first[101]), rb.mask_logical_sha256(first[211]))
+        for mask in first.values():
+            self.assertEqual(sum(value.numel() for value in mask.values()), 9)
+            for name, values in mask.items():
+                self.assertFalse(set(values.tolist()) & set(target.get(name, torch.empty(0)).tolist()))
+
+    def test_matched_reproducible_exact_module_and_twenty_bins(self) -> None:
+        modules = rb.eligible_linears(ToyModel())
+        target = target_mask()
+        first, audit = rb.matched_controls(modules, target, seeds=(101, 211),
+                                           bins=20, quantile_sample_size=10_000)
+        second, _ = rb.matched_controls(modules, target, seeds=(101, 211),
+                                        bins=20, quantile_sample_size=10_000)
+        self.assertEqual(rb.mask_logical_sha256(first[101]), rb.mask_logical_sha256(second[101]))
+        self.assertNotEqual(rb.mask_logical_sha256(first[101]), rb.mask_logical_sha256(first[211]))
+        for seed, mask in first.items():
+            self.assertEqual({name: value.numel() for name, value in mask.items()},
+                             {name: value.numel() for name, value in target.items()})
+            for name, values in mask.items():
+                self.assertFalse(set(values.tolist()) & set(target[name].tolist()))
+                self.assertEqual(audit[name]["random_bin_counts_by_seed"][str(seed)],
+                                 audit[name]["target_bin_counts"])
+
+    def test_logical_hash_rejects_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "mask"
+            rb.save_mask(directory, target_mask(), {"kind": "toy"})
+            metadata = rb.read_json(directory / "metadata.json")
+            loaded = rb.load_indices(directory / "indices.pt")
+            self.assertEqual(rb.mask_logical_sha256(loaded), metadata["logical_mask_sha256"])
+            loaded["block1"][0] += 1
+            self.assertNotEqual(rb.mask_logical_sha256(loaded), metadata["logical_mask_sha256"])
+
+
+class InferenceTests(unittest.TestCase):
+    def test_confirmatory_support(self) -> None:
+        summaries, rows = scenario()
+        result = rb.confirmatory_inference(summaries, rows)
+        self.assertTrue(result["model_supports_specificity"])
+        self.assertAlmostEqual(result["empirical_rank_p_one_sided"], 1 / 21)
+
+    def test_confirmatory_equivalence_rejects(self) -> None:
+        summaries, rows = scenario(random_syco=0.12, random_neutral=0.80)
+        result = rb.confirmatory_inference(summaries, rows)
+        self.assertFalse(result["model_supports_specificity"])
+        self.assertEqual(result["matched_random_equivalent_count"], 20)
+
+    def test_confirmatory_neutral_collapse_rejects(self) -> None:
+        summaries, rows = scenario(learned_neutral=0.70)
+        result = rb.confirmatory_inference(summaries, rows)
+        self.assertFalse(result["model_supports_specificity"])
+        self.assertFalse(result["learned_neutral_within_2pp_of_base"])
+
+    def test_confirmatory_random_as_strong_rejects(self) -> None:
+        summaries, rows = scenario(random_syco=0.09)
+        result = rb.confirmatory_inference(summaries, rows)
+        self.assertFalse(result["model_supports_specificity"])
+        self.assertEqual(result["matched_random_at_least_as_strong"], 20)
+
+
+if __name__ == "__main__":
+    unittest.main()

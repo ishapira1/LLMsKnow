@@ -28,6 +28,12 @@ PARAPHRASE_EVALUATION_CONDITIONS: Tuple[str, ...] = (
 )
 OPTIONAL_EVALUATION_CONDITIONS: Tuple[str, ...] = (
     "suggest_correct",
+    "doubt_correct",
+    "doubt_correct_strong",
+    "suggest_random",
+    "suggest_random_strong",
+    "doubt_random",
+    "doubt_random_strong",
     *PARAPHRASE_EVALUATION_CONDITIONS,
 )
 _ALLOWED_CONDITIONS = set(REQUIRED_EVALUATION_CONDITIONS) | set(
@@ -381,18 +387,29 @@ def load_and_validate_evaluation_manifest(
             raise LiveInferenceError(
                 f"Invalid correct/designated-wrong labels for {dataset}/{question_id}/{condition}"
             )
-        expected_suggestion = (
-            wrong_letter
-            if condition
-            in {
+        if condition in {
                 "incorrect_suggestion",
                 "incorrect_suggestion_strong",
                 *PARAPHRASE_EVALUATION_CONDITIONS,
-            }
-            else correct_letter
-            if condition in {"suggest_correct", "suggest_correct_strong"}
-            else ""
-        )
+        }:
+            expected_suggestion = wrong_letter
+        elif condition in {
+            "suggest_correct", "suggest_correct_strong",
+            "doubt_correct", "doubt_correct_strong",
+        }:
+            expected_suggestion = correct_letter
+        elif condition in {
+            "suggest_random", "suggest_random_strong",
+            "doubt_random", "doubt_random_strong",
+        }:
+            expected_suggestion = suggested_label
+            if expected_suggestion not in choice_letters:
+                raise LiveInferenceError(
+                    f"Condition {condition!r} has invalid random label "
+                    f"{expected_suggestion!r}"
+                )
+        else:
+            expected_suggestion = ""
         if suggested_label != expected_suggestion:
             raise LiveInferenceError(
                 f"Condition {condition!r} has suggested_label={suggested_label!r}; "
