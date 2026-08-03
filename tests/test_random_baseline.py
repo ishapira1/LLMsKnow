@@ -13,6 +13,7 @@ sys.path.insert(0, str(BUNDLE))
 import random_baseline as rb  # noqa: E402
 import multi_state_eval as mse  # noqa: E402
 import export_report as export  # noqa: E402
+import integrate_paper as paper  # noqa: E402
 
 try:
     import torch
@@ -254,6 +255,40 @@ class PaperExportTests(unittest.TestCase):
             self.assertIn("Common-suite supporting outcomes", tex)
             self.assertIn("For Llama", tex)
             self.assertIn("For Qwen", tex)
+
+
+class PaperIntegrationTests(unittest.TestCase):
+    def test_exact_insertion_plot_copy_and_duplicate_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paper_tex = root / "experiemnts.tex"
+            generated = root / "random_mask_baselines.tex"
+            llama = root / "llama.pdf"
+            qwen = root / "qwen.pdf"
+            plots = root / "plots"
+            audit = root / "integration_audit.json"
+            paper_tex.write_text(
+                "before\n" + paper.INSERTION_MARKER + "\nafter\n", encoding="utf-8"
+            )
+            generated.write_text(
+                "\\subsection{Random-Mask Baselines}\n" + paper.SECTION_LABEL + "\nbody\n",
+                encoding="utf-8",
+            )
+            llama.write_bytes(b"llama-pdf")
+            qwen.write_bytes(b"qwen-pdf")
+            payload = paper.integrate(paper_tex, generated, llama, qwen, plots, audit)
+            integrated = paper_tex.read_text(encoding="utf-8")
+            self.assertEqual(payload["status"], "complete")
+            self.assertLess(integrated.index(paper.SECTION_LABEL),
+                            integrated.index(paper.INSERTION_MARKER))
+            self.assertEqual((plots / "random_baseline_llama_pareto.pdf").read_bytes(),
+                             b"llama-pdf")
+            self.assertEqual((plots / "random_baseline_qwen_pareto.pdf").read_bytes(),
+                             b"qwen-pdf")
+            self.assertEqual(rb.read_json(audit)["paper_tex_after_sha256"],
+                             rb.sha256_file(paper_tex))
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                paper.integrate(paper_tex, generated, llama, qwen, plots, audit)
 
 
 if __name__ == "__main__":
