@@ -265,13 +265,43 @@ def alpaca_loss(model: Any, tokenizer: Any, rows: Sequence[Mapping[str, Any]]) -
     return sum(losses) / len(losses)
 
 
-def wikitext_perplexity(model: Any, tokenizer: Any, seqlen: int = 2048) -> float:
+def validate_wikitext_input(path: Path, pin_path: Path) -> dict[str, Any]:
+    pin = rb.read_json(pin_path)
+    required = {
+        "status": "complete",
+        "dataset": "Salesforce/wikitext",
+        "config": "wikitext-2-raw-v1",
+        "split": "test",
+        "rows": 4358,
+    }
+    for key, value in required.items():
+        if pin.get(key) != value:
+            raise ValueError(f"WikiText pin drift: {key}")
+    if Path(pin.get("frozen_input_path", "")).resolve() != path.resolve():
+        raise ValueError("WikiText frozen input path drift")
+    if rb.sha256_file(path) != pin.get("frozen_input_sha256"):
+        raise ValueError("WikiText frozen input hash drift")
+    source_arrow = Path(str(pin.get("source_arrow_path", "")))
+    dataset_info = Path(str(pin.get("dataset_info_path", "")))
+    if not source_arrow.is_file() or rb.sha256_file(source_arrow) != pin.get("source_arrow_sha256"):
+        raise ValueError("WikiText source Arrow drift")
+    if not dataset_info.is_file() or rb.sha256_file(dataset_info) != pin.get("dataset_info_sha256"):
+        raise ValueError("WikiText dataset-info drift")
+    rows = rb.read_jsonl(path)
+    if len(rows) != 4358 or [row.get("row_id") for row in rows] != list(range(4358)):
+        raise ValueError("WikiText frozen row count/order drift")
+    if any(not isinstance(row.get("text"), str) for row in rows):
+        raise ValueError("WikiText frozen input contains a non-string row")
+    return pin
+
+
+def wikitext_perplexity(model: Any, tokenizer: Any, path: Path,
+                        seqlen: int = 2048) -> float:
     import torch
     import torch.nn as nn
-    from datasets import load_dataset
-
-    dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="test")
-    input_ids = tokenizer("\n\n".join(dataset["text"]), return_tensors="pt").input_ids
+    rows = rb.read_jsonl(path)
+    input_ids = tokenizer("\n\n".join(str(row["text"]) for row in rows),
+                          return_tensors="pt").input_ids
     samples = input_ids.numel() // seqlen
     if not samples:
         raise ValueError("WikiText has no complete evaluation block")
@@ -290,10 +320,11 @@ def wikitext_perplexity(model: Any, tokenizer: Any, seqlen: int = 2048) -> float
     return value
 
 
-def evaluate_utility(model: Any, tokenizer: Any, path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def evaluate_utility(model: Any, tokenizer: Any, path: Path,
+                     wikitext_input: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows = rb.read_jsonl(path)
     result = {"alpaca_mean_response_loss": alpaca_loss(model, tokenizer, rows),
-              "wikitext_perplexity": wikitext_perplexity(model, tokenizer),
+              "wikitext_perplexity": wikitext_perplexity(model, tokenizer, wikitext_input),
               "alpaca_examples": len(rows), "wikitext_seqlen": 2048}
     return [], result
 
@@ -400,7 +431,9 @@ def evaluate_sycobench(model: Any, tokenizer: Any, path: Path,
     return items, summary
 
 
-def evaluator_for(benchmark: str, sycobench_source: Path | None) -> Callable[..., Any]:
+def evaluator_for(benchmark: str, sycobench_source: Path | None,
+                  wikitext_input: Path | None = None,
+                  wikitext_pin: Path | None = None) -> Callable[..., Any]:
     if benchmark == "core":
         return evaluate_core
     if benchmark == "mmlu":
@@ -408,7 +441,12 @@ def evaluator_for(benchmark: str, sycobench_source: Path | None) -> Callable[...
     if benchmark == "icl":
         return evaluate_icl
     if benchmark == "alpaca_wikitext":
-        return evaluate_utility
+        if wikitext_input is None or wikitext_pin is None:
+            raise ValueError("--wikitext-input and --wikitext-pin are required")
+        validate_wikitext_input(wikitext_input, wikitext_pin)
+        return lambda model, tokenizer, path: evaluate_utility(
+            model, tokenizer, path, wikitext_input
+        )
     if benchmark in {"feedback", "elephant"}:
         return lambda model, tokenizer, path: evaluate_freeform(model, tokenizer, path, benchmark)
     if benchmark == "sycobench":
@@ -450,7 +488,9 @@ def run(args: argparse.Namespace) -> None:
              for state in states if state["mask_dir"] is not None}
     model, tokenizer = load_model(args.model_snapshot)
     backup = backup_weights(model, union_indices(masks)) if masks else {}
-    evaluator = evaluator_for(args.benchmark, args.sycobench_source)
+    evaluator = evaluator_for(
+        args.benchmark, args.sycobench_source, args.wikitext_input, args.wikitext_pin
+    )
     try:
         for state in states:
             state_id = str(state["state_id"])
@@ -499,6 +539,18 @@ def run(args: argparse.Namespace) -> None:
                 }
             if records:
                 payload["items_sha256"] = rb.sha256_file(partial / "items.jsonl")
+            if args.benchmark == "alpaca_wikitext":
+                wikitext_pin = rb.read_json(args.wikitext_pin)
+                payload["auxiliary_inputs"] = {
+                    "wikitext": {
+                        "path": str(args.wikitext_input),
+                        "sha256": wikitext_pin["frozen_input_sha256"],
+                        "pin_path": str(args.wikitext_pin),
+                        "pin_sha256": rb.sha256_file(args.wikitext_pin),
+                        "revision": wikitext_pin["revision"],
+                        "rows": wikitext_pin["rows"],
+                    }
+                }
             rb.atomic_json(partial / "summary.json", payload)
             os.replace(partial, destination)
             print(f"state={state_id} benchmark={args.benchmark} complete", flush=True)
@@ -592,6 +644,8 @@ def parser() -> argparse.ArgumentParser:
                                                      "mmlu", "icl", "feedback", "elephant"),
                             required=True)
     run_parser.add_argument("--sycobench-source", type=Path)
+    run_parser.add_argument("--wikitext-input", type=Path)
+    run_parser.add_argument("--wikitext-pin", type=Path)
     run_parser.set_defaults(func=run)
     parity_parser = sub.add_parser("parity")
     parity_parser.add_argument("--model", choices=tuple(rb.MODEL_SPECS), required=True)

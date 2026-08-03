@@ -9,6 +9,7 @@ import unittest
 BUNDLE = Path(__file__).parents[1] / "jobs/sycophancy_pruning/random_baseline"
 sys.path.insert(0, str(BUNDLE))
 import random_baseline as rb  # noqa: E402
+import multi_state_eval as mse  # noqa: E402
 
 try:
     import torch
@@ -120,6 +121,35 @@ class InferenceTests(unittest.TestCase):
         result = rb.confirmatory_inference(summaries, rows)
         self.assertFalse(result["model_supports_specificity"])
         self.assertEqual(result["matched_random_at_least_as_strong"], 20)
+
+
+class FrozenWikitextTests(unittest.TestCase):
+    def test_frozen_input_validates_and_rejects_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "wikitext-test.arrow"
+            info = root / "dataset_info.json"
+            frozen = root / "wikitext.jsonl"
+            pin_path = root / "wikitext_pin.json"
+            source.write_bytes(b"pinned-arrow")
+            info.write_text("{}\n", encoding="utf-8")
+            rb.atomic_jsonl(frozen, ({"row_id": index, "text": ""}
+                                     for index in range(4358)))
+            rb.atomic_json(pin_path, {
+                "status": "complete", "dataset": "Salesforce/wikitext",
+                "config": "wikitext-2-raw-v1", "split": "test",
+                "revision": "test-revision", "rows": 4358,
+                "source_arrow_path": str(source.resolve()),
+                "source_arrow_sha256": rb.sha256_file(source),
+                "dataset_info_path": str(info.resolve()),
+                "dataset_info_sha256": rb.sha256_file(info),
+                "frozen_input_path": str(frozen.resolve()),
+                "frozen_input_sha256": rb.sha256_file(frozen),
+            })
+            self.assertEqual(mse.validate_wikitext_input(frozen, pin_path)["rows"], 4358)
+            source.write_bytes(b"tampered")
+            with self.assertRaisesRegex(ValueError, "source Arrow drift"):
+                mse.validate_wikitext_input(frozen, pin_path)
 
 
 if __name__ == "__main__":

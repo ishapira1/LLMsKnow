@@ -85,7 +85,8 @@ case "$STAGE" in
     state="$($PYTHON_BIN -c 'import random_baseline as r,sys; s=["base","learned"]+[f"{f}__seed_{x}" for f in r.CONTROL_FAMILIES for x in r.BROAD_SEEDS]; print(s[int(sys.argv[1])])' "$state_index")"
     command=("$PYTHON_BIN" "$BUNDLE_DIR/multi_state_eval.py" run --model "$MODEL"
       --model-snapshot "$snapshot" --registry "$registry" --result-root "$RESULT_ROOT"
-      --states "$state" --benchmark "$benchmark" --sycobench-source "$SYCOBENCH_SOURCE")
+      --states "$state" --benchmark "$benchmark" --sycobench-source "$SYCOBENCH_SOURCE"
+      --wikitext-input "$WIKITEXT_INPUT" --wikitext-pin "$WIKITEXT_PIN")
     ;;
 esac
 print_command "${command[@]}"

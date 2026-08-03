@@ -24,6 +24,9 @@ def main() -> int:
     final = rb.read_json(args.result_root / "analysis/final_report.json")
     if final.get("status") != "complete":
         raise RuntimeError("Final report is incomplete")
+    completion_audit = rb.read_json(args.result_root / "audit/completion_audit.json")
+    if completion_audit.get("status") != "complete":
+        raise RuntimeError("Completion audit is incomplete")
     args.artifact_root.mkdir(parents=True, exist_ok=True)
     rows = []
     for model in rb.MODEL_SPECS:
@@ -46,9 +49,20 @@ def main() -> int:
                      "p": summary["confirmatory_inference"]["empirical_rank_p_one_sided"],
                      "equivalents": summary["confirmatory_inference"]["matched_random_equivalent_count"]})
     rb.atomic_json(args.artifact_root / "final_report.json", final)
+    for source_name, output_name in (
+        ("analysis/broad_summary.json", "broad_summary.json"),
+        ("analysis/feedback_summary.json", "feedback_summary.json"),
+        ("audit/completion_audit.json", "completion_audit.json"),
+    ):
+        shutil.copy2(args.result_root / source_name, args.artifact_root / output_name)
     rb.atomic_json(args.artifact_root / "provenance.json", {
         "status": "complete", "experiment": rb.EXPERIMENT,
         "source_completion_audit": str(args.result_root / "audit/completion_audit.json"),
+        "source_completion_audit_sha256": rb.sha256_file(
+            args.result_root / "audit/completion_audit.json"
+        ),
+        "source_completion_audit_logical_sha256": completion_audit["audit_sha256"],
+        "verified_counts": completion_audit["verified_counts"],
         "preflight_pins_sha256": rb.sha256_file(args.result_root / "registry/preflight_pins.json"),
         "feedback_summary_sha256": rb.sha256_file(args.result_root / "analysis/feedback_summary.json"),
         "exported_at": rb.utc_now(),

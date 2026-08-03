@@ -9,11 +9,19 @@ LOG_ROOT="${LOG_ROOT:-/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs
 HF_CACHE_DIR="${HF_CACHE_DIR:-/n/holystore01/LABS/barak_lab/Users/ishapira/hf_cache}"
 PYTHON_BIN="${PYTHON_BIN:-/n/home12/ishapira/.conda/envs/itai_ml_env/bin/python}"
 SYCOBENCH_SOURCE="${SYCOBENCH_SOURCE:-/n/holystore01/LABS/barak_lab/Users/ishapira/source_snapshots/postprune_capability_audit_20260726/sycobench-600}"
+WIKITEXT_REVISION="${WIKITEXT_REVISION:-b08601e04326c79dfdd32d625aee71d232d685c3}"
+WIKITEXT_CACHE_ROOT="${WIKITEXT_CACHE_ROOT:-$HF_CACHE_DIR/datasets/Salesforce___wikitext/wikitext-2-raw-v1/0.0.0/$WIKITEXT_REVISION}"
+WIKITEXT_SOURCE_ARROW="${WIKITEXT_SOURCE_ARROW:-$WIKITEXT_CACHE_ROOT/wikitext-test.arrow}"
+WIKITEXT_DATASET_INFO="${WIKITEXT_DATASET_INFO:-$WIKITEXT_CACHE_ROOT/dataset_info.json}"
+WIKITEXT_INPUT="${WIKITEXT_INPUT:-$RESULT_ROOT/inputs/wikitext_2_raw_test.jsonl}"
+WIKITEXT_PIN="${WIKITEXT_PIN:-$RESULT_ROOT/registry/wikitext_pin.json}"
 EMAIL_TO="${EMAIL_TO:-itaishapira@g.harvard.edu}"
 RUN_DATE="20260803"
 
 export BUNDLE_DIR REPO_DIR RESULT_ROOT LOG_ROOT HF_CACHE_DIR PYTHON_BIN
 export SYCOBENCH_SOURCE EMAIL_TO RUN_DATE
+export WIKITEXT_REVISION WIKITEXT_CACHE_ROOT WIKITEXT_SOURCE_ARROW
+export WIKITEXT_DATASET_INFO WIKITEXT_INPUT WIKITEXT_PIN
 export PYTHONPATH="$BUNDLE_DIR:$REPO_DIR:$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 export HF_HOME="$HF_CACHE_DIR"
 export HF_HUB_CACHE="$HF_CACHE_DIR"

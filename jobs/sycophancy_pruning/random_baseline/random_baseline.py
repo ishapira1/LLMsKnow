@@ -32,6 +32,15 @@ SEEDS = (101, 211, 307, 401, 503, 601, 701, 809, 907, 1009,
          1103, 1201, 1301, 1409, 1511, 1601, 1709, 1801, 1901, 2003)
 BROAD_SEEDS = (101, 503, 1009, 1511, 2003)
 CONTROL_FAMILIES = ("uniform_global", "module_magnitude_matched")
+BROAD_BENCHMARKS = ("sycobench", "alpaca_wikitext", "mmlu", "icl", "feedback", "elephant")
+BROAD_EXPECTED_ROWS = {
+    "sycobench": 1800,
+    "alpaca_wikitext": 0,
+    "mmlu": 200,
+    "icl": 200,
+    "feedback": 1000,
+    "elephant": 400,
+}
 MATCH_BINS = 20
 BOOTSTRAP_DRAWS = 2000
 EQUIVALENCE_SYCOPHANCY_MARGIN = 0.03
@@ -124,6 +133,16 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_and_line_count(path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    lines = 0
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+            lines += chunk.count(b"\n")
+    return digest.hexdigest(), lines
 
 
 def atomic_text(path: Path, value: str) -> None:
@@ -926,6 +945,47 @@ def plot_pareto(rows: Sequence[Mapping[str, Any]], path: Path, model: str) -> No
     plt.close(fig)
 
 
+def expected_broad_states(registry: Mapping[str, Any]) -> list[dict[str, Any]]:
+    expected_ids = {"base", "learned"} | {
+        f"{family}__seed_{seed}"
+        for family in CONTROL_FAMILIES for seed in BROAD_SEEDS
+    }
+    states = [dict(state) for state in registry["states"]
+              if str(state["state_id"]) in expected_ids]
+    if len(states) != 12 or {str(state["state_id"]) for state in states} != expected_ids:
+        raise ValueError("Registry does not contain the exact 12 predeclared broad states")
+    return states
+
+
+def aggregate_broad(args: argparse.Namespace) -> dict[str, Any]:
+    records = []
+    for model in MODEL_SPECS:
+        registry = read_json(args.result_root / "registry" / f"{model}.json")
+        for state in expected_broad_states(registry):
+            state_id = str(state["state_id"])
+            for benchmark in BROAD_BENCHMARKS:
+                path = args.result_root / "broad" / model / state_id / benchmark / "summary.json"
+                summary = read_json(path)
+                if summary.get("status") != "complete":
+                    raise ValueError(f"Incomplete broad summary: {path}")
+                records.append({
+                    "model": model,
+                    "state_id": state_id,
+                    "family": state.get("family"),
+                    "seed": state.get("seed"),
+                    "benchmark": benchmark,
+                    "rows": summary.get("rows"),
+                    "result": summary.get("result"),
+                    "summary_sha256": sha256_file(path),
+                })
+    if len(records) != 144:
+        raise ValueError(f"Expected 144 broad summaries, got {len(records)}")
+    payload = {"status": "complete", "record_count": len(records),
+               "records": records, "completed_at": utc_now()}
+    atomic_json(args.result_root / "analysis" / "broad_summary.json", payload)
+    return payload
+
+
 def final_aggregate(args: argparse.Namespace) -> None:
     model_results = {model: read_json(args.result_root / "analysis" / model / "core_summary.json")
                      for model in MODEL_SPECS}
@@ -938,50 +998,229 @@ def final_aggregate(args: argparse.Namespace) -> None:
         conclusion = "model-specific"
     else:
         conclusion = "unsupported"
-    broad_expected = []
-    for model in MODEL_SPECS:
-        broad_states = ["base", "learned"] + [
-            f"{family}__seed_{seed}"
-            for family in CONTROL_FAMILIES for seed in BROAD_SEEDS
-        ]
-        for state_id in broad_states:
-            for benchmark in ("sycobench", "alpaca_wikitext", "mmlu", "icl", "feedback", "elephant"):
-                broad_expected.append(args.result_root / "broad" / model /
-                                      state_id / benchmark / "summary.json")
-    broad_expected.append(args.result_root / "analysis" / "feedback_summary.json")
-    missing = [str(path) for path in broad_expected if not path.is_file()]
-    if missing:
-        raise FileNotFoundError("Missing broad outputs:\n" + "\n".join(missing))
+    broad = aggregate_broad(args)
+    feedback = read_json(args.result_root / "analysis" / "feedback_summary.json")
+    if feedback.get("status") != "complete":
+        raise ValueError("Feedback aggregation is incomplete")
     payload = {"status": "complete", "experiment": EXPERIMENT,
                "conclusion": conclusion, "cross_model_specificity_supported": supports,
                "models": {key: value["confirmatory_inference"] for key, value in model_results.items()},
-               "broad_output_count": len(broad_expected), "completed_at": utc_now()}
+               "broad_output_count": broad["record_count"],
+               "broad_summary_sha256": sha256_file(args.result_root / "analysis/broad_summary.json"),
+               "feedback_summary_sha256": sha256_file(args.result_root / "analysis/feedback_summary.json"),
+               "completed_at": utc_now()}
     atomic_json(args.result_root / "analysis" / "final_report.json", payload)
 
 
+def _require_json(path: Path, *, status: str = "complete") -> dict[str, Any]:
+    payload = read_json(path)
+    if payload.get("status") != status:
+        raise ValueError(f"Artifact is not {status}: {path}")
+    return payload
+
+
+def _verify_jsonl(path: Path, expected_hash: str, expected_rows: int) -> str:
+    actual_hash, actual_rows = sha256_and_line_count(path)
+    if actual_hash != expected_hash:
+        raise ValueError(f"Artifact hash drift: {path}")
+    if actual_rows != expected_rows:
+        raise ValueError(f"Artifact row-count drift: {path}: {actual_rows} != {expected_rows}")
+    return actual_hash
+
+
 def completion_audit(args: argparse.Namespace) -> None:
-    required = [args.result_root / "registry" / "preflight_pins.json",
-                args.result_root / "analysis" / "final_report.json"]
+    root = args.result_root
+    pins_path = root / "registry" / "preflight_pins.json"
+    pins = _require_json(pins_path) if read_json(pins_path).get("status") else read_json(pins_path)
+    for name, record in pins["paths"].items():
+        path = Path(record["path"])
+        if not path.is_file() or sha256_file(path) != record["sha256"]:
+            raise ValueError(f"Pinned input drift during completion audit: {name}")
+    required = [pins_path, root / "registry" / "wikitext_pin.json",
+                root / "analysis" / "final_report.json",
+                root / "analysis" / "broad_summary.json"]
+    final_report = _require_json(root / "analysis" / "final_report.json")
+    broad_analysis = _require_json(root / "analysis" / "broad_summary.json")
+    if (int(final_report.get("broad_output_count", -1)) != 144 or
+            int(broad_analysis.get("record_count", -1)) != 144 or
+            len(broad_analysis.get("records", [])) != 144 or
+            final_report.get("broad_summary_sha256") !=
+            sha256_file(root / "analysis/broad_summary.json")):
+        raise ValueError("Final/broad aggregate count or hash drift")
+    broad_records = {
+        (str(row["model"]), str(row["state_id"]), str(row["benchmark"])): row
+        for row in broad_analysis["records"]
+    }
+    if len(broad_records) != 144:
+        raise ValueError("Broad aggregate identities are incomplete or duplicated")
+    wikitext_pin = _require_json(root / "registry" / "wikitext_pin.json")
+    for path_key, hash_key in (("frozen_input_path", "frozen_input_sha256"),
+                               ("source_arrow_path", "source_arrow_sha256"),
+                               ("dataset_info_path", "dataset_info_sha256")):
+        path = Path(wikitext_pin[path_key])
+        if not path.is_file() or sha256_file(path) != wikitext_pin[hash_key]:
+            raise ValueError(f"WikiText pin drift: {path_key}")
+    if int(wikitext_pin["rows"]) != 4358:
+        raise ValueError("WikiText frozen row-count drift")
+
+    verified_counts = {"masks": 0, "core_states": 0, "broad_states": 0,
+                       "feedback_labels": 0, "elephant_labels": 0, "emails": 0}
     for model in MODEL_SPECS:
-        required.extend([args.result_root / "audit" / f"{model}_masks.json",
-                         args.result_root / "audit" / f"{model}_gpu_smoke.json",
-                         args.result_root / "audit" / f"{model}_batch_parity.json",
-                         args.result_root / "analysis" / model / "core_summary.json"])
-    required.extend([args.result_root / "judging" / "package_audit.json",
-                     args.result_root / "judging" / "feedback_labels.jsonl",
-                     args.result_root / "analysis" / "feedback_summary.json"])
-    required.extend(args.result_root / "emails" / "receipts" / f"{name}.json" for name in (
+        mask_audit_path = root / "audit" / f"{model}_masks.json"
+        smoke_path = root / "audit" / f"{model}_gpu_smoke.json"
+        parity_path = root / "audit" / f"{model}_batch_parity.json"
+        core_analysis_path = root / "analysis" / model / "core_summary.json"
+        for path in (mask_audit_path, smoke_path, parity_path, core_analysis_path):
+            _require_json(path)
+            required.append(path)
+        mask_audit = read_json(mask_audit_path)
+        masks = mask_audit.get("masks", [])
+        expected_pairs = {(family, seed) for family in CONTROL_FAMILIES for seed in SEEDS}
+        actual_pairs = {(row.get("family"), int(row.get("seed", -1))) for row in masks}
+        if (len(masks) != 40 or actual_pairs != expected_pairs or
+                not mask_audit.get("all_disjoint") or not mask_audit.get("all_distinct") or
+                len({row.get("logical_mask_sha256") for row in masks}) != 40 or
+                any(int(row.get("count", -1)) != int(MODEL_SPECS[model]["target_count"])
+                    for row in masks)):
+            raise ValueError(f"{model}: mask audit did not verify 40 controls")
+        verified_counts["masks"] += 40
+        smoke = read_json(smoke_path)
+        parity = read_json(parity_path)
+        if not smoke.get("deterministic_replay_byte_identical"):
+            raise ValueError(f"{model}: GPU replay is not deterministic")
+        if int(parity.get("selected_batch_size", -1)) != 1:
+            raise ValueError(f"{model}: unexpected batch-size decision")
+
+        registry_path = root / "registry" / f"{model}.json"
+        registry = read_json(registry_path)
+        required.append(registry_path)
+        states = registry["states"]
+        if len(states) != 42 or len({str(state["state_id"]) for state in states}) != 42:
+            raise ValueError(f"{model}: registry must contain 42 unique states")
+        core_analysis = read_json(core_analysis_path)
+        if set(core_analysis["summaries"]) != {str(state["state_id"]) for state in states}:
+            raise ValueError(f"{model}: aggregated core state set drift")
+        if len(core_analysis["seed_distribution"]) != 42:
+            raise ValueError(f"{model}: seed distribution must contain 42 states")
+        expected_core_rows = int(pins["scientific_audit"][model]["core"]["row_count"])
+        expected_paraphrase_rows = int(pins["scientific_audit"][model]["paraphrase"]["row_count"])
+        expected_core_input = pins["paths"][f"{model}.core_manifest"]["sha256"]
+        expected_paraphrase_input = pins["paths"][f"{model}.paraphrase_manifest"]["sha256"]
+        for state in states:
+            state_id = str(state["state_id"])
+            directory = root / "core" / model / state_id
+            summary_path = directory / "summary.json"
+            summary = _require_json(summary_path)
+            if (summary.get("model"), summary.get("benchmark"),
+                    summary.get("state", {}).get("state_id")) != (model, "core", state_id):
+                raise ValueError(f"Core summary identity drift: {summary_path}")
+            if int(summary["rows"]) != expected_core_rows or summary["input_sha256"] != expected_core_input:
+                raise ValueError(f"Core summary input/row drift: {summary_path}")
+            if (int(summary["paraphrase"]["rows"]) != expected_paraphrase_rows or
+                    summary["paraphrase"]["input_sha256"] != expected_paraphrase_input):
+                raise ValueError(f"Core paraphrase input/row drift: {summary_path}")
+            items_path = directory / "items.jsonl"
+            paraphrase_path = directory / "paraphrase_items.jsonl"
+            _verify_jsonl(items_path, summary["items_sha256"], expected_core_rows)
+            _verify_jsonl(paraphrase_path, summary["paraphrase"]["items_sha256"],
+                          expected_paraphrase_rows)
+            required.extend((summary_path, items_path, paraphrase_path))
+            verified_counts["core_states"] += 1
+
+        broad_states = expected_broad_states(registry)
+        for state in broad_states:
+            state_id = str(state["state_id"])
+            for benchmark in BROAD_BENCHMARKS:
+                directory = root / "broad" / model / state_id / benchmark
+                summary_path = directory / "summary.json"
+                summary = _require_json(summary_path)
+                if (summary.get("model"), summary.get("benchmark"),
+                        summary.get("state", {}).get("state_id")) != (model, benchmark, state_id):
+                    raise ValueError(f"Broad summary identity drift: {summary_path}")
+                expected_rows = BROAD_EXPECTED_ROWS[benchmark]
+                if int(summary["rows"]) != expected_rows:
+                    raise ValueError(f"Broad row-count drift: {summary_path}")
+                pin_name = "broad.alpaca" if benchmark == "alpaca_wikitext" else f"broad.{benchmark}"
+                if summary["input_sha256"] != pins["paths"][pin_name]["sha256"]:
+                    raise ValueError(f"Broad input drift: {summary_path}")
+                aggregate_record = broad_records.get((model, state_id, benchmark))
+                if (aggregate_record is None or
+                        aggregate_record.get("summary_sha256") != sha256_file(summary_path) or
+                        int(aggregate_record.get("rows", -1)) != expected_rows or
+                        aggregate_record.get("result") != summary.get("result")):
+                    raise ValueError(f"Broad aggregate/source drift: {summary_path}")
+                if expected_rows:
+                    items_path = directory / "items.jsonl"
+                    _verify_jsonl(items_path, summary["items_sha256"], expected_rows)
+                    required.append(items_path)
+                if benchmark == "alpaca_wikitext":
+                    auxiliary = summary.get("auxiliary_inputs", {}).get("wikitext", {})
+                    if (auxiliary.get("sha256") != wikitext_pin["frozen_input_sha256"] or
+                            auxiliary.get("pin_sha256") != sha256_file(root / "registry/wikitext_pin.json") or
+                            int(auxiliary.get("rows", -1)) != 4358):
+                        raise ValueError(f"WikiText auxiliary pin drift: {summary_path}")
+                required.append(summary_path)
+                verified_counts["broad_states"] += 1
+
+    package_path = root / "judging" / "package_audit.json"
+    package = _require_json(package_path)
+    packet_path = root / "judging" / "feedback_packet.jsonl"
+    key_path = root / "judging" / "feedback_private_key.jsonl"
+    elephant_path = root / "judging" / "elephant_automatic_labels.jsonl"
+    labels_path = root / "judging" / "feedback_labels.jsonl"
+    expected_feedback = 2 * 12 * 200 * 4
+    expected_elephant = 2 * 12 * 400
+    for path, expected_hash, expected_rows in (
+        (packet_path, package["feedback_packet_sha256"], expected_feedback),
+        (key_path, package["feedback_private_key_sha256"], expected_feedback),
+        (elephant_path, package["elephant_labels_sha256"], expected_elephant),
+    ):
+        _verify_jsonl(path, expected_hash, expected_rows)
+    packet_ids = {str(row["judge_id"]) for row in read_jsonl(packet_path)}
+    key_ids = {str(row["judge_id"]) for row in read_jsonl(key_path)}
+    label_rows = read_jsonl(labels_path)
+    label_ids = {str(row["judge_id"]) for row in label_rows}
+    if len(packet_ids) != expected_feedback or packet_ids != key_ids or label_ids != packet_ids:
+        raise ValueError("Feedback packet/private-key/label ID sets differ")
+    feedback_path = root / "analysis" / "feedback_summary.json"
+    feedback = _require_json(feedback_path)
+    if (int(feedback["label_rows"]) != expected_feedback or
+            feedback["labels_sha256"] != sha256_file(labels_path) or
+            len(feedback["states"]) != 24):
+        raise ValueError("Feedback aggregate drift")
+    if final_report.get("feedback_summary_sha256") != sha256_file(feedback_path):
+        raise ValueError("Final report feedback hash drift")
+    verified_counts["feedback_labels"] = expected_feedback
+    verified_counts["elephant_labels"] = expected_elephant
+    required.extend((package_path, packet_path, key_path, elephant_path,
+                     labels_path, feedback_path))
+
+    email_names = (
         "submission", "mask_audit_complete", "llama_core_complete",
         "qwen_core_complete", "broad_suite_complete", "final_report_complete",
-    ))
+    )
+    for name in email_names:
+        receipt_path = root / "emails" / "receipts" / f"{name}.json"
+        receipt = read_json(receipt_path)
+        body_path = Path(receipt["body_path"])
+        if (receipt.get("status") != "sent" or receipt.get("milestone") != name or
+                int(receipt.get("returncode", -1)) != 0 or not body_path.is_file() or
+                sha256_file(body_path) != receipt["body_sha256"]):
+            raise ValueError(f"Email receipt drift: {name}")
+        required.extend((receipt_path, body_path))
+        verified_counts["emails"] += 1
+
+    for recovery_path in sorted((root / "recovery").glob("*/*.json")):
+        required.append(recovery_path)
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
         raise FileNotFoundError("Completion audit missing:\n" + "\n".join(missing))
-    files = {str(path.relative_to(args.result_root)): sha256_file(path)
-             for path in sorted(required)}
-    payload = {"status": "complete", "files": files,
+    unique_required = sorted(set(required))
+    files = {str(path.relative_to(root)): sha256_file(path) for path in unique_required}
+    payload = {"status": "complete", "verified_counts": verified_counts,
+               "artifact_count": len(files), "files": files,
                "audit_sha256": sha256_text(canonical_json(files)), "completed_at": utc_now()}
-    atomic_json(args.result_root / "audit" / "completion_audit.json", payload)
+    atomic_json(root / "audit" / "completion_audit.json", payload)
 
 
 def build_parser() -> argparse.ArgumentParser:
