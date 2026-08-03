@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import sys
 import tempfile
@@ -150,6 +151,35 @@ class FrozenWikitextTests(unittest.TestCase):
             source.write_bytes(b"tampered")
             with self.assertRaisesRegex(ValueError, "source Arrow drift"):
                 mse.validate_wikitext_input(frozen, pin_path)
+
+
+class BroadAggregationTests(unittest.TestCase):
+    def test_exact_144_output_matrix_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            broad_states = [
+                {"state_id": "base", "family": None, "seed": None},
+                {"state_id": "learned", "family": None, "seed": None},
+                *[{"state_id": f"{family}__seed_{seed}", "family": family, "seed": seed}
+                  for family in rb.CONTROL_FAMILIES for seed in rb.BROAD_SEEDS],
+            ]
+            for model in rb.MODEL_SPECS:
+                rb.atomic_json(root / "registry" / f"{model}.json", {"states": broad_states})
+                for state in broad_states:
+                    for benchmark in rb.BROAD_BENCHMARKS:
+                        path = root / "broad" / model / state["state_id"] / benchmark / "summary.json"
+                        rb.atomic_json(path, {
+                            "status": "complete", "model": model,
+                            "benchmark": benchmark, "state": state,
+                            "rows": rb.BROAD_EXPECTED_ROWS[benchmark],
+                            "result": {"metric": 0.5},
+                        })
+            payload = rb.aggregate_broad(argparse.Namespace(result_root=root))
+            self.assertEqual(payload["record_count"], 144)
+            missing = root / "broad/llama/base/mmlu/summary.json"
+            missing.unlink()
+            with self.assertRaises(FileNotFoundError):
+                rb.aggregate_broad(argparse.Namespace(result_root=root))
 
 
 if __name__ == "__main__":
