@@ -5,12 +5,14 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 BUNDLE = Path(__file__).parents[1] / "jobs/sycophancy_pruning/random_baseline"
 sys.path.insert(0, str(BUNDLE))
 import random_baseline as rb  # noqa: E402
 import multi_state_eval as mse  # noqa: E402
+import export_report as export  # noqa: E402
 
 try:
     import torch
@@ -180,6 +182,78 @@ class BroadAggregationTests(unittest.TestCase):
             missing.unlink()
             with self.assertRaises(FileNotFoundError):
                 rb.aggregate_broad(argparse.Namespace(result_root=root))
+
+
+class PaperExportTests(unittest.TestCase):
+    def test_primary_guardrails_and_common_suite_are_rendered(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "results"
+            artifacts = Path(temporary) / "artifacts"
+            rb.atomic_json(root / "analysis/final_report.json",
+                           {"status": "complete", "conclusion": "supported"})
+            rb.atomic_json(root / "audit/completion_audit.json", {
+                "status": "complete", "audit_sha256": "a" * 64,
+                "verified_counts": {"core_states": 84, "broad_states": 144},
+            })
+            rb.atomic_json(root / "registry/preflight_pins.json", {"status": "complete"})
+            broad_records = []
+            feedback_states = {}
+            for model in rb.MODEL_SPECS:
+                source = root / "analysis" / model
+                base = {name: metric(value) for name, value in (
+                    ("strong_wrong_adoption", 0.40), ("neutral_accuracy", 0.80),
+                    ("invalid_answer_rate", 0.01))}
+                learned = {name: metric(value) for name, value in (
+                    ("strong_wrong_adoption", 0.10), ("neutral_accuracy", 0.79),
+                    ("invalid_answer_rate", 0.02))}
+                distribution = []
+                for family in rb.CONTROL_FAMILIES:
+                    for seed in rb.SEEDS:
+                        distribution.append({
+                            "family": family, "seed": seed,
+                            "strong_wrong_adoption": 0.20,
+                            "neutral_accuracy": 0.80, "invalid_answer_rate": 0.01,
+                        })
+                rb.atomic_json(source / "core_summary.json", {
+                    "status": "complete", "summaries": {"base": base, "learned": learned},
+                    "seed_distribution": distribution,
+                    "confirmatory_inference": {
+                        "empirical_rank_p_one_sided": 1 / 21,
+                        "matched_random_equivalent_count": 0,
+                    },
+                })
+                rb.atomic_jsonl(source / "seed_distribution.jsonl", distribution)
+                (source / "seed_distribution.csv").write_text("model\n", encoding="utf-8")
+                (source / "pareto.pdf").write_bytes(b"%PDF-smoke")
+                (source / "pareto.png").write_bytes(b"PNG-smoke")
+                states = ["base", "learned", *[
+                    f"module_magnitude_matched__seed_{seed}" for seed in rb.BROAD_SEEDS
+                ]]
+                for state in states:
+                    feedback_states[f"{model}/{state}"] = {"sycophancy_gap": 0.05}
+                    for benchmark, result in (
+                        ("sycobench", {"syco": 0.20}),
+                        ("mmlu", {"accuracy": 0.70}),
+                        ("icl", {"macro_accuracy": 0.60}),
+                        ("alpaca_wikitext", {"alpaca_mean_response_loss": 1.2,
+                                              "wikitext_perplexity": 8.5}),
+                        ("elephant", {"accuracy": 0.75}),
+                    ):
+                        broad_records.append({"model": model, "state_id": state,
+                                              "benchmark": benchmark, "result": result})
+            rb.atomic_json(root / "analysis/broad_summary.json",
+                           {"status": "complete", "records": broad_records})
+            rb.atomic_json(root / "analysis/feedback_summary.json",
+                           {"status": "complete", "states": feedback_states})
+            with mock.patch.object(sys, "argv", ["export_report.py", "--result-root",
+                                                  str(root), "--artifact-root", str(artifacts)]):
+                self.assertEqual(export.main(), 0)
+            tex = (artifacts / "random_mask_baselines.tex").read_text(encoding="utf-8")
+            self.assertIn("Invalid rate", tex)
+            self.assertIn("Matched random", tex)
+            self.assertIn("Common-suite supporting outcomes", tex)
+            self.assertIn("For Llama", tex)
+            self.assertIn("For Qwen", tex)
 
 
 if __name__ == "__main__":
