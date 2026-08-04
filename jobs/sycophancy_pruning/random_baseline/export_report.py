@@ -134,10 +134,10 @@ Model & State & SycoBench $\downarrow$ & Accuracy $\uparrow$ \\
         parts.append(
             f"For {model.title()}, every random-mask seed remained within "
             f"{strong_max:.2f} points of base strong-wrong adoption and within "
-            f"{neutral_max:.2f} points of base neutral accuracy"
+            f"{neutral_max:.2f} points of base neutral accuracy."
         )
     takeaways = (
-        "; ".join(parts) + ". In contrast, the learned masks reduced strong-wrong "
+        " ".join(parts) + " In contrast, the learned masks reduced strong-wrong "
         "adoption by 31.60 points for Llama and 33.50 points for Qwen, with less than "
         "0.40 points of neutral-accuracy loss. The completed Llama SycoBench block "
         "gives the same qualitative result: random controls span 78.87--79.69, versus "
@@ -284,19 +284,20 @@ strong wrong suggestion; neutral accuracy and invalid-answer rate were
 guardrails. A random mask was considered equivalent within 3 percentage
 points on adoption and 2 points on neutral accuracy.
 
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
 \caption{{Preregistered random-mask baseline results (percent). Random values
 show the seed median and range; $p$ is the one-sided empirical rank test.}}
 \label{{tab:random-mask-baselines}}
+\resizebox{{\linewidth}}{{!}}{{%
 \begin{{tabular}}{{llrrrll}}
 \toprule
 Model & State & Strong adoption & Neutral accuracy & Invalid rate & $p$ & Equiv. \\
 \midrule
 {table_rows}
 \bottomrule
-\end{{tabular}}
-\end{{table}}
+\end{{tabular}}}}
+\end{{table*}}
 
 Figure~\ref{{fig:random-mask-pareto}} reports the seed-level distributions and
 the sycophancy--neutral-accuracy Pareto relationship for both models.
