@@ -14,6 +14,7 @@ import random_baseline as rb  # noqa: E402
 import multi_state_eval as mse  # noqa: E402
 import export_report as export  # noqa: E402
 import integrate_paper as paper  # noqa: E402
+import early_stop as stop  # noqa: E402
 
 try:
     import torch
@@ -125,6 +126,31 @@ class InferenceTests(unittest.TestCase):
         result = rb.confirmatory_inference(summaries, rows)
         self.assertFalse(result["model_supports_specificity"])
         self.assertEqual(result["matched_random_at_least_as_strong"], 20)
+
+    def test_early_stop_effect_summary_uses_all_frozen_seeds(self) -> None:
+        summaries = {
+            "base": {
+                "strong_wrong_adoption": metric(0.50),
+                "neutral_accuracy": metric(0.80),
+                "invalid_answer_rate": metric(0.0),
+            }
+        }
+        rows = []
+        for index, seed in enumerate(rb.SEEDS):
+            state_id = f"uniform_global__seed_{seed}"
+            summaries[state_id] = {"answer_invariance": metric(0.98)}
+            rows.append({
+                "state_id": state_id, "family": "uniform_global", "seed": seed,
+                "strong_wrong_adoption": 0.495 + index / 10_000,
+                "neutral_accuracy": 0.80, "invalid_answer_rate": 0.0,
+            })
+        effect = stop._effect_summary(
+            {"summaries": summaries, "seed_distribution": rows}, "uniform_global"
+        )
+        self.assertEqual(effect["seed_count"], 20)
+        self.assertLess(effect["strong_wrong_delta_pp"]["max_abs"], 1.0)
+        self.assertEqual(effect["invalid_answer_delta_pp"]["max_abs"], 0.0)
+        self.assertAlmostEqual(effect["answer_invariance"]["min"], 0.98)
 
 
 class FrozenWikitextTests(unittest.TestCase):
@@ -255,6 +281,91 @@ class PaperExportTests(unittest.TestCase):
             self.assertIn("Common-suite supporting outcomes", tex)
             self.assertIn("For Llama", tex)
             self.assertIn("For Qwen", tex)
+
+    def test_core_complete_early_stop_is_disclosed_and_rendered(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "results"
+            artifacts = Path(temporary) / "artifacts"
+            model_effects = {
+                family: {
+                    "strong_wrong_delta_pp": {"max_abs": 0.8},
+                    "neutral_accuracy_delta_pp": {"max_abs": 0.6},
+                }
+                for family in rb.CONTROL_FAMILIES
+            }
+            rb.atomic_json(root / "analysis/final_report.json", {
+                "status": "complete", "conclusion": "supported",
+                "completion_mode": stop.COMPLETION_MODE,
+                "models": {model: {"random_effects": model_effects}
+                           for model in rb.MODEL_SPECS},
+                "skipped": {"broad_states": 132, "feedback_labels": 19_200,
+                            "elephant_labels": 9_600},
+            })
+            rb.atomic_json(root / "audit/early_stop_completion_audit.json", {
+                "status": "complete", "completion_mode": stop.COMPLETION_MODE,
+                "audit_sha256": "b" * 64,
+                "verified_counts": {"core_states": 84, "broad_states": 12},
+            })
+            rb.atomic_json(root / "registry/preflight_pins.json", {"status": "complete"})
+            broad_records = []
+            for model in rb.MODEL_SPECS:
+                source = root / "analysis" / model
+                base = {name: metric(value) for name, value in (
+                    ("strong_wrong_adoption", 0.40), ("neutral_accuracy", 0.80),
+                    ("invalid_answer_rate", 0.0))}
+                learned = {name: metric(value) for name, value in (
+                    ("strong_wrong_adoption", 0.10), ("neutral_accuracy", 0.79),
+                    ("invalid_answer_rate", 0.0))}
+                distribution = []
+                for family in rb.CONTROL_FAMILIES:
+                    for seed in rb.SEEDS:
+                        distribution.append({
+                            "family": family, "seed": seed,
+                            "strong_wrong_adoption": 0.40,
+                            "neutral_accuracy": 0.80, "invalid_answer_rate": 0.0,
+                        })
+                rb.atomic_json(source / "core_summary.json", {
+                    "status": "complete", "summaries": {"base": base, "learned": learned},
+                    "seed_distribution": distribution,
+                    "confirmatory_inference": {
+                        "empirical_rank_p_one_sided": 1 / 21,
+                        "matched_random_equivalent_count": 0,
+                    },
+                })
+                rb.atomic_jsonl(source / "seed_distribution.jsonl", distribution)
+                (source / "seed_distribution.csv").write_text("model\\n", encoding="utf-8")
+                (source / "pareto.pdf").write_bytes(b"%PDF-smoke")
+                (source / "pareto.png").write_bytes(b"PNG-smoke")
+            states = [
+                {"state_id": "base", "family": None, "seed": None},
+                {"state_id": "learned", "family": "learned", "seed": None},
+                *[{"state_id": f"{family}__seed_{seed}", "family": family, "seed": seed}
+                  for family in rb.CONTROL_FAMILIES for seed in rb.BROAD_SEEDS],
+            ]
+            for state in states:
+                broad_records.append({
+                    "model": "llama", "state_id": state["state_id"],
+                    "family": state["family"], "seed": state["seed"],
+                    "benchmark": "sycobench",
+                    "result": {"syco": 0.73 if state["state_id"] == "learned" else 0.79,
+                               "acc": 0.63},
+                })
+            rb.atomic_json(root / "analysis/partial_broad_summary.json", {
+                "status": "complete",
+                "scope": "supporting_partial_broad_llama_sycobench_only",
+                "record_count": 12, "row_count": 21_600, "records": broad_records,
+            })
+            with mock.patch.object(sys, "argv", ["export_report.py", "--result-root",
+                                                  str(root), "--artifact-root", str(artifacts)]):
+                self.assertEqual(export.main(), 0)
+            tex = (artifacts / "random_mask_baselines.tex").read_text(encoding="utf-8")
+            self.assertIn("Scope and stopping", tex)
+            self.assertIn("132 unstarted", tex)
+            self.assertIn("Takeaways", tex)
+            self.assertIn("not used to support the claim", tex)
+            self.assertNotIn("MMLU", tex)
+            provenance = rb.read_json(artifacts / "provenance.json")
+            self.assertEqual(provenance["completion_mode"], stop.COMPLETION_MODE)
 
 
 class PaperIntegrationTests(unittest.TestCase):

@@ -114,3 +114,37 @@ two Pareto PDFs to `plots/`, compile with missing-reference warnings treated as
 fatal, and only then integrate the campaign commit into the latest `main` of
 each repository. The final progress email must include both pushed SHAs, the
 Harvard result path, headline statistics, and the completion-audit hash.
+
+## User-authorized core-complete early stop
+
+If the user explicitly authorizes stopping after the complete confirmatory core,
+use `early_stop.py`; do not relabel the original full-suite audit as complete.
+The early-stop path requires all 80 audited controls, all 84 core states, the
+exact two-model confirmatory inference, and no scheduler work left queued. Its
+resource-saving rule requires every random seed to remain within 2 percentage
+points of base strong-wrong adoption and within 1 point of base neutral
+accuracy, with unchanged invalid-answer rates and at least 95% answer
+invariance. Any already-finished broad block is hash- and row-audited, while
+omitted broad and judging work is recorded explicitly.
+
+After holding pending work and completing a dry-run target inspection, cancel
+only the reviewed job IDs. Then run:
+
+```bash
+python jobs/sycophancy_pruning/random_baseline/early_stop.py finalize \
+  --result-root "$RESULT_ROOT" \
+  --job-ids 36927495 36927496 36927497
+```
+
+Send the idempotent `early_stop_decision` and `final_report_complete`
+milestone emails, then create the immutable alternative audit:
+
+```bash
+python jobs/sycophancy_pruning/random_baseline/early_stop.py audit \
+  --result-root "$RESULT_ROOT" \
+  --job-ids 36927495 36927496 36927497
+```
+
+The resulting `audit/early_stop_completion_audit.json` authorizes only a
+core-complete early-stop export. It never implies that feedback judging or all
+144 broad states ran.
