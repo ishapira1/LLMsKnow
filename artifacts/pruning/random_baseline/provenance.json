@@ -1,0 +1,35 @@
+{
+  "completion_mode": "user_authorized_core_early_stop",
+  "experiment": "random_baseline",
+  "exported_at": "2026-08-04T02:41:47.193105+00:00",
+  "partial_broad_summary_sha256": "10501a0d3411e230eafd9ec45cd45d19dbdb8d95f0a9e84f4bff3f70b500ef77",
+  "preflight_pins_sha256": "375e4e731db78de90b02262bc5eb1ac939324544e2d7c45c5b629ada683c29c7",
+  "skipped": {
+    "benchmarks": [
+      "sycobench",
+      "alpaca_wikitext",
+      "mmlu",
+      "icl",
+      "feedback",
+      "elephant"
+    ],
+    "broad_states": 132,
+    "elephant_labels": 9600,
+    "feedback_labels": 19200
+  },
+  "source_completion_audit": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/random_baseline/audit/early_stop_completion_audit.json",
+  "source_completion_audit_logical_sha256": "7da20613e29f831e5a0c416ac8f1998a353ea1c4fbe52677d6563234a8899316",
+  "source_completion_audit_sha256": "7db78803b7d67a40595d17bc12d6cf484d6c992a4313990adde953c9e1da6a59",
+  "status": "complete",
+  "verified_counts": {
+    "broad_rows": 21600,
+    "broad_states": 12,
+    "core_rows": 1077594,
+    "core_states": 84,
+    "elephant_labels": 0,
+    "emails": 6,
+    "feedback_labels": 0,
+    "masks": 80,
+    "skipped_broad_states": 132
+  }
+}

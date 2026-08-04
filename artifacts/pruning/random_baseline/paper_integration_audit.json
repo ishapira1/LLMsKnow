@@ -1,0 +1,13 @@
+{
+  "completed_at": "2026-08-04T02:42:19.086848+00:00",
+  "generated_tex": "/private/tmp/random_baseline_dev.dwgca6/repo/artifacts/pruning/random_baseline/random_mask_baselines.tex",
+  "generated_tex_sha256": "8aa96918cc8c7537ba88125fad8864754d3e97d386eddcf7158785504414c005",
+  "insertion_marker": "\\subsection{What Weights Made the Difference?}",
+  "llama_plot_sha256": "cff779cb3ba9eeece0aff30eb701de4ab0bcd5399856645142b2b5d1b05aebb7",
+  "paper_tex": "/private/tmp/random_baseline_paper.dldX5v/repo/experiemnts.tex",
+  "paper_tex_after_sha256": "2cd6aadb44bed5ed1dc989246947e3505aab3410d39d55af5e499319ef195699",
+  "paper_tex_before_sha256": "53e831b5a1bf8ea229645a5f65de8bb8c347fc44016a03865bffefe7b5d12fcd",
+  "qwen_plot_sha256": "5d83cf00ffee9636644ee3c630c28779460255c9b8f6798a21c67b73b88719a1",
+  "section_label": "\\label{sec:random-mask-baselines}",
+  "status": "complete"
+}

@@ -1,0 +1,68 @@
+\subsection{Random-Mask Baselines}
+\label{sec:random-mask-baselines}
+We preregistered the hypothesis that the behavioral change depends on selecting
+specific weights, rather than zeroing an arbitrary set of the same size. For
+Mixed-996 and the 3,139-weight Qwen replication mask, we compared the learned
+mask with 20 fixed-seed uniform-global controls and 20 controls matched exactly
+on per-matrix counts and a 20-bin absolute-weight-magnitude distribution. All
+controls were disjoint from their learned mask, and eligibility was fixed by
+the base model's neutral-correct cohort. The primary outcome was adoption of a
+strong wrong suggestion; neutral accuracy and invalid-answer rate were
+guardrails. A random mask was considered equivalent within 3 percentage
+points on adoption and 2 points on neutral accuracy.
+
+\begin{table*}[t]
+\centering
+\caption{Preregistered random-mask baseline results (percent). Random values
+show the seed median and range; $p$ is the one-sided empirical rank test.}
+\label{tab:random-mask-baselines}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{llrrrll}
+\toprule
+Model & State & Strong adoption & Neutral accuracy & Invalid rate & $p$ & Equiv. \\
+\midrule
+Llama & Base & 43.48 & 76.52 & 0.00 & -- & -- \\
+Llama & Learned & 11.88 & 76.26 & 0.00 & 0.0476 & 0 \\
+Llama & Matched random & 43.14 [42.79, 43.48] & 76.61 [76.17, 77.05] & 0.00 [0.00, 0.00] & -- & -- \\
+Llama & Uniform random & 43.14 [42.68, 43.60] & 76.61 [76.26, 76.88] & 0.00 [0.00, 0.00] & -- & -- \\
+Qwen & Base & 34.48 & 79.30 & 0.00 & -- & -- \\
+Qwen & Learned & 0.99 & 78.91 & 0.00 & 0.0476 & 0 \\
+Qwen & Matched random & 33.99 [33.00, 35.96] & 79.30 [78.52, 80.08] & 0.00 [0.00, 0.00] & -- & -- \\
+Qwen & Uniform random & 33.99 [33.00, 35.47] & 79.30 [78.91, 80.08] & 0.00 [0.00, 0.00] & -- & -- \\
+\bottomrule
+\end{tabular}}
+\end{table*}
+
+Figure~\ref{fig:random-mask-pareto} reports the seed-level distributions and
+the sycophancy--neutral-accuracy Pareto relationship for both models.
+\begin{figure}[t]
+\centering
+\includegraphics[width=.49\linewidth]{plots/random_baseline_llama_pareto.pdf}
+\includegraphics[width=.49\linewidth]{plots/random_baseline_qwen_pareto.pdf}
+\caption{Learned masks (teal), magnitude-matched random controls (orange), and
+uniform controls across fixed seeds.}
+\label{fig:random-mask-pareto}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Completed supporting SycoBench block (percent). Random controls show
+the median and range across the five fixed broad seeds.}
+\label{tab:random-mask-sycobench-partial}
+\begin{tabular}{llrr}
+\toprule
+Model & State & SycoBench $\downarrow$ & Accuracy $\uparrow$ \\
+\midrule
+Llama & Base & 79.45 & 63.17 \\
+Llama & Learned & 72.81 & 63.33 \\
+Llama & Matched random & 79.32 [78.87, 79.63] & 62.50 [62.50, 62.83] \\
+Llama & Uniform random & 79.43 [78.97, 79.69] & 62.50 [62.00, 63.17] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Scope and stopping.} After the complete confirmatory core met the user-authorized resource-saving stopping rule, we retained and audited the already-running 12-state Llama SycoBench block (21,600 rows; zero hash or row-count failures) and canceled the 132 unstarted common-suite states. Feedback judging and the remaining broad benchmarks were therefore not run and are not used to support the claim.
+
+\paragraph{Takeaways.} For Llama, every random-mask seed remained within 0.81 points of base strong-wrong adoption and within 0.53 points of base neutral accuracy. For Qwen, every random-mask seed remained within 1.48 points of base strong-wrong adoption and within 0.78 points of base neutral accuracy. In contrast, the learned masks reduced strong-wrong adoption by 31.60 points for Llama and 33.50 points for Qwen, with less than 0.40 points of neutral-accuracy loss. The completed Llama SycoBench block gives the same qualitative result: random controls span 78.87--79.69, versus 79.45 at base and 72.81 for the learned mask.
+
+\paragraph{Preregistered conclusion.} For Llama, learned-mask adoption was 11.88\% versus a 43.14\% matched-random median; learned neutral accuracy was 76.26\% versus 76.52\% at base ($p=0.0476$; 0 equivalents). For Qwen, learned-mask adoption was 0.99\% versus a 33.99\% matched-random median; learned neutral accuracy was 78.91\% versus 79.30\% at base ($p=0.0476$; 0 equivalents). Both models support weight-selection specificity under the preregistered rule.

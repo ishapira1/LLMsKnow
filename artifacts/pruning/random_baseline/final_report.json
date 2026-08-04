@@ -1,0 +1,189 @@
+{
+  "broad_output_count": 12,
+  "broad_scope": "supporting_partial_broad_llama_sycobench_only",
+  "completed_at": "2026-08-04T02:37:32.868640+00:00",
+  "completion_mode": "user_authorized_core_early_stop",
+  "conclusion": "supported",
+  "core_row_count": 1077594,
+  "core_state_count": 84,
+  "cross_model_specificity_supported": true,
+  "decision_sha256": "bff374ee60eb47ffa9620c7f417f61a46f9d14dc2ddf035e4f157302d76c208c",
+  "experiment": "random_baseline",
+  "models": {
+    "llama": {
+      "base_neutral_accuracy": 0.76522506619594,
+      "base_strong_wrong_adoption": 0.4348327566320646,
+      "confirmatory_inference": {
+        "empirical_rank_p_one_sided": 0.047619047619047616,
+        "learned_beats_every_matched_random": true,
+        "learned_neutral_within_2pp_of_base": true,
+        "matched_random_at_least_as_strong": 0,
+        "matched_random_equivalent_count": 0,
+        "matched_random_equivalent_seeds": [],
+        "model_supports_specificity": true
+      },
+      "core_summary_sha256": "30427d9f78daaf90030f10d1b8f3de8d3732bc0b258425c864696c4cf6d7aab6",
+      "early_stop_criteria": {
+        "answer_invariance_at_least_95pct": true,
+        "invalid_answer_rate_unchanged": true,
+        "neutral_max_abs_within_1pp": true,
+        "strong_wrong_max_abs_within_2pp": true
+      },
+      "learned_effect_pp": -31.603229527104958,
+      "learned_neutral_accuracy": 0.7625772285966461,
+      "learned_neutral_delta_pp": -0.26478375992938785,
+      "learned_strong_wrong_adoption": 0.11880046136101499,
+      "random_effects": {
+        "module_magnitude_matched": {
+          "answer_invariance": {
+            "max": 0.994232987312572,
+            "mean": 0.9918108419838523,
+            "min": 0.9884659746251442
+          },
+          "family": "module_magnitude_matched",
+          "invalid_answer_delta_pp": {
+            "max": 0.0,
+            "max_abs": 0.0,
+            "mean": 0.0,
+            "min": 0.0
+          },
+          "neutral_accuracy_delta_pp": {
+            "max": 0.5295675198587757,
+            "max_abs": 0.5295675198587757,
+            "mean": 0.05736981465136737,
+            "min": -0.3530450132391838
+          },
+          "seed_count": 20,
+          "strong_wrong_delta_pp": {
+            "max": 0.0,
+            "max_abs": 0.692041522491349,
+            "mean": -0.32295271049596286,
+            "min": -0.692041522491349
+          }
+        },
+        "uniform_global": {
+          "answer_invariance": {
+            "max": 0.994232987312572,
+            "mean": 0.991926182237601,
+            "min": 0.9896193771626297
+          },
+          "family": "uniform_global",
+          "invalid_answer_delta_pp": {
+            "max": 0.0,
+            "max_abs": 0.0,
+            "mean": 0.0,
+            "min": 0.0
+          },
+          "neutral_accuracy_delta_pp": {
+            "max": 0.3530450132391838,
+            "max_abs": 0.3530450132391838,
+            "mean": 0.044130626654897975,
+            "min": -0.26478375992938785
+          },
+          "seed_count": 20,
+          "strong_wrong_delta_pp": {
+            "max": 0.11534025374855816,
+            "max_abs": 0.8073817762399071,
+            "mean": -0.2883506343713954,
+            "min": -0.8073817762399071
+          }
+        }
+      }
+    },
+    "qwen": {
+      "base_neutral_accuracy": 0.79296875,
+      "base_strong_wrong_adoption": 0.3448275862068966,
+      "confirmatory_inference": {
+        "empirical_rank_p_one_sided": 0.047619047619047616,
+        "learned_beats_every_matched_random": true,
+        "learned_neutral_within_2pp_of_base": true,
+        "matched_random_at_least_as_strong": 0,
+        "matched_random_equivalent_count": 0,
+        "matched_random_equivalent_seeds": [],
+        "model_supports_specificity": true
+      },
+      "core_summary_sha256": "e09af0495a2eab7570dd3f689c4dbf6afd83113701872474616e6ef9f48b8d16",
+      "early_stop_criteria": {
+        "answer_invariance_at_least_95pct": true,
+        "invalid_answer_rate_unchanged": true,
+        "neutral_max_abs_within_1pp": true,
+        "strong_wrong_max_abs_within_2pp": true
+      },
+      "learned_effect_pp": -33.49753694581281,
+      "learned_neutral_accuracy": 0.7890625,
+      "learned_neutral_delta_pp": -0.390625,
+      "learned_strong_wrong_adoption": 0.009852216748768473,
+      "random_effects": {
+        "module_magnitude_matched": {
+          "answer_invariance": {
+            "max": 0.9852216748768473,
+            "mean": 0.9729064039408867,
+            "min": 0.9605911330049262
+          },
+          "family": "module_magnitude_matched",
+          "invalid_answer_delta_pp": {
+            "max": 0.0,
+            "max_abs": 0.0,
+            "mean": 0.0,
+            "min": 0.0
+          },
+          "neutral_accuracy_delta_pp": {
+            "max": 0.78125,
+            "max_abs": 0.78125,
+            "mean": 0.0390625,
+            "min": -0.78125
+          },
+          "seed_count": 20,
+          "strong_wrong_delta_pp": {
+            "max": 1.4778325123152691,
+            "max_abs": 1.4778325123152747,
+            "mean": -0.3201970443349783,
+            "min": -1.4778325123152747
+          }
+        },
+        "uniform_global": {
+          "answer_invariance": {
+            "max": 0.9901477832512315,
+            "mean": 0.9766009852216749,
+            "min": 0.9605911330049262
+          },
+          "family": "uniform_global",
+          "invalid_answer_delta_pp": {
+            "max": 0.0,
+            "max_abs": 0.0,
+            "mean": 0.0,
+            "min": 0.0
+          },
+          "neutral_accuracy_delta_pp": {
+            "max": 0.78125,
+            "max_abs": 0.78125,
+            "mean": 0.17578125,
+            "min": -0.390625
+          },
+          "seed_count": 20,
+          "strong_wrong_delta_pp": {
+            "max": 0.9852216748768461,
+            "max_abs": 1.4778325123152747,
+            "mean": -0.5418719211822695,
+            "min": -1.4778325123152747
+          }
+        }
+      }
+    }
+  },
+  "partial_broad_summary_sha256": "10501a0d3411e230eafd9ec45cd45d19dbdb8d95f0a9e84f4bff3f70b500ef77",
+  "skipped": {
+    "benchmarks": [
+      "sycobench",
+      "alpaca_wikitext",
+      "mmlu",
+      "icl",
+      "feedback",
+      "elephant"
+    ],
+    "broad_states": 132,
+    "elephant_labels": 9600,
+    "feedback_labels": 19200
+  },
+  "status": "complete"
+}
