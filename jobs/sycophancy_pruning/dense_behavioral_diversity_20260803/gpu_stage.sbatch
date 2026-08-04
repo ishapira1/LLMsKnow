@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=syco_dense_gpu_0803
-#SBATCH --partition=gpu_h200,seas_gpu,gpu,gpu_requeue
+#SBATCH --partition=gpu_h200,seas_gpu,gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1

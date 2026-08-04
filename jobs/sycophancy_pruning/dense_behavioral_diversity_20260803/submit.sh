@@ -37,7 +37,7 @@ submit() {
   [[ -n "$array" ]] && command+=(--array="$array")
   [[ -n "$dependency" ]] && command+=(--dependency="afterok:$dependency")
   if [[ "$resource" == "h200" ]]; then
-    command+=(--partition=gpu_h200,seas_gpu,gpu,gpu_requeue --gres=gpu:1)
+    command+=(--partition=gpu_h200,seas_gpu,gpu --gres=gpu:1)
   fi
   command+=("$script")
   printf '%s_command=' "$label" >&2; printf '%q ' "${command[@]}" >&2; printf '\n' >&2
