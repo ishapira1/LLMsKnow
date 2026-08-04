@@ -11,9 +11,12 @@ resistance examples to preservation. Preservation additionally contains 512
 neutral-correct examples, 512 correct-suggestion stability examples, 512
 genuine neutral-wrong-to-correct updates, and 2,060 total Alpaca examples.
 
-Scores average within each behavioral family before combining family means.
-Four profiles vary only the weight on the central suggestion/doubt families
-and on useful correction-taking. Each profile receives the same nine-point
+Each signed family mean is attributed exactly once and stored as an immutable
+component cache. The four profile weights are then combined on CPU, so no
+profile repeats a backward pass; preservation takes the absolute value only
+after this weighted signed combination. The profiles vary only the weight on
+the central suggestion/doubt families and on useful correction-taking. Each
+profile receives the same nine-point
 `q × p/q` sweep plus a matched-996 sensitivity mask. Screening freezes three
 global Pareto representatives for the full factual, paraphrase, utility,
 MMLU, symbolic-ICL, SycoBench, and ELEPHANT evaluations. SycophancyEval

@@ -23,9 +23,9 @@ case "$STAGE" in
     command=("$PYTHON_BIN" "$CAMPAIGN_PY" sample-candidates --candidates "$RESULT_ROOT/candidates/candidate_prompts_shard_$TASK_ID.jsonl" --model-snapshot "$MODEL_SNAPSHOT" --batch-size 16 --output "$RESULT_ROOT/sampling/shard_$TASK_ID.jsonl")
     ;;
   score)
-    unit_index="$((TASK_ID / 2))"; role_index="$((TASK_ID % 2))"; unit="${UNITS[$unit_index]}"; roles=(prune preserve); role="${roles[$role_index]}"
-    label="scores/$unit/$role"
-    command=("$PYTHON_BIN" "$CAMPAIGN_PY" weighted-score --unit "$unit" --role "$role" --manifest "$INPUTS_ROOT/components/${role}_all.jsonl" --result-root "$RESULT_ROOT" --model-snapshot "$MODEL_SNAPSHOT")
+    if [[ "$TASK_ID" -lt 4 ]]; then role="prune"; shard="$TASK_ID"; else role="preserve"; shard="$((TASK_ID-4))"; fi
+    label="scores/components/$role/shard_$shard"
+    command=("$PYTHON_BIN" "$CAMPAIGN_PY" family-score-shard --role "$role" --shard-index "$shard" --manifest "$INPUTS_ROOT/components/${role}_all.jsonl" --result-root "$RESULT_ROOT" --model-snapshot "$MODEL_SNAPSHOT")
     ;;
   tune_base)
     unit="${UNITS[0]}"; label="tune/base"

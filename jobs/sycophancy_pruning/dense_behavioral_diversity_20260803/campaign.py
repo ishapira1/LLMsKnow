@@ -31,6 +31,7 @@ MODEL_REVISION = "0e9e39f249a16976918f6564b8830bc894c89659"
 SEED = 0
 CANDIDATE_QUESTIONS = 4096
 CANDIDATE_SHARDS = 4
+SCORE_SHARDS_PER_ROLE = 4
 ROWS_PER_PRESSURE_FAMILY = 256
 GUIDANCE_ROWS = 512
 ORIGINAL_PRUNE_ROWS = 412
@@ -441,6 +442,309 @@ def family_weights(unit: str, role: str) -> dict[str, float]:
     return result
 
 
+def family_ids(role: str) -> tuple[str, ...]:
+    """Return the frozen component universe, independent of profile weights."""
+
+    return tuple(sorted(family_weights(UNITS[0], role)))
+
+
+def family_ids_for_shard(role: str, shard_index: int) -> tuple[str, ...]:
+    if not 0 <= shard_index < SCORE_SHARDS_PER_ROLE:
+        raise ValueError(shard_index)
+    return tuple(
+        family_id
+        for index, family_id in enumerate(family_ids(role))
+        if index % SCORE_SHARDS_PER_ROLE == shard_index
+    )
+
+
+def family_cache_dir(result_root: Path, role: str, family_id: str) -> Path:
+    return result_root / "scores" / "components" / role / family_id.replace(":", "__")
+
+
+def _score_one_family(
+    *,
+    model: Any,
+    tokenizer: Any,
+    eligible: Sequence[tuple[str, Any, int]],
+    rows: Sequence[Mapping[str, Any]],
+    source_manifest: Path,
+    role: str,
+    family_id: str,
+    destination: Path,
+) -> None:
+    """Persist signed ``w * mean(g)`` once for one behavioral family."""
+
+    import torch
+    from tools.weight_pruning.paper_pruning import (
+        _safe_tensor_name,
+        backward_example,
+        prepare_examples,
+    )
+
+    identity = {
+        "schema_version": 1,
+        "experiment": EXPERIMENT,
+        "cache_kind": "signed_family_component",
+        "role": role,
+        "family_id": family_id,
+        "model_id": MODEL_ID,
+        "model_revision": MODEL_REVISION,
+        "implementation_sha256": sha256_file(Path(base.__file__).resolve()),
+        "campaign_sha256": sha256_file(Path(__file__).resolve()),
+        "source_manifest": str(source_manifest),
+        "source_manifest_sha256": sha256_file(source_manifest),
+        "num_examples": len(rows),
+        "tokenization": "full_string_offsets",
+        "aggregation": "signed_family_mean",
+        "formula": "w * mean_example_gradient_within_family",
+    }
+    if (destination / "COMPLETE").is_file():
+        if read_json(destination / "identity.json") != identity:
+            raise RuntimeError(f"Immutable family-score identity mismatch: {destination}")
+        return
+    if destination.exists():
+        raise RuntimeError(f"Refusing partial family-score cache: {destination}")
+    attempt = destination.with_name(
+        destination.name
+        + f".partial.{os.environ.get('SLURM_JOB_ID','local')}.{os.getpid()}"
+    )
+    attempt.mkdir(parents=True)
+    examples = prepare_examples(
+        rows,
+        tokenizer,
+        score_format="raw",
+        loss_mode="completion_nll",
+        max_length=4096,
+        tokenization_mode="full_string_offsets",
+    )
+    groups: dict[int, list[tuple[str, Any]]] = defaultdict(list)
+    for name, module, block in eligible:
+        groups[int(block)].append((str(name), module))
+    total_memory = torch.cuda.get_device_properties(0).total_memory
+    blocks_per_pass = len(groups) if total_memory >= 120 * 1024**3 else 8
+    block_ids = sorted(groups)
+    tensor_meta: dict[str, Any] = {}
+    losses: list[float] = []
+    original_cache = model.config.use_cache
+    model.config.use_cache = False
+    model.requires_grad_(False)
+    try:
+        for start in range(0, len(block_ids), blocks_per_pass):
+            chosen = block_ids[start : start + blocks_per_pass]
+            modules = [item for block in chosen for item in groups[block]]
+            accumulators = {
+                name: torch.zeros_like(module.weight, dtype=torch.float32)
+                for name, module in modules
+            }
+            for _, module in modules:
+                module.weight.requires_grad_(True)
+            loss_sum = 0.0
+            for index, example in enumerate(examples, 1):
+                model.zero_grad(set_to_none=True)
+                loss_sum += float(backward_example(model, example, "completion_nll"))
+                for name, module in modules:
+                    if module.weight.grad is None:
+                        raise RuntimeError(f"Missing gradient for {name}")
+                    accumulators[name].add_(
+                        module.weight.grad.detach().float(), alpha=1.0 / len(examples)
+                    )
+                if index % 64 == 0:
+                    print(
+                        f"family_score role={role} family={family_id} "
+                        f"examples={index}/{len(examples)}",
+                        flush=True,
+                    )
+            losses.append(loss_sum / len(examples))
+            for name, module in modules:
+                value = module.weight.detach().float() * accumulators[name]
+                filename = _safe_tensor_name(name)
+                path = attempt / filename
+                torch.save(value.cpu(), path)
+                tensor_meta[name] = {
+                    "file": filename,
+                    "shape": list(value.shape),
+                    "numel": int(value.numel()),
+                    "block": next(
+                        block for block in chosen if (name, module) in groups[block]
+                    ),
+                    "sha256": sha256_file(path),
+                }
+                module.weight.requires_grad_(False)
+                module.weight.grad = None
+            del accumulators
+            model.zero_grad(set_to_none=True)
+            torch.cuda.empty_cache()
+    finally:
+        model.config.use_cache = original_cache
+        model.requires_grad_(False)
+    if max(losses) - min(losses) > 1e-5 * max(1.0, abs(losses[0])):
+        raise RuntimeError(f"Dataset loss changed across passes for {family_id}")
+    atomic_json(attempt / "identity.json", identity)
+    atomic_json(
+        attempt / "metadata.json",
+        {
+            **identity,
+            "identity_sha256": sha256_file(attempt / "identity.json"),
+            "eligible_numel": sum(int(item["numel"]) for item in tensor_meta.values()),
+            "mean_dataset_loss": losses[0],
+            "blocks_per_pass": blocks_per_pass,
+            "tensors": tensor_meta,
+        },
+    )
+    (attempt / "COMPLETE").touch()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(attempt, destination)
+
+
+def family_score_shard(args: argparse.Namespace) -> None:
+    """Attribute disjoint families once; profiles later combine them on CPU."""
+
+    from tools.weight_pruning.paper_pruning import eligible_linear_weights, load_manifest
+
+    raw = read_jsonl(args.manifest)
+    expected = set(family_ids(args.role))
+    observed = {str(row.get("family_id", "")) for row in raw}
+    if observed != expected:
+        raise ValueError(f"Family identity mismatch: {observed ^ expected}")
+    rows = load_manifest(
+        args.manifest,
+        nsamples=len(raw),
+        expected_model=MODEL_ID,
+        expected_revision=MODEL_REVISION,
+        expected_tokenizer_revision=MODEL_REVISION,
+        expected_calibration_seed=SEED,
+    )
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row["family_id"])].append(row)
+    assigned = family_ids_for_shard(args.role, args.shard_index)
+    if not assigned:
+        raise RuntimeError("Empty score shard")
+    if all(
+        (family_cache_dir(args.result_root, args.role, family_id) / "COMPLETE").is_file()
+        for family_id in assigned
+    ):
+        return
+    model, tokenizer = base._load_model(args.model_snapshot)
+    eligible = eligible_linear_weights(model, None)
+    for family_id in assigned:
+        _score_one_family(
+            model=model,
+            tokenizer=tokenizer,
+            eligible=eligible,
+            rows=grouped[family_id],
+            source_manifest=args.manifest,
+            role=args.role,
+            family_id=family_id,
+            destination=family_cache_dir(args.result_root, args.role, family_id),
+        )
+
+
+def combine_family_scores(*, result_root: Path, unit: str, role: str) -> None:
+    """CPU-combine immutable signed family means into one profile score cache."""
+
+    import torch
+    from tools.weight_pruning.paper_pruning import _safe_tensor_name
+
+    weights = family_weights(unit, role)
+    component_dirs = {
+        family_id: family_cache_dir(result_root, role, family_id)
+        for family_id in weights
+    }
+    component_meta = {
+        family_id: read_json(path / "metadata.json")
+        for family_id, path in component_dirs.items()
+    }
+    if any(not (path / "COMPLETE").is_file() for path in component_dirs.values()):
+        raise RuntimeError(f"Incomplete {role} family components")
+    first_family = next(iter(weights))
+    first_meta = component_meta[first_family]
+    tensor_names = set(first_meta["tensors"])
+    for family_id, metadata in component_meta.items():
+        if metadata["aggregation"] != "signed_family_mean":
+            raise RuntimeError(f"Unexpected family aggregation: {family_id}")
+        if set(metadata["tensors"]) != tensor_names:
+            raise RuntimeError(f"Tensor universe differs for {family_id}")
+    destination = result_root / "scores" / unit / role
+    identity = {
+        "schema_version": 1,
+        "experiment": EXPERIMENT,
+        "unit": unit,
+        "role": role,
+        "model_id": MODEL_ID,
+        "model_revision": MODEL_REVISION,
+        "implementation_sha256": sha256_file(Path(base.__file__).resolve()),
+        "campaign_sha256": sha256_file(Path(__file__).resolve()),
+        "num_examples": sum(int(meta["num_examples"]) for meta in component_meta.values()),
+        "tokenization": "full_string_offsets",
+        "aggregation": "signed_mean" if role == "prune" else "abs_after_mean",
+        "family_weights": weights,
+        "formula": "sum_f family_weight_f * signed_family_mean_f / sum_f family_weight_f",
+        "component_identity_sha256": {
+            family_id: str(metadata["identity_sha256"])
+            for family_id, metadata in component_meta.items()
+        },
+    }
+    if (destination / "COMPLETE").is_file():
+        if read_json(destination / "identity.json") != identity:
+            raise RuntimeError(f"Immutable combined-score identity mismatch: {destination}")
+        return
+    if destination.exists():
+        raise RuntimeError(f"Refusing partial combined-score cache: {destination}")
+    attempt = destination.with_name(
+        destination.name
+        + f".partial.{os.environ.get('SLURM_JOB_ID','local')}.{os.getpid()}"
+    )
+    attempt.mkdir(parents=True)
+    total_weight = float(sum(weights.values()))
+    tensor_meta: dict[str, Any] = {}
+    for tensor_index, name in enumerate(sorted(tensor_names), 1):
+        accumulator = None
+        for family_id, family_weight in weights.items():
+            metadata = component_meta[family_id]["tensors"][name]
+            value = torch.load(
+                component_dirs[family_id] / metadata["file"],
+                map_location="cpu",
+                weights_only=True,
+            ).float()
+            if accumulator is None:
+                accumulator = value.mul(float(family_weight))
+            else:
+                accumulator.add_(value, alpha=float(family_weight))
+        assert accumulator is not None
+        accumulator.div_(total_weight)
+        if role == "preserve":
+            accumulator.abs_()
+        filename = _safe_tensor_name(name)
+        path = attempt / filename
+        torch.save(accumulator, path)
+        reference = first_meta["tensors"][name]
+        tensor_meta[name] = {
+            "file": filename,
+            "shape": list(accumulator.shape),
+            "numel": int(accumulator.numel()),
+            "block": int(reference["block"]),
+            "sha256": sha256_file(path),
+        }
+        if tensor_index % 32 == 0:
+            print(f"combine_scores unit={unit} role={role} tensors={tensor_index}/{len(tensor_names)}", flush=True)
+    atomic_json(attempt / "identity.json", identity)
+    atomic_json(
+        attempt / "metadata.json",
+        {
+            **identity,
+            "identity_sha256": sha256_file(attempt / "identity.json"),
+            "eligible_numel": int(first_meta["eligible_numel"]),
+            "mean_dataset_loss": None,
+            "tensors": tensor_meta,
+        },
+    )
+    (attempt / "COMPLETE").touch()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(attempt, destination)
+
+
 def weighted_score(args: argparse.Namespace) -> None:
     """Compute w times a weighted mean of per-family mean gradients."""
 
@@ -642,6 +946,10 @@ def install_adapters() -> None:
 
 
 def build_masks(args: argparse.Namespace) -> None:
+    matrix = load_matrix(args.matrix)
+    unit = str(matrix[0]["unit"])
+    combine_family_scores(result_root=args.result_root, unit=unit, role="prune")
+    combine_family_scores(result_root=args.result_root, unit=unit, role="preserve")
     install_adapters()
     additive.build_masks(args)
 
@@ -834,6 +1142,8 @@ def parser() -> argparse.ArgumentParser:
     sub.add_argument("--sampled-shards", type=Path, nargs="+", required=True); sub.add_argument("--candidate-questions", type=Path, required=True); sub.add_argument("--sampling-records", type=Path, nargs="+", required=True); sub.add_argument("--original-prune", type=Path, required=True); sub.add_argument("--original-preserve", type=Path, required=True); sub.add_argument("--broad-preserve", type=Path, required=True); sub.add_argument("--previous-inputs", type=Path, required=True); sub.add_argument("--output-root", type=Path, required=True)
     sub = commands.add_parser("weighted-score")
     sub.add_argument("--unit", choices=UNITS, required=True); sub.add_argument("--role", choices=("prune", "preserve"), required=True); sub.add_argument("--manifest", type=Path, required=True); sub.add_argument("--result-root", type=Path, required=True); sub.add_argument("--model-snapshot", type=Path, required=True)
+    sub = commands.add_parser("family-score-shard")
+    sub.add_argument("--role", choices=("prune", "preserve"), required=True); sub.add_argument("--shard-index", type=int, choices=range(SCORE_SHARDS_PER_ROLE), required=True); sub.add_argument("--manifest", type=Path, required=True); sub.add_argument("--result-root", type=Path, required=True); sub.add_argument("--model-snapshot", type=Path, required=True)
     sub = commands.add_parser("build-masks")
     sub.add_argument("--matrix", type=Path, required=True); sub.add_argument("--result-root", type=Path, required=True)
     sub = commands.add_parser("evaluate")
@@ -859,6 +1169,7 @@ def main() -> int:
         "sample-candidates": sample_candidates,
         "build-manifests": build_manifests,
         "weighted-score": weighted_score,
+        "family-score-shard": family_score_shard,
         "build-masks": build_masks,
         "evaluate": evaluate,
         "quick-utility": quick_utility,

@@ -36,6 +36,16 @@ class DenseCampaignTests(unittest.TestCase):
         self.assertEqual(campaign.family_weights("dense_core2_correct2", "prune")["bad:doubt_correct_answer"], 2.0)
         self.assertEqual(campaign.family_weights("dense_core2_correct4", "preserve")["good:correct_update"], 4.0)
 
+    def test_family_score_shards_cover_each_component_once(self) -> None:
+        for role in ("prune", "preserve"):
+            shards = [
+                campaign.family_ids_for_shard(role, index)
+                for index in range(campaign.SCORE_SHARDS_PER_ROLE)
+            ]
+            flattened = [family_id for shard in shards for family_id in shard]
+            self.assertEqual(sorted(flattened), sorted(campaign.family_ids(role)))
+            self.assertEqual(len(flattened), len(set(flattened)))
+
     def test_matrix_grid_and_counts(self) -> None:
         for unit in campaign.UNITS:
             rows = campaign.matrix_for(unit)
