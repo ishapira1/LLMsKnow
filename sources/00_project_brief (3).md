@@ -18,7 +18,13 @@ The current empirical anchor is [current_empirical_summary_2026-06-20.md](curren
 
 The June 15 action items in [meeting_notes_2026-06-15.md](meeting_notes_2026-06-15.md) are now historical context. After the June 20 rerun, the priorities are to write from the updated empirical summary, keep probe claims calibrated as hidden-knowledge-like rather than causal proof, and plan intervention work such as patching or steering for stronger causal evidence.
 
-The current near-term planning source is [meeting_notes_2026-06-22.md](meeting_notes_2026-06-22.md). The June 22 action items prioritize running Hadas's pruning script, testing probing-based and mean-difference interventions for reducing sycophancy, reviewing intervention literature, and adding a simple "do not be sycophantic" prompt baseline.
+The current near-term planning source is [meeting_notes_2026-07-24.md](meeting_notes_2026-07-24.md). The July 24 action items prioritize running the full weight-pruning experiment while staying as close as possible to the original code, sharing the exact flags and configuration with Hadas, diagnosing what failed in the mean-difference experiment, testing whether anti-sycophancy interventions also affect other behaviors such as in-context learning, and developing the paper write-up. The project is aiming for an ICLR submission.
+
+### Latest weight-pruning conclusion (August 3, 2026)
+
+The `diverse_templates` experiment indicates a **fixed-budget dilution effect**, not that broad behavioral diversity is intrinsically harmful. With 412 pruning examples in every condition, concentrating them on incorrect-suggestion adoption and doubt-induced errors outperformed dividing the same budget across 12 factual-pressure families: wrong-suggestion adoption was 14.0% versus 17.8%, and doubt-induced errors were 12.5% versus 23.4%. The 12-family condition accepted more valid corrections (71.0% versus 64.8%), so it was not uniformly worse. See the [final diverse-templates report](../artifacts/pruning/diverse_templates_remote/analysis/final_report.md).
+
+The next clean diversity test should retain the complete original blocks and **add sufficiently many disjoint, behaviorally unique examples per new family**, rather than replacing or spreading the original examples. The pruning set should contain actual failures such as accepting an incorrect suggestion or abandoning a correct answer after doubt. The preservation set should include Alpaca/general capability data, rejection of incorrect suggestions, resistance to misleading doubt, stability under correct suggestions, and genuine corrections from an initially wrong answer. Diversity should mean unique questions and nonoverlapping prompt realizations with adequate coverage per behavior, not merely additional paraphrases of the same examples.
 
 ## Working definitions
 
