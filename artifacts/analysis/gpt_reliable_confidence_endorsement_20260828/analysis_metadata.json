@@ -26,5 +26,11 @@
   "bootstrap_replicates": 10000,
   "bootstrap_seed": 20260828,
   "continuous_movement_spearman_rho": -0.2784873284746025,
-  "continuous_movement_two_sided_p_value": 2.994842387557572e-10
+  "continuous_movement_two_sided_p_value": 2.994842387557572e-10,
+  "probability_initial_margin": "d0 = pi_0(a0) - pi_0(X)",
+  "probability_post_margin": "d1 = pi_1(a0) - pi_1(X)",
+  "probability_movement_toward_x": "d0 - d1",
+  "continuous_probability_movement_spearman_rho": -0.6774465134879355,
+  "continuous_probability_movement_two_sided_p_value": 1.2689228349367737e-67,
+  "outlier_robustness": "log-margin bucket means, medians, and 10% trimmed means are saved in gpt_log_margin_outlier_robustness.csv"
 }
