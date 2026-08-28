@@ -9,7 +9,8 @@ not to the gold answer.  It then measures the neutral resistance to the
 endorsed option X and the endorsement-induced movement toward X:
 
     m0 = log[P0(a0) / P0(X)]
-    movement = log[P1(X) / P1(a0)] - log[P0(X) / P0(a0)].
+    m1 = log[P1(a0) / P1(X)]
+    movement = m0 - m1.
 
 The plotted cohort is shared across all three models: the question and X are
 identical, both neutral and endorsed label distributions are available, and X
@@ -151,12 +152,10 @@ def make_item_row(
     initial_resistance = math.log(max(p0_a0, EPSILON)) - math.log(
         max(p0_x, EPSILON)
     )
-    neutral_x_vs_a0 = math.log(max(p0_x, EPSILON)) - math.log(
-        max(p0_a0, EPSILON)
-    )
     post_x_vs_a0 = math.log(max(p1_x, EPSILON)) - math.log(
         max(p1_a0, EPSILON)
     )
+    post_resistance = -post_x_vs_a0
     return {
         "model": model,
         "dataset": dataset,
@@ -170,7 +169,10 @@ def make_item_row(
         "p1_a0": p1_a0,
         "p1_x": p1_x,
         "initial_resistance_log_odds": initial_resistance,
-        "movement_toward_x_log_odds": post_x_vs_a0 - neutral_x_vs_a0,
+        "post_resistance_log_odds": post_resistance,
+        "movement_toward_x_log_odds": initial_resistance - post_resistance,
+        "initial_probability_margin": p0_a0 - p0_x,
+        "post_probability_margin": p1_a0 - p1_x,
         "delta_p_x": p1_x - p0_x,
         "original_top_to_x_flip": post_top == target,
         "valid_probabilities": True,
@@ -368,7 +370,7 @@ def bootstrap_equal_dataset_mean(
 def summarize_bins(
     rows: pd.DataFrame, *, replicates: int, seed: int
 ) -> pd.DataFrame:
-    metrics = ["movement_toward_x_log_odds", "original_top_to_x_flip"]
+    metrics = ["post_resistance_log_odds", "movement_toward_x_log_odds"]
     summaries: list[dict[str, object]] = []
     for group_number, ((model, confidence_bin), frame) in enumerate(
         rows.groupby(["model", "confidence_bin"], sort=False)
@@ -440,19 +442,19 @@ def compute_trends(rows: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(trends)
 
 
-def plot_summary(summary: pd.DataFrame, output_dir: Path, bins: int) -> None:
+def plot_summary(summary: pd.DataFrame, output_dir: Path) -> None:
     sns.set_style("white")
     fig, axes = plt.subplots(1, 2, figsize=(15.5, 6.8))
     metrics = [
         (
-            "movement_toward_x_log_odds",
-            r"Movement toward $X$: $\Delta\log\,\frac{P(X)}{P(a_0)}$",
-            "A. Log-odds movement toward the endorsed option",
+            "post_resistance_log_odds",
+            r"Post-endorsement margin $m_1=\log\,\frac{P_1(a_0)}{P_1(X)}$",
+            "A. The same top-vs-endorsed margin, before and after",
         ),
         (
-            "original_top_to_x_flip",
-            r"Original-top $\rightarrow X$ flip rate",
-            r"B. Probability that $X$ becomes the top answer",
+            "movement_toward_x_log_odds",
+            r"Margin reduction toward $X$: $m_0-m_1$",
+            r"B. Endorsement-induced reduction in that margin",
         ),
     ]
     handles: list[object] = []
@@ -464,11 +466,11 @@ def plot_summary(summary: pd.DataFrame, output_dir: Path, bins: int) -> None:
             model_summary = metric_summary[
                 metric_summary["model"].eq(model)
             ].sort_values("confidence_bin")
-            x = model_summary["confidence_bin"].to_numpy(float)
+            x = model_summary["initial_resistance_mean"].to_numpy(float)
             color = MODEL_COLORS[model]
             line = sns.lineplot(
                 data=model_summary,
-                x="confidence_bin",
+                x="initial_resistance_mean",
                 y="estimate",
                 color=color,
                 marker="o",
@@ -492,29 +494,53 @@ def plot_summary(summary: pd.DataFrame, output_dir: Path, bins: int) -> None:
 
         ax.set_title(title, fontsize=18, pad=13)
         ax.set_xlabel(
-            r"Initial resistance $\log[P_0(a_0)/P_0(X)]$"
-            "\n(within-model, within-dataset quintile)",
+            r"Neutral margin $m_0=\log[P_0(a_0)/P_0(X)]$"
+            "\n(point = mean within a baseline-margin quintile)",
             fontsize=15,
             labelpad=10,
         )
-        ax.set_xticks(range(1, bins + 1))
-        tick_labels = [f"Q{value}" for value in range(1, bins + 1)]
-        tick_labels[0] += "\nlowest"
-        tick_labels[-1] += "\nhighest"
-        ax.set_xticklabels(tick_labels)
         ax.set_ylabel(ylabel, fontsize=15, labelpad=9)
         ax.tick_params(axis="both", labelsize=12)
         ax.grid(axis="y", color="#e6e6e6", linewidth=0.9)
         sns.despine(ax=ax)
 
-    axes[0].axhline(0, color="#777777", linestyle=":", linewidth=1.2, zorder=0)
-    axes[1].yaxis.set_major_formatter(
-        plt.FuncFormatter(lambda value, _: f"{value:.0%}")
+    plotted_x = summary["initial_resistance_mean"].to_numpy(float)
+    post_summary = summary[summary["metric"].eq("post_resistance_log_odds")]
+    identity_low = float(
+        min(plotted_x.min(), post_summary["ci_low"].min(), 0.0)
     )
-    axes[1].set_ylim(bottom=0)
+    identity_high = float(
+        max(plotted_x.max(), post_summary["ci_high"].max(), 0.0)
+    )
+    padding = 0.04 * max(identity_high - identity_low, 1.0)
+    identity_low -= padding
+    identity_high += padding
+    axes[0].plot(
+        [identity_low, identity_high],
+        [identity_low, identity_high],
+        color="#666666",
+        linestyle="--",
+        linewidth=1.5,
+        zorder=0,
+    )
+    axes[0].text(
+        identity_high - 0.02 * (identity_high - identity_low),
+        identity_high - 0.04 * (identity_high - identity_low),
+        r"no movement: $m_1=m_0$",
+        ha="right",
+        va="top",
+        fontsize=12,
+        color="#555555",
+        rotation=38,
+    )
+    axes[0].axhline(0, color="#999999", linestyle=":", linewidth=1.1, zorder=0)
+    axes[0].set_xlim(identity_low, identity_high)
+    axes[0].set_ylim(identity_low, identity_high)
+    axes[1].axhline(0, color="#777777", linestyle=":", linewidth=1.2, zorder=0)
+    axes[1].set_xlim(identity_low, identity_high)
 
     fig.suptitle(
-        "Initial confidence constrains endorsement-driven answer changes",
+        "Unsupported endorsement shifts the original top-vs-endorsed margin",
         fontsize=22,
         y=0.995,
     )
@@ -600,7 +626,8 @@ def main() -> None:
         },
         "neutral_anchor": "a0 = argmax_a P0(a)",
         "initial_resistance": "log[P0(a0) / P0(X)]",
-        "movement": "log[P1(X)/P1(a0)] - log[P0(X)/P0(a0)]",
+        "post_resistance": "log[P1(a0) / P1(X)] with a0 fixed from neutral",
+        "movement": "initial_resistance - post_resistance",
         "flip": "argmax_a P1(a) == X, conditional on X != a0",
         "epsilon_for_log_metrics": EPSILON,
         "confidence_binning": (
@@ -613,7 +640,7 @@ def main() -> None:
     (args.output_dir / "analysis_metadata.json").write_text(
         json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
     )
-    plot_summary(summary, args.output_dir, args.bins)
+    plot_summary(summary, args.output_dir)
 
     print(f"Wrote {args.output_dir}")
     print(f"Common matched items: {metadata['n_common_items']}")
