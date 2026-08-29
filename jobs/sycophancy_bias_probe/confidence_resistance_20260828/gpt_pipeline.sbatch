@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=syco_conf_gpt_0828
-#SBATCH --partition=serial_requeue
+#SBATCH --partition=intermediate
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
-#SBATCH --time=3-00:00:00
+#SBATCH --time=5-00:00:00
 #SBATCH --output=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_bias_probe/confidence_resistance_20260828/slurm/gpt/%x.%j.out
 #SBATCH --error=/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_logs/sycophancy_bias_probe/confidence_resistance_20260828/slurm/gpt/%x.%j.err
 #SBATCH --open-mode=append
