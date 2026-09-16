@@ -259,13 +259,23 @@ def _add_reliability_prompt(
                 },
             ),
             TextArea(
-                "{p% of the time}",
+                "{p}",
                 textprops={
                     "color": PROMPT_RED,
                     "fontfamily": FONT_FAMILY,
                     "fontsize": fontsize,
                     "fontstyle": "italic",
                     "fontweight": "semibold",
+                },
+            ),
+            TextArea(
+                "% of the time",
+                textprops={
+                    "color": PROMPT_TEXT,
+                    "fontfamily": FONT_FAMILY,
+                    "fontsize": fontsize,
+                    "fontstyle": "italic",
+                    "fontweight": "regular",
                 },
             ),
         ],
@@ -589,7 +599,7 @@ def draw_source_families(
                 ),
             )
         title_fontsize = 7.5 if quarter else 7.7 if twenty_seven_five else 8.0 if narrow else 9.2 if compact else 9.8 if half else 10.5
-        prompt_fontsize = 4.8 if quarter else 6.4 if twenty_seven_five else 6.8 if narrow else 7.4 if compact else 7.8 if half else 8.8
+        prompt_fontsize = 5.2 if quarter else 6.4 if twenty_seven_five else 6.8 if narrow else 7.4 if compact else 7.8 if half else 8.8
         prompt_x = -1.16 if (narrow or twenty_seven_five or quarter) else -0.98 if compact else -0.76 if half else -0.60
         for center, (title, prompt_lines) in zip(group_centers, family_prompts):
             _add_family_prompt(
@@ -736,7 +746,7 @@ def draw_reliability_bar(
         # Match panel (a)'s 22% plot baseline.  The prompt occupies the compact
         # header above the axes, leaving the shared bottom edge uncluttered.
         margins = dict(left=0.38, right=0.98, top=0.84, bottom=0.22)
-        prompt_fontsize = 4.8
+        prompt_fontsize = 5.2
         axis_fontsize = 7.0
         tick_fontsize = 7.3
         capsize = 2.0
