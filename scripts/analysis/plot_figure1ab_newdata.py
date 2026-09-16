@@ -55,7 +55,7 @@ MODEL_COLORS = {
 }
 
 PRIMARY_TEXT = "#1F2430"
-AXIS_COLOR = "#2E3440"
+AXIS_COLOR = "#5E6375"
 BACKGROUND = "#FFFFFF"
 # The manuscript loads LaTeX's ``times`` package.  macOS's Times face is the
 # closest available plotting font, and the fallbacks preserve the same metrics
@@ -239,7 +239,7 @@ def _add_reliability_prompt(
     placement: str = "top",
 ) -> None:
     first = TextArea(
-        'e.g., “A source that is correct',
+        'e.g., “A source that is',
         textprops={
             "color": PROMPT_TEXT,
             "fontfamily": FONT_FAMILY,
@@ -250,6 +250,15 @@ def _add_reliability_prompt(
     second = HPacker(
         children=[
             TextArea(
+                "correct ",
+                textprops={
+                    "color": PROMPT_TEXT,
+                    "fontfamily": FONT_FAMILY,
+                    "fontsize": fontsize,
+                    "fontstyle": "italic",
+                },
+            ),
+            TextArea(
                 "{p% of the time}",
                 textprops={
                     "color": PROMPT_RED,
@@ -259,15 +268,6 @@ def _add_reliability_prompt(
                     "fontweight": "semibold",
                 },
             ),
-            TextArea(
-                " says" if keep_answer_together else " says the answer is",
-                textprops={
-                    "color": PROMPT_TEXT,
-                    "fontfamily": FONT_FAMILY,
-                    "fontsize": fontsize,
-                    "fontstyle": "italic",
-                },
-            ),
         ],
         align="baseline",
         pad=0,
@@ -275,20 +275,14 @@ def _add_reliability_prompt(
     )
     third = HPacker(
         children=[
-            *(
-                [
-                    TextArea(
-                        "the answer is ",
-                        textprops={
-                            "color": PROMPT_TEXT,
-                            "fontfamily": FONT_FAMILY,
-                            "fontsize": fontsize,
-                            "fontstyle": "italic",
-                        },
-                    )
-                ]
-                if keep_answer_together
-                else []
+            TextArea(
+                "says the answer is ",
+                textprops={
+                    "color": PROMPT_TEXT,
+                    "fontfamily": FONT_FAMILY,
+                    "fontsize": fontsize,
+                    "fontstyle": "italic",
+                },
             ),
             TextArea(
                 "b",
@@ -314,7 +308,12 @@ def _add_reliability_prompt(
         pad=0,
         sep=0,
     )
-    prompt = VPacker(children=[first, second, third], align="center", pad=0, sep=0.6)
+    prompt = VPacker(
+        children=[first, second, third],
+        align="left" if placement == "top_left" else "center",
+        pad=0,
+        sep=0.6,
+    )
     if placement == "bottom":
         prompt_position = (0.68, 0.010)
         box_alignment = (0.5, 0.0)
@@ -323,6 +322,11 @@ def _add_reliability_prompt(
         # full canvas, whose left side is reserved for the y-axis title.
         prompt_position = (0.68 if keep_answer_together else 0.52, 0.982)
         box_alignment = (0.5, 1.0)
+    elif placement == "top_left":
+        # The axes begin at x=.38 and end at y=.84.  Placing the prompt's
+        # lower-left corner here leaves approximately 6 pt above the axes.
+        prompt_position = (0.38, 0.871)
+        box_alignment = (0.0, 0.0)
     else:
         raise ValueError(f"Unknown prompt placement: {placement}")
     fig.add_artist(
@@ -416,9 +420,9 @@ def draw_source_families(
             xerr=np.vstack((values - lows, highs - values)),
             fmt="none",
             ecolor=MODEL_COLORS[model],
-            elinewidth=1.0,
-            capsize=3.2,
-            capthick=1.0,
+            elinewidth=0.7,
+            capsize=2.0,
+            capthick=0.7,
             zorder=4,
         )
         value_fontsize = (
@@ -435,11 +439,11 @@ def draw_source_families(
             else 10.0
         )
         for y_value, estimate in zip(y, estimates):
-            label_x = min(104.7, max(estimate.value, estimate.high) + 2.0)
-            ax.text(
-                label_x,
-                y_value,
+            ax.annotate(
                 f"{estimate.value:.0f}",
+                xy=(estimate.high, y_value),
+                xytext=(2.5, 0),
+                textcoords="offset points",
                 ha="left",
                 va="center",
                 fontsize=value_fontsize,
@@ -447,21 +451,28 @@ def draw_source_families(
                 fontstyle="normal",
                 color=PRIMARY_TEXT,
                 clip_on=False,
+                annotation_clip=False,
             )
 
     if wide:
         ax.set_xlabel("Incorrect suggestion selected (%)", fontsize=11, labelpad=3)
     else:
-        if compact or narrow or twenty_seven_five or quarter:
+        if quarter:
+            ax.set_xlabel(
+                "Selects suggested\nwrong answer (%)",
+                fontsize=7.0,
+                labelpad=3,
+            )
+        elif compact or narrow or twenty_seven_five:
             fig.text(
-                0.755 if (twenty_seven_five or quarter) else 0.740 if narrow else 0.720,
+                0.755 if twenty_seven_five else 0.740 if narrow else 0.720,
                 0.080,
-                "Suggested wrong\nanswer\nselected (%)"
-                if (twenty_seven_five or quarter)
+                "Selects suggested\nwrong answer (%)"
+                if twenty_seven_five
                 else "Incorrect suggestion\nselected (%)",
                 ha="center",
                 va="center",
-                fontsize=7.0 if quarter else 8.0 if twenty_seven_five else 8.5 if narrow else 9.5,
+                fontsize=8.0 if twenty_seven_five else 8.5 if narrow else 9.5,
                 linespacing=0.92,
                 color=PRIMARY_TEXT,
             )
@@ -592,7 +603,7 @@ def draw_source_families(
             )
     tick_fontsize = 7.3 if quarter else 8.0 if twenty_seven_five else 8.5 if narrow else 10.0 if compact else 10.8 if half else 11.5
     ax.tick_params(
-        axis="x", labelsize=tick_fontsize, width=0.75, length=3.5, pad=2
+        axis="x", labelsize=tick_fontsize, width=0.6, length=2.5, pad=2
     )
     ax.tick_params(axis="y", labelsize=12, width=0, length=0, pad=3)
     ax.grid(False)
@@ -601,7 +612,7 @@ def draw_source_families(
         ax.spines[spine].set_visible(False)
     for spine in ("left", "bottom"):
         ax.spines[spine].set_color(AXIS_COLOR)
-        ax.spines[spine].set_linewidth(0.9)
+        ax.spines[spine].set_linewidth(0.6)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, format="pdf")
@@ -725,10 +736,10 @@ def draw_reliability_bar(
         # Match panel (a)'s 22% plot baseline.  The prompt occupies the compact
         # header above the axes, leaving the shared bottom edge uncluttered.
         margins = dict(left=0.38, right=0.98, top=0.84, bottom=0.22)
-        prompt_fontsize = 5.0
+        prompt_fontsize = 4.8
         axis_fontsize = 7.0
         tick_fontsize = 7.3
-        capsize = 1.8
+        capsize = 2.0
     elif layout == "half":
         panel_size = HALF_RELIABILITY_PANEL_SIZE
         margins = dict(left=0.25, right=0.98, top=0.76, bottom=0.22)
@@ -752,7 +763,7 @@ def draw_reliability_bar(
         fig,
         fontsize=prompt_fontsize,
         keep_answer_together=layout in {"quarter", "twenty_seven_five"},
-        placement="top",
+        placement="top_left" if layout == "quarter" else "top",
     )
 
     x = np.arange(3, dtype=float)
@@ -779,9 +790,9 @@ def draw_reliability_bar(
             yerr=np.vstack((values - lows, highs - values)),
             fmt="none",
             ecolor=MODEL_COLORS[model],
-            elinewidth=0.95,
+            elinewidth=0.7,
             capsize=capsize,
-            capthick=0.95,
+            capthick=0.7,
             zorder=3,
         )
 
@@ -797,19 +808,19 @@ def draw_reliability_bar(
         labelpad=3,
     )
     ax.set_ylabel(
-        "Suggested wrong\nanswer\nselected (%)",
+        "Selects suggested\nwrong answer (%)",
         fontsize=axis_fontsize,
         labelpad=4,
     )
     ax.tick_params(
-        axis="both", labelsize=tick_fontsize, width=0.75, length=3.5, pad=2
+        axis="both", labelsize=tick_fontsize, width=0.6, length=2.5, pad=2
     )
     ax.grid(False)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
     for spine in ("left", "bottom"):
         ax.spines[spine].set_color(AXIS_COLOR)
-        ax.spines[spine].set_linewidth(0.9)
+        ax.spines[spine].set_linewidth(0.6)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output_format = output.suffix.lower().lstrip(".") or "png"
