@@ -77,7 +77,7 @@ GRID_COLOR = "#E8E8E8"
 TEXT_COLOR = "#2B2B2B"
 SPINE_COLOR = "#5A5A5A"
 RULE_COLOR = "#dddddd"
-OVERLEAF_TEXT_FONT = "Times"
+OVERLEAF_TEXT_FONT = "Times New Roman"
 
 CONFLICT_COLORS = {
     "user": "#B73229",
@@ -97,7 +97,7 @@ AXIS_TICK_COLOR = "#A7A7A7"
 ROW_LABEL_COLOR = "#6A6A6A"
 CORRECT_LABEL_COLOR = "#565656"
 BRACKET_COLOR = "#4A4A4A"
-REFERENCE_FONT = "Times"
+REFERENCE_FONT = "Times New Roman"
 
 
 @dataclass(frozen=True)
@@ -374,13 +374,14 @@ def _draw_direct_conflict(
         endpoint_size = 9.2
         row_label_size = 10.0
     elif layout == "fifty":
-        large_segment_size = 8.0
-        small_segment_size = 7.0
-        tiny_callout_size = 7.2
-        residual_size = 7.5
-        bracket_size = 8.2
-        category_size = 7.6
-        endpoint_size = 8.5
+        # Use one regular-weight numerical treatment across panels (a) and (c).
+        large_segment_size = 6.8
+        small_segment_size = 6.8
+        tiny_callout_size = 6.8
+        residual_size = 6.8
+        bracket_size = 7.2
+        category_size = 7.2
+        endpoint_size = 7.2
         row_label_size = 7.4
     else:
         # The one-row panel is rendered directly at its final physical size.
@@ -455,7 +456,8 @@ def _draw_direct_conflict(
                 ha="center",
                 va="center",
                 fontsize=label_size,
-                fontweight="regular" if key == "correct" else "medium",
+                fontweight="regular",
+                fontstyle="normal",
                 fontfamily=REFERENCE_FONT,
                 color=CORRECT_LABEL_COLOR if key == "correct" else "white",
                 clip_on=False,
@@ -498,6 +500,7 @@ def _draw_direct_conflict(
                 va="bottom",
                 fontsize=tiny_callout_size,
                 fontweight="regular",
+                fontstyle="normal",
                 fontfamily=REFERENCE_FONT,
                 color=ROW_LABEL_COLOR,
                 clip_on=False,
@@ -517,6 +520,7 @@ def _draw_direct_conflict(
                 va="center",
                 fontsize=residual_size,
                 fontweight="regular",
+                fontstyle="normal",
                 fontfamily=REFERENCE_FONT,
                 color=ROW_LABEL_COLOR,
                 clip_on=False,
@@ -543,6 +547,7 @@ def _draw_direct_conflict(
                 va="bottom",
                 fontsize=bracket_size,
                 fontweight="regular",
+                fontstyle="normal",
                 fontfamily=REFERENCE_FONT,
                 color=BRACKET_COLOR,
                 linespacing=0.90,
@@ -581,6 +586,8 @@ def _draw_direct_conflict(
                     va="top",
                     fontsize=category_size,
                     fontfamily=REFERENCE_FONT,
+                    fontweight="regular",
+                    fontstyle="normal",
                     color=ROW_LABEL_COLOR,
                     linespacing=0.92,
                     clip_on=False,
@@ -600,6 +607,8 @@ def _draw_direct_conflict(
         va="top",
         fontsize=endpoint_size,
         fontfamily=REFERENCE_FONT,
+        fontweight="regular",
+        fontstyle="normal",
         color=AXIS_TICK_COLOR,
         clip_on=False,
     )
@@ -611,6 +620,8 @@ def _draw_direct_conflict(
         va="top",
         fontsize=endpoint_size,
         fontfamily=REFERENCE_FONT,
+        fontweight="regular",
+        fontstyle="normal",
         color=AXIS_TICK_COLOR,
         clip_on=False,
     )
@@ -629,6 +640,10 @@ def _draw_direct_conflict(
 
     for label in (*ax.get_xticklabels(), *ax.get_yticklabels()):
         label.set_fontfamily(REFERENCE_FONT)
+        label.set_fontstyle("normal")
+        label.set_fontweight("regular")
+    for label in ax.get_yticklabels():
+        label.set_fontweight("semibold")
 
     _save_fixed_pdf(fig, output)
 

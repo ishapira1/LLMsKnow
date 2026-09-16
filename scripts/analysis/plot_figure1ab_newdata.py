@@ -60,7 +60,7 @@ BACKGROUND = "#FFFFFF"
 # The manuscript loads LaTeX's ``times`` package.  macOS's Times face is the
 # closest available plotting font, and the fallbacks preserve the same metrics
 # on systems where it is unavailable.
-FONT_FAMILY = "Times"
+FONT_FAMILY = "Times New Roman"
 SOURCE_PANEL_SIZE = (4.20, 4.00)
 # Size-specific canvases prevent LaTeX from shrinking already-small type in
 # the one-row and half-width layouts.
@@ -183,7 +183,7 @@ def _prompt_line(
                     "fontfamily": FONT_FAMILY,
                     "fontsize": fontsize,
                     "fontstyle": "italic",
-                    "fontweight": weight,
+                    "fontweight": "semibold" if weight == "bold" else weight,
                 },
             )
         )
@@ -206,7 +206,7 @@ def _add_family_prompt(
             "color": PRIMARY_TEXT,
             "fontfamily": FONT_FAMILY,
             "fontsize": title_fontsize,
-            "fontweight": "bold",
+            "fontweight": "semibold",
             "linespacing": 0.92,
         },
     )
@@ -256,7 +256,7 @@ def _add_reliability_prompt(
                     "fontfamily": FONT_FAMILY,
                     "fontsize": fontsize,
                     "fontstyle": "italic",
-                    "fontweight": "bold",
+                    "fontweight": "semibold",
                 },
             ),
             TextArea(
@@ -443,6 +443,8 @@ def draw_source_families(
                 ha="left",
                 va="center",
                 fontsize=value_fontsize,
+                fontweight="regular",
+                fontstyle="normal",
                 color=PRIMARY_TEXT,
                 clip_on=False,
             )
@@ -459,7 +461,7 @@ def draw_source_families(
                 else "Incorrect suggestion\nselected (%)",
                 ha="center",
                 va="center",
-                fontsize=7.5 if quarter else 8.0 if twenty_seven_five else 8.5 if narrow else 9.5,
+                fontsize=7.0 if quarter else 8.0 if twenty_seven_five else 8.5 if narrow else 9.5,
                 linespacing=0.92,
                 color=PRIMARY_TEXT,
             )
@@ -588,7 +590,7 @@ def draw_source_families(
                 title_fontsize=title_fontsize,
                 prompt_fontsize=prompt_fontsize,
             )
-    tick_fontsize = 7.6 if quarter else 8.0 if twenty_seven_five else 8.5 if narrow else 10.0 if compact else 10.8 if half else 11.5
+    tick_fontsize = 7.3 if quarter else 8.0 if twenty_seven_five else 8.5 if narrow else 10.0 if compact else 10.8 if half else 11.5
     ax.tick_params(
         axis="x", labelsize=tick_fontsize, width=0.75, length=3.5, pad=2
     )
@@ -670,7 +672,9 @@ def draw_reliability(
         "Stated source\nreliability", fontsize=axis_fontsize, labelpad=2
     )
     ax.set_ylabel(
-        "Incorrect suggestion\nselected (%)", fontsize=axis_fontsize, labelpad=4
+        "Suggested wrong\nanswer\nselected (%)",
+        fontsize=axis_fontsize,
+        labelpad=4,
     )
     ax.tick_params(
         axis="both", labelsize=tick_fontsize, width=0.75, length=3.5, pad=2
@@ -793,7 +797,9 @@ def draw_reliability_bar(
         labelpad=3,
     )
     ax.set_ylabel(
-        "Incorrect suggestion\nselected (%)", fontsize=axis_fontsize, labelpad=4
+        "Suggested wrong\nanswer\nselected (%)",
+        fontsize=axis_fontsize,
+        labelpad=4,
     )
     ax.tick_params(
         axis="both", labelsize=tick_fontsize, width=0.75, length=3.5, pad=2
