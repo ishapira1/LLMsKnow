@@ -582,7 +582,10 @@ def _draw_direct_conflict(
                     clip_on=False,
                 )
 
-    ax.set_xlim(-3, 108)
+    # At the selected half-width layout, keep the y labels close to the bar
+    # starts; the former -3% gutter plus an 8 pt tick pad read as accidental
+    # whitespace at paper scale.
+    ax.set_xlim(-1.0 if layout == "fifty" else -3, 108)
     ax.set_ylim(-2.42, y_positions[0] + 1.50)
     ax.set_xticks([])
     ax.text(
@@ -613,7 +616,7 @@ def _draw_direct_conflict(
         labelsize=row_label_size,
         labelcolor=ROW_LABEL_COLOR,
         length=0,
-        pad=8,
+        pad=3 if layout == "fifty" else 8,
     )
     ax.grid(False)
     for spine_name in ("left", "top", "right", "bottom"):

@@ -316,7 +316,7 @@ def _add_reliability_prompt(
     )
     prompt = VPacker(children=[first, second, third], align="center", pad=0, sep=0.6)
     if placement == "bottom":
-        prompt_position = (0.68, 0.012)
+        prompt_position = (0.68, 0.010)
         box_alignment = (0.5, 0.0)
     elif placement == "top":
         prompt_position = (0.52, 0.982)
@@ -716,10 +716,12 @@ def draw_reliability_bar(
         capsize = 1.9
     elif layout == "quarter":
         panel_size = QUARTER_RELIABILITY_PANEL_SIZE
-        margins = dict(left=0.38, right=0.98, top=0.97, bottom=0.43)
-        prompt_fontsize = 5.5
-        axis_fontsize = 7.3
-        tick_fontsize = 7.5
+        # Match panel (a)'s 22% plot baseline so the two x-axes align when
+        # placed side by side.  The compact prompt remains below the x label.
+        margins = dict(left=0.38, right=0.98, top=0.97, bottom=0.22)
+        prompt_fontsize = 4.6
+        axis_fontsize = 7.0
+        tick_fontsize = 7.3
         capsize = 1.8
     elif layout == "half":
         panel_size = HALF_RELIABILITY_PANEL_SIZE
@@ -782,7 +784,11 @@ def draw_reliability_bar(
     ax.set_xticks(x, ("20%", "50%", "90%"))
     ax.set_yticks([0, 10, 20, 30, 40, 50])
     ax.set_xlabel(
-        "Stated source\nreliability", fontsize=axis_fontsize, labelpad=3
+        "Stated source reliability"
+        if layout == "quarter"
+        else "Stated source\nreliability",
+        fontsize=axis_fontsize,
+        labelpad=3,
     )
     ax.set_ylabel(
         "Incorrect suggestion\nselected (%)", fontsize=axis_fontsize, labelpad=4
