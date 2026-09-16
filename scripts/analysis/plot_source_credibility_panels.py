@@ -323,7 +323,9 @@ def _draw_direct_conflict(
     if wide:
         fig.subplots_adjust(left=0.13, right=0.975, bottom=0.24, top=0.92)
     elif fifty:
-        fig.subplots_adjust(left=0.20, right=0.97, bottom=0.25, top=0.92)
+        # Keep the bracket near the common top edge while extending the final
+        # row's category ticks to the same baseline as panels (a) and (b).
+        fig.subplots_adjust(left=0.20, right=0.97, bottom=0.03, top=0.92)
     elif forty_five:
         fig.subplots_adjust(left=0.22, right=0.97, bottom=0.25, top=0.92)
     elif forty:
@@ -393,7 +395,9 @@ def _draw_direct_conflict(
         endpoint_size = 8.5
         row_label_size = 9.1
 
-    bar_height = 0.78 if layout == "fifty" else CONFLICT_BAR_HEIGHT
+    # The taller selected axes would otherwise make these bars disproportionately
+    # heavy; 0.70 preserves their paper-scale thickness while improving spacing.
+    bar_height = 0.70 if layout == "fifty" else CONFLICT_BAR_HEIGHT
     y_positions = np.arange(len(data))[::-1] * 1.80
     endpoint_y = -1.42
     for row_index, (y, row) in enumerate(zip(y_positions, data)):

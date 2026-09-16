@@ -319,7 +319,9 @@ def _add_reliability_prompt(
         prompt_position = (0.68, 0.010)
         box_alignment = (0.5, 0.0)
     elif placement == "top":
-        prompt_position = (0.52, 0.982)
+        # Center compact prompts over the plotting region rather than over the
+        # full canvas, whose left side is reserved for the y-axis title.
+        prompt_position = (0.68 if keep_answer_together else 0.52, 0.982)
         box_alignment = (0.5, 1.0)
     else:
         raise ValueError(f"Unknown prompt placement: {placement}")
@@ -716,10 +718,10 @@ def draw_reliability_bar(
         capsize = 1.9
     elif layout == "quarter":
         panel_size = QUARTER_RELIABILITY_PANEL_SIZE
-        # Match panel (a)'s 22% plot baseline so the two x-axes align when
-        # placed side by side.  The compact prompt remains below the x label.
-        margins = dict(left=0.38, right=0.98, top=0.97, bottom=0.22)
-        prompt_fontsize = 4.6
+        # Match panel (a)'s 22% plot baseline.  The prompt occupies the compact
+        # header above the axes, leaving the shared bottom edge uncluttered.
+        margins = dict(left=0.38, right=0.98, top=0.84, bottom=0.22)
+        prompt_fontsize = 5.0
         axis_fontsize = 7.0
         tick_fontsize = 7.3
         capsize = 1.8
@@ -746,7 +748,7 @@ def draw_reliability_bar(
         fig,
         fontsize=prompt_fontsize,
         keep_answer_together=layout in {"quarter", "twenty_seven_five"},
-        placement="bottom" if layout == "quarter" else "top",
+        placement="top",
     )
 
     x = np.arange(3, dtype=float)
