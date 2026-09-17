@@ -1,0 +1,95 @@
+{
+  "audit": {
+    "exact_keys_identical": true,
+    "exact_matched_responses": 3888,
+    "families": 4,
+    "models": 4,
+    "multi_valid_rate": 0.9963991769547325,
+    "primary_matched_cells": 1296,
+    "question_suggestion_template_fields_identical": true,
+    "questions": 81,
+    "repetitions_per_cell": [
+      3
+    ],
+    "single_valid_rate": 0.9979423868312757
+  },
+  "bootstrap_replicates": 5000,
+  "cluster_unit": "question_id",
+  "heterogeneity": {
+    "balanced_overall_delta": -0.09529320987654322,
+    "delta_variance_r2": {
+      "additive_model_plus_family": 0.31181989717068004,
+      "family_only": 0.14248996435614225,
+      "interaction_increment_over_additive": 0.016552499060721537,
+      "model_by_family_strata": 0.3283723962314016,
+      "model_only": 0.1693299328145378
+    },
+    "overall_delta_ci_high": -0.06674061213991773,
+    "overall_delta_ci_low": -0.12641782407407406,
+    "overall_sign_flip_p": 9.99990000099999e-06,
+    "per_family_delta": {
+      "authoritative_reference": -0.19958847736625515,
+      "independent_corroboration": -0.21193415637860083,
+      "individual_expert": -0.18209876543209877,
+      "unsupported_user": 0.21244855967078188
+    },
+    "per_model_delta": {
+      "luna": -0.14403292181069957,
+      "opus5": -0.3801440329218107,
+      "sonnet5": 0.147119341563786,
+      "terra": -0.004115226337448564
+    }
+  },
+  "mean_distribution_similarity": {
+    "expected_exact_answer_agreement": 0.7243655692729767,
+    "jensen_shannon_similarity": 0.7531980242952612
+  },
+  "paired_descriptives": {
+    "exact_letter_agreement_given_both_valid": 0.7286601138127263,
+    "exact_letter_kappa_given_both_valid": 0.6964391898406113,
+    "exact_pair_adoption_kappa": 0.4422190817475806,
+    "exact_pair_adoption_phi": 0.4512347197327754,
+    "exact_pair_binary_table": {
+      "both_adopt": 1893,
+      "multi_only": 332,
+      "neither_adopts": 963,
+      "single_only": 700
+    },
+    "exact_pair_mcnemar_p": 7.425389641151457e-31,
+    "group_count_quadratic_kappa": 0.477100417971671,
+    "note": "Repetition indices are exchangeable, unseeded API draws. Exact-pair agreement and McNemar results are secondary; grouped three-repetition rates are the primary estimand.",
+    "p_multi_all_given_single_all": 0.7014563106796117,
+    "p_multi_any_given_single_any": 0.7574750830564784,
+    "p_multi_any_given_single_none": 0.3053435114503817,
+    "response_class_agreement": 0.7245370370370371
+  },
+  "permutation_replicates": 100000,
+  "prediction": {
+    "cluster_robust_p": 8.877339541721092e-20,
+    "cluster_robust_se": 0.037906342754975474,
+    "cluster_unit": "question_id",
+    "cross_validation": {
+      "model_family_only": {
+        "mae": 0.29886285651984623,
+        "r2": 0.3565885211281822,
+        "rmse": 0.37890024342356393
+      },
+      "plus_single": {
+        "mae": 0.26458028499053793,
+        "r2": 0.4736741648280246,
+        "rmse": 0.34269504579927385
+      }
+    },
+    "delta_r2_from_single_turn": 0.11708564369984242,
+    "delta_rmse_from_single_turn": -0.036205197624290086,
+    "folds": 10,
+    "interpretation_per_10pp_single": 0.045907941675613795,
+    "within_model_family_single_rate_slope": 0.4590794167561379
+  },
+  "reliability": {
+    "attenuation_corrected_correlation": 0.5058355055704518,
+    "cronbach_alpha_multi": 0.9516253194304087,
+    "cronbach_alpha_single": 0.9675396196903028,
+    "raw_group_rate_correlation": 0.48537419503913937
+  }
+}
