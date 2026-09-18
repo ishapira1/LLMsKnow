@@ -35,11 +35,38 @@ submit_job() {
   fi
 }
 
+reuse_root_job() {
+  label="$1"; job_id="$2"
+  [[ "$job_id" =~ ^[0-9]+$ ]] || {
+    printf 'invalid reusable %s job id: %s\n' "$label" "$job_id" >&2
+    return 2
+  }
+  state=unchecked_dry_run
+  if [[ "$DRY_RUN" == 0 ]]; then
+    state="$(sacct -X -n -j "$job_id" --format=State | awk 'NF { sub(/\+.*/, "", $1); print $1; exit }')"
+    case "$state" in
+      COMPLETED|RUNNING|PENDING|CONFIGURING|COMPLETING|REQUEUED|RESIZING|SUSPENDED) ;;
+      '') printf 'reusable %s job %s is unknown to Slurm accounting\n' "$label" "$job_id" >&2; return 2 ;;
+      *) printf 'reusable %s job %s has unusable state %s\n' "$label" "$job_id" "$state" >&2; return 2 ;;
+    esac
+  fi
+  printf 'reused label=%s job_id=%s state=%s\n' "$label" "$job_id" "$state" | tee -a "$submission_log" >&2
+  printf '%s\n' "$job_id"
+}
+
 cpu="$BUNDLE_DIR/cpu_stage.sbatch"
 gpu="$BUNDLE_DIR/gpu_array.sbatch"
 
-cap_sources="$(submit_job bonh_capsrc_0918 capability_sources "$cpu" '' '' shared '' '')"
-source_freeze="$(submit_job bonh_freeze_0918 source_freeze "$cpu" '' '' shared '' '')"
+if [[ -n "${BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID:-}" ]]; then
+  cap_sources="$(reuse_root_job capability_sources "$BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID")"
+else
+  cap_sources="$(submit_job bonh_capsrc_0918 capability_sources "$cpu" '' '' shared '' '')"
+fi
+if [[ -n "${BONHAM_REUSE_SOURCE_FREEZE_JOB_ID:-}" ]]; then
+  source_freeze="$(reuse_root_job source_freeze "$BONHAM_REUSE_SOURCE_FREEZE_JOB_ID")"
+else
+  source_freeze="$(submit_job bonh_freeze_0918 source_freeze "$cpu" '' '' shared '' '')"
+fi
 
 models=(llama31_8b qwen25_7b gemma4_12b)
 smokes=(); neutrals=()

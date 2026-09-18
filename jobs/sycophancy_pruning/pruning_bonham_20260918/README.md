@@ -37,6 +37,16 @@ The dry run is the full submitter preflight. It prints every `sbatch` command an
 DRY_RUN=0 bash jobs/sycophancy_pruning/pruning_bonham_20260918/submit.sh
 ```
 
+If a root job has already been independently validated, a recovery submission can reuse its
+Slurm ID without duplicating completed source work. The submitter accepts only numeric job IDs
+whose accounting state is still usable:
+
+```bash
+BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID=<job_id> \
+BONHAM_REUSE_SOURCE_FREEZE_JOB_ID=<job_id> \
+DRY_RUN=0 bash jobs/sycophancy_pruning/pruning_bonham_20260918/submit.sh
+```
+
 The source freeze is shared. After it completes, the three model DAGs run concurrently. Attribution is sharded by model and score role. Evaluation is sharded by model, state, suite, and question shard. There is no monolithic all-model GPU job.
 
 The screen/evaluation arrays use conservative fixed ceilings because downstream shard counts do not exist when the initial DAG is submitted. A task whose immutable shard was not materialized exits successfully with `skip_reason=shard_not_materialized`. The ceilings cover the protocol's maximum possible shard counts:

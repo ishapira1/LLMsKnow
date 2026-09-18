@@ -214,6 +214,12 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("stride=120", gpu_array)
         self.assertIn("stride=80", gpu_array)
 
+    def test_submitter_can_reuse_validated_root_jobs(self) -> None:
+        submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
+        self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)
+        self.assertIn("BONHAM_REUSE_SOURCE_FREEZE_JOB_ID", submit)
+        self.assertIn("reuse_root_job", submit)
+
     def test_bonham_triviaqa_uses_registered_exact_match_parser(self) -> None:
         task = RuntimeEvaluationTask(
             example_id="triviaqa:q-1",
