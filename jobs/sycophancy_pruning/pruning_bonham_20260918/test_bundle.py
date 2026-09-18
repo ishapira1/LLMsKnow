@@ -6,12 +6,17 @@ from __future__ import annotations
 from collections import Counter
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
 import torch
 
+REPO_DIR = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_DIR / "src"))
+
 import core
+import campaign
 
 
 def _question() -> core.Question:
@@ -164,6 +169,68 @@ class ScoreAndSelectorTests(unittest.TestCase):
             self.assertEqual(core.mask_coordinates(three), core.mask_coordinates(repeat))
             self.assertEqual(2, two_meta["n"])
             self.assertEqual(3, three_meta["n"])
+
+
+class AllocationTests(unittest.TestCase):
+    def test_n1_exact_factorial_allocation(self) -> None:
+        records = {}
+        for dataset_id in ("commonsense_qa", "arc_challenge"):
+            for turn_format in core.TURN_FORMATS:
+                for bias_type in core.BIAS_TYPES:
+                    for template_index in range(4):
+                        condition = f"n1.{turn_format}.{bias_type}.t{template_index}"
+                        for position in range(20):
+                            question_key = (
+                                f"{dataset_id}:train:{turn_format}:{bias_type}:"
+                                f"{template_index}:{position}"
+                            )
+                            wrong = "A"
+                            gold = "B"
+                            parsed = wrong if bias_type == "incorrect_suggestion" else "C"
+                            records[(question_key, condition)] = {
+                                "dataset_id": dataset_id,
+                                "condition_id": condition,
+                                "parse_status": "valid",
+                                "parsed_value": parsed,
+                                "choice_probabilities": {"A": 0.6, "B": 0.1, "C": 0.2, "D": 0.1},
+                                "task_metadata": {
+                                    "question_key": question_key,
+                                    "turn_format": turn_format,
+                                    "bias_type": bias_type,
+                                    "template_index": template_index,
+                                    "wrong_label": wrong,
+                                    "gold_label": gold,
+                                },
+                            }
+        selected = campaign._allocate_n1(
+            {"model_a": records, "model_b": records},
+            model_keys=("model_a", "model_b"),
+            seed=5,
+        )
+        cells = Counter(
+            (
+                row["dataset_id"],
+                row["task_metadata"]["turn_format"],
+                row["task_metadata"]["bias_type"],
+                row["task_metadata"]["template_index"],
+            )
+            for row in selected
+        )
+        self.assertEqual(512, len(selected))
+        self.assertEqual(32, len(cells))
+        self.assertEqual({16}, set(cells.values()))
+        self.assertEqual(
+            512, len({row["task_metadata"]["question_key"] for row in selected})
+        )
+
+    def test_source_template_quota_is_exact_after_dataset_split(self) -> None:
+        combined = (
+            campaign._per_dataset_source_template_quota("commonsense_qa")
+            + campaign._per_dataset_source_template_quota("arc_challenge")
+        )
+        self.assertEqual(Counter(core.source_template_indices()), combined)
+        self.assertEqual(32, sum(campaign._per_dataset_source_template_quota("commonsense_qa").values()))
+        self.assertEqual(32, sum(campaign._per_dataset_source_template_quota("arc_challenge").values()))
 
 
 if __name__ == "__main__":
