@@ -1328,7 +1328,7 @@ def _score_manifest(root: Path, model_key: str, score_id: str) -> tuple[Path, st
         raise CampaignError(f"Unknown Bonham score ID: {score_id}")
     manifest_id, role = SCORE_SPECS[score_id]
     path = root / "manifests" / model_key / manifest_id / f"{role}.jsonl"
-    seed = int(manifest_id.removeprefix("n1_seed")) if manifest_id.startswith("n1_seed") else 5
+    seed = int(manifest_id[len("n1_seed") :]) if manifest_id.startswith("n1_seed") else 5
     return path, role, seed
 
 

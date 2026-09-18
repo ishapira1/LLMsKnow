@@ -283,6 +283,17 @@ class RuntimeIsolationTests(unittest.TestCase):
             )
             self.assertEqual(4, observed["eligible_numel"])
 
+    def test_score_manifest_seed_parsing_is_python38_compatible(self) -> None:
+        root = Path("/tmp/bonham-score-manifest-contract")
+        for score_id, expected_seed in (
+            ("n1_seed5_prune", 5),
+            ("n1_seed17_prune", 17),
+            ("n1_seed29_prune", 29),
+            ("general_preserve", 5),
+        ):
+            _path, _role, seed = campaign._score_manifest(root, "llama31_8b", score_id)
+            self.assertEqual(expected_seed, seed)
+
     def test_raw_record_materializes_preregistered_slice_fields(self) -> None:
         task = RuntimeEvaluationTask(
             example_id="generalization:seen:q-1",
