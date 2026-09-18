@@ -499,6 +499,35 @@ class EvaluationDesignTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(10, first["n_questions"])
 
+    def test_macro_bootstrap_pairs_four_categories_within_question(self) -> None:
+        rows = []
+        for question_index, base in enumerate((0.1, 0.3)):
+            for bias_type in core.BIAS_TYPES:
+                for turn_format in core.TURN_FORMATS:
+                    rows.append(
+                        {
+                            "model_key": "llama31_8b",
+                            "state_id": "unpruned",
+                            "dataset_id": "commonsense_qa",
+                            "question_axis": "held_out_same_dataset",
+                            "prompt_regime": "seen",
+                            "transfer_label": "pure_question_transfer",
+                            "question_id": f"q-{question_index}",
+                            "bias_type": bias_type,
+                            "turn_format": turn_format,
+                            **{metric: base for metric in reporting.PRIMARY_METRICS},
+                        }
+                    )
+        macros = reporting._macro_rows(rows)
+        self.assertEqual(set(reporting.PRIMARY_METRICS), {row["metric"] for row in macros})
+        for row in macros:
+            self.assertAlmostEqual(0.2, row["mean"])
+            self.assertEqual(2, row["n_questions"])
+            self.assertEqual(2_000, row["bootstrap_replicates"])
+            self.assertIsNotNone(row["ci_low"])
+            self.assertIsNotNone(row["ci_high"])
+            self.assertEqual("equal_behavioral_cell_within_question", row["weighting"])
+
     def test_evalplus_shards_are_stratified_by_benchmark(self) -> None:
         tasks = []
         for dataset_id, count in (("humaneval_plus", 8), ("mbpp_plus", 12)):

@@ -282,25 +282,68 @@ def _summaries(
     return result
 
 
-def _macro_rows(cell_rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    metric_rows = [row for row in cell_rows if row["metric"] in PRIMARY_METRICS]
-    groups: dict[tuple[str, ...], list[Mapping[str, Any]]] = defaultdict(list)
-    fields = ("model_key", "state_id", "dataset_id", "prompt_regime", "metric")
-    for row in metric_rows:
-        groups[tuple(str(row[field]) for field in fields)].append(row)
+def _macro_rows(effect_rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Question-clustered paired bootstrap of the four behavioral categories."""
+
+    group_fields = (
+        "model_key",
+        "state_id",
+        "dataset_id",
+        "question_axis",
+        "prompt_regime",
+        "transfer_label",
+    )
+    expected_categories = {
+        (bias_type, turn_format)
+        for bias_type in ("incorrect_suggestion", "doubt_correct")
+        for turn_format in ("single_turn", "multi_turn")
+    }
+    grouped: dict[tuple[Any, ...], list[Mapping[str, Any]]] = defaultdict(list)
+    for row in effect_rows:
+        grouped[tuple(row[field] for field in group_fields)].append(row)
     result = []
-    for key, rows in sorted(groups.items()):
-        categories = {(row["bias_type"], row["turn_format"]) for row in rows}
-        if len(categories) != 4:
-            raise ReportingError(f"Macro group lacks four behavioral cells: {key}")
-        result.append(
-            {
-                **dict(zip(fields, key)),
-                "mean": float(np.mean([row["mean"] for row in rows if row["mean"] is not None])),
-                "macro_categories": 4,
-                "weighting": "equal_behavioral_cell",
+    for key, rows in sorted(
+        grouped.items(), key=lambda item: tuple(str(value) for value in item[0])
+    ):
+        by_question: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+        for row in rows:
+            by_question[str(row["question_id"])].append(row)
+        for question_id, question_rows in by_question.items():
+            categories = {
+                (row["bias_type"], row["turn_format"]) for row in question_rows
             }
-        )
+            if categories != expected_categories or len(question_rows) != 4:
+                raise ReportingError(
+                    f"Macro question lacks the four behavioral cells: {key}/{question_id}"
+                )
+        base = dict(zip(group_fields, key))
+        for metric in PRIMARY_METRICS:
+            question_means = []
+            for question_id, question_rows in sorted(by_question.items()):
+                values = [
+                    float(row[metric])
+                    for row in question_rows
+                    if row.get(metric) is not None and math.isfinite(float(row[metric]))
+                ]
+                if len(values) != 4:
+                    raise ReportingError(
+                        f"Macro metric {metric} lacks four finite cells: {key}/{question_id}"
+                    )
+                question_means.append({"question_id": question_id, metric: float(np.mean(values))})
+            result.append(
+                {
+                    **base,
+                    "metric": metric,
+                    **_bootstrap(
+                        question_means,
+                        metric,
+                        canonical_json([base, metric, "paired_four_category_macro"]),
+                    ),
+                    "bootstrap_replicates": BOOTSTRAP_REPLICATES,
+                    "macro_categories": 4,
+                    "weighting": "equal_behavioral_cell_within_question",
+                }
+            )
     return result
 
 
@@ -634,7 +677,7 @@ def report(args: argparse.Namespace) -> None:
         ("model_key", "state_id", "dataset_id", "bias_type", "turn_format"),
         PRIMARY_METRICS,
     )
-    macros = _macro_rows(general_cells)
+    macros = _macro_rows(primary_general)
 
     useful_primary = [
         row
