@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO_DIR / "src"))
 
 import core
 import campaign
+import audit
 import evaluations
 import reporting
 import weight_analysis
@@ -151,6 +152,11 @@ class RuntimeIsolationTests(unittest.TestCase):
             metadata={"question_id": "test"},
         )
         self.assertEqual("SST-2 arbitrary-label ICL", utility_evaluation_name(task))
+
+    def test_final_audit_reads_top_level_capability_registry(self) -> None:
+        config = core.load_config()
+        self.assertEqual(set(config["capability_tasks"]), audit._expected_capabilities(config))
+        self.assertNotIn("evaluation", config)
 
     def test_balanced_evaluation_assignment(self) -> None:
         assignments = core.balanced_template_assignments(

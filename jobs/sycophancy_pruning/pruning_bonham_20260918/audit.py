@@ -27,6 +27,23 @@ def _authenticated(path: Path, expected: str) -> None:
     _require(sha256_file(path) == expected, f"Changed artifact: {path}")
 
 
+def _expected_capabilities(config: Mapping[str, Any]) -> set[str]:
+    """Return the frozen top-level capability registry.
+
+    The Bonham config intentionally keeps this registry beside ``methods``;
+    there is no nested ``evaluation`` object.
+    """
+
+    capabilities = config.get("capability_tasks")
+    _require(
+        isinstance(capabilities, list)
+        and capabilities
+        and all(isinstance(name, str) and name for name in capabilities),
+        "Capability registry is missing or malformed",
+    )
+    return set(capabilities)
+
+
 def final_audit(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     root = Path(args.result_root)
@@ -137,7 +154,7 @@ def final_audit(args: argparse.Namespace) -> None:
         "Evaluation state coverage is incomplete",
     )
     evaluation_inputs = read_json(root / "evaluations" / "inputs" / "COMPLETE.json")
-    expected_capabilities = set(config["evaluation"]["capability_tasks"])
+    expected_capabilities = _expected_capabilities(config)
     frozen_capabilities = set(evaluation_inputs.get("capability_names", []))
     normalized_frozen = {
         "TriviaQA" if name == "TriviaQA-Wiki" else name for name in frozen_capabilities
