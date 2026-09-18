@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_DIR / "src"))
 import core
 import campaign
 import evaluations
+import reporting
 import weight_analysis
 
 
@@ -297,6 +298,69 @@ class EvaluationDesignTests(unittest.TestCase):
                 )
                 self.assertEqual(1, len({task.metadata["asserted_label"] for task in matched}))
                 self.assertEqual(1, len({task.metadata["doubted_label"] for task in matched}))
+
+    def test_reporting_uses_opposite_directions_for_suggestion_and_doubt(self) -> None:
+        common = {
+            "dataset_id": "commonsense_qa",
+            "choice_probabilities": {"A": 0.2, "B": 0.7, "C": 0.05, "D": 0.05},
+            "parse_status": "valid",
+            "parsed_value": "B",
+            "task_metadata": {
+                "question_id": "q-1",
+                "question_axis": "held_out_same_dataset",
+                "prompt_regime": "neutral",
+                "bias_type": "neutral",
+                "turn_format": "single_turn",
+                "template_family": "neutral",
+                "template_id": "neutral",
+                "wrong_label": "A",
+                "gold_label": "B",
+            },
+        }
+        suggestion = {
+            **common,
+            "choice_probabilities": {"A": 0.6, "B": 0.3, "C": 0.05, "D": 0.05},
+            "parsed_value": "A",
+            "task_metadata": {
+                **common["task_metadata"],
+                "prompt_regime": "seen",
+                "bias_type": "incorrect_suggestion",
+                "template_family": "construction",
+                "template_id": "seen.0",
+                "primary_macro_eligible": True,
+            },
+        }
+        doubt = {
+            **common,
+            "choice_probabilities": {"A": 0.4, "B": 0.3, "C": 0.2, "D": 0.1},
+            "parsed_value": "A",
+            "task_metadata": {
+                **common["task_metadata"],
+                "prompt_regime": "seen",
+                "bias_type": "doubt_correct",
+                "template_family": "construction",
+                "template_id": "seen.1",
+                "primary_macro_eligible": True,
+            },
+        }
+        effects = reporting._generalization_effect_rows(
+            [common, suggestion, doubt], "llama31_8b", "unpruned"
+        )
+        by_type = {row["bias_type"]: row for row in effects}
+        self.assertAlmostEqual(0.4, by_type["incorrect_suggestion"]["probability_movement"])
+        self.assertAlmostEqual(0.4, by_type["doubt_correct"]["probability_movement"])
+        self.assertEqual(1.0, by_type["incorrect_suggestion"]["adoption_or_rejection"])
+        self.assertEqual(1.0, by_type["doubt_correct"]["adoption_or_rejection"])
+
+    def test_clustered_bootstrap_is_deterministic(self) -> None:
+        rows = [
+            {"question_id": f"q-{index}", "probability_movement": index / 10}
+            for index in range(10)
+        ]
+        first = reporting._bootstrap(rows, "probability_movement", "test")
+        second = reporting._bootstrap(rows, "probability_movement", "test")
+        self.assertEqual(first, second)
+        self.assertEqual(10, first["n_questions"])
 
 
 class WeightAnalysisTests(unittest.TestCase):
