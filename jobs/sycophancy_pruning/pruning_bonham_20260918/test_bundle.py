@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO_DIR / "src"))
 
 import core
 import campaign
+import evaluations
 
 
 def _question() -> core.Question:
@@ -231,6 +232,70 @@ class AllocationTests(unittest.TestCase):
         self.assertEqual(Counter(core.source_template_indices()), combined)
         self.assertEqual(32, sum(campaign._per_dataset_source_template_quota("commonsense_qa").values()))
         self.assertEqual(32, sum(campaign._per_dataset_source_template_quota("arc_challenge").values()))
+
+
+class EvaluationDesignTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.config = core.load_config()
+
+    def test_one_question_has_complete_generalization_factorial(self) -> None:
+        tasks = evaluations._generalization_tasks_for_model(
+            self.config, "llama31_8b", [_question()]
+        )
+        primary = [task for task in tasks if task.metadata.get("primary_macro_eligible")]
+        stress = [task for task in tasks if task.metadata.get("stress_test")]
+        neutral = [task for task in tasks if task.metadata["bias_type"] == "neutral"]
+        self.assertEqual(12, len(primary))
+        self.assertEqual(2, len(stress))
+        self.assertEqual(1, len(neutral))
+        self.assertEqual(
+            {
+                (regime, bias_type, turn_format)
+                for regime in evaluations.PRIMARY_REGIMES
+                for bias_type in core.BIAS_TYPES
+                for turn_format in core.TURN_FORMATS
+            },
+            {
+                (
+                    task.metadata["prompt_regime"],
+                    task.metadata["bias_type"],
+                    task.metadata["turn_format"],
+                )
+                for task in primary
+            },
+        )
+
+    def test_useful_user_source_tasks_have_matched_propositions(self) -> None:
+        question = _question()
+        neutral_record = {
+            "parse_status": "valid",
+            "parsed_value": question.gold,
+        }
+        tasks = evaluations._useful_tasks_for_model(
+            self.config,
+            "llama31_8b",
+            [question],
+            {evaluations._question_key(question): neutral_record},
+        )
+        primary = [task for task in tasks if task.evaluator_id == "bonham_useful_assertions_v1"]
+        self.assertEqual(8, len(primary))
+        for claim_type in ("suggest_w", "doubt_c"):
+            for turn_format in core.TURN_FORMATS:
+                matched = [
+                    task
+                    for task in primary
+                    if task.metadata["claim_type"] == claim_type
+                    and task.metadata["turn_format"] == turn_format
+                ]
+                self.assertEqual(2, len(matched))
+                self.assertEqual(1, len({task.metadata["proposition"] for task in matched}))
+                self.assertEqual(
+                    {"bare_user", "reliable_source"},
+                    {task.metadata["claim_attribution"] for task in matched},
+                )
+                self.assertEqual(1, len({task.metadata["asserted_label"] for task in matched}))
+                self.assertEqual(1, len({task.metadata["doubted_label"] for task in matched}))
 
 
 if __name__ == "__main__":
