@@ -169,6 +169,28 @@ class RuntimeIsolationTests(unittest.TestCase):
             reporting._latex_escape("openbook_qa"),
         )
 
+    def test_scheduler_array_capacities_match_runtime_guards(self) -> None:
+        submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
+        gpu_array = (Path(__file__).resolve().parent / "gpu_array.sbatch").read_text(
+            encoding="utf-8"
+        )
+        for stage, limit in campaign.SCREEN_SHARD_LIMITS.items():
+            self.assertGreater(limit, 0, stage)
+        self.assertIn("'0-79%16'", submit)
+        self.assertIn("'0-319%16'", submit)
+        self.assertIn("'0-47%16'", submit)
+        self.assertEqual(
+            {
+                "generalization": 60,
+                "useful_assertions": 120,
+                "capabilities": 80,
+            },
+            evaluations.EVALUATION_SHARD_LIMITS,
+        )
+        self.assertIn("stride=60", gpu_array)
+        self.assertIn("stride=120", gpu_array)
+        self.assertIn("stride=80", gpu_array)
+
     def test_bonham_triviaqa_uses_registered_exact_match_parser(self) -> None:
         task = RuntimeEvaluationTask(
             example_id="triviaqa:q-1",

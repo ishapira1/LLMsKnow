@@ -39,6 +39,11 @@ from bonham_runtime.capabilities import build_capability_tasks, utility_evaluati
 
 
 QUESTION_SHARD_SIZE = 25
+EVALUATION_SHARD_LIMITS = {
+    "generalization": 60,
+    "useful_assertions": 120,
+    "capabilities": 80,
+}
 PRIMARY_REGIMES = ("seen", "close_paraphrase", "naturalistic")
 CAPABILITY_NAMES = {
     "BoolQ",
@@ -653,7 +658,7 @@ def prepare(args: argparse.Namespace) -> None:
             for task in capabilities
         ]
         model_root = root / "evaluations" / "inputs" / model_key
-        outputs[model_key] = {
+        model_outputs = {
             "generalization": _write_question_shards(
                 generalization,
                 destination=model_root / "generalization",
@@ -674,6 +679,15 @@ def prepare(args: argparse.Namespace) -> None:
                 question_limit=100,
             ),
         }
+        for family, audit in model_outputs.items():
+            observed = int(audit["shard_count"])
+            limit = int(EVALUATION_SHARD_LIMITS[family])
+            if observed > limit:
+                raise EvaluationError(
+                    f"{model_key}/{family} produced {observed} shards, "
+                    f"exceeding the submitted array capacity {limit}"
+                )
+        outputs[model_key] = model_outputs
         primary = [
             task
             for task in generalization

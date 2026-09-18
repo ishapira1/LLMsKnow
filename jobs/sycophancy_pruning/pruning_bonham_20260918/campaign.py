@@ -78,6 +78,11 @@ MASK_SPECS = {
     "source_all": ("source_all_prune", "general_preserve"),
     "source_false": ("source_false_prune", "general_preserve"),
 }
+SCREEN_SHARD_LIMITS = {
+    "neutral_screen": 80,
+    "n1_screen": 320,
+    "source_screen": 48,
+}
 
 
 class CampaignError(BonhamError):
@@ -108,6 +113,15 @@ def _write_task_shards(
         )
     atomic_jsonl(destination / "index.jsonl", entries)
     return {"task_count": len(tasks), "shard_count": len(entries)}
+
+
+def _require_screen_shard_capacity(stage: str, audit: Mapping[str, Any]) -> None:
+    limit = int(SCREEN_SHARD_LIMITS[stage])
+    observed = int(audit["shard_count"])
+    if observed > limit:
+        raise CampaignError(
+            f"{stage} produced {observed} shards, exceeding the submitted array capacity {limit}"
+        )
 
 
 def _bound_rows(binding_path: Path, source_key: str) -> list[Mapping[str, Any]]:
@@ -280,6 +294,7 @@ def prepare_static(args: argparse.Namespace) -> None:
         destination=inputs / "neutral_screen_shards",
         shard_size=int(args.shard_size),
     )
+    _require_screen_shard_capacity("neutral_screen", shard_audit)
     source_receipt = {
         "suite_source_bindings": str(Path(args.suite_source_bindings).resolve()),
         "suite_source_bindings_sha256": sha256_file(args.suite_source_bindings),
@@ -655,6 +670,7 @@ def prepare_screens(args: argparse.Namespace) -> None:
         destination=root / "inputs" / "n1_screen_shards",
         shard_size=int(args.shard_size),
     )
+    _require_screen_shard_capacity("n1_screen", n1_audit)
 
     source_audits = {}
     for model_key in MODEL_KEYS:
@@ -714,6 +730,7 @@ def prepare_screens(args: argparse.Namespace) -> None:
             destination=root / "inputs" / "source_screen_shards" / model_key,
             shard_size=int(args.shard_size),
         )
+        _require_screen_shard_capacity("source_screen", source_audits[model_key])
     complete = {
         "status": "complete",
         "common_correct_count": len(common_correct),
