@@ -36,6 +36,19 @@ PRIMARY_METRICS = (
     "correct_to_wrong_flip",
     "invalid",
 )
+CANDIDATE_NLL_EVALUATORS = {
+    "bonham_hellaswag_acc_norm": 4,
+    "bonham_winogrande": 2,
+    # Retained for authenticated historical bundles read by the vendored runtime.
+    "robert_hellaswag_acc_norm": 4,
+    "robert_winogrande": 2,
+}
+OPTION_PROBABILITY_EVALUATORS = {
+    "bonham_boolq",
+    "bonham_rte",
+    "robert_boolq",
+    "robert_rte",
+}
 
 
 class ReportingError(campaign.CampaignError):
@@ -379,11 +392,11 @@ def _capability_rows(root: Path) -> list[Mapping[str, Any]]:
                     continue
                 values = []
                 metric = "accuracy"
-                if evaluator_id in {"robert_hellaswag_acc_norm", "robert_winogrande"}:
+                if evaluator_id in CANDIDATE_NLL_EVALUATORS:
                     candidates_by_question: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
                     for record in records:
                         candidates_by_question[str(record["task_metadata"]["question_id"])].append(record)
-                    expected = 4 if evaluator_id == "robert_hellaswag_acc_norm" else 2
+                    expected = CANDIDATE_NLL_EVALUATORS[evaluator_id]
                     for candidates in candidates_by_question.values():
                         if len(candidates) != expected:
                             raise ReportingError(f"Incomplete candidate bundle for {display}")
@@ -407,7 +420,7 @@ def _capability_rows(root: Path) -> list[Mapping[str, Any]]:
                         strata[str(record["task_metadata"][group_field])].append(float(correct))
                     values = [float(np.mean(stratum)) for stratum in strata.values()]
                     metric = "macro_accuracy"
-                elif evaluator_id in {"robert_boolq", "robert_rte"}:
+                elif evaluator_id in OPTION_PROBABILITY_EVALUATORS:
                     for record in records:
                         probabilities = dict(record.get("choice_probabilities", {}))
                         prediction = max(probabilities, key=probabilities.get) if probabilities else None

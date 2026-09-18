@@ -154,6 +154,14 @@ class RuntimeIsolationTests(unittest.TestCase):
         )
         self.assertEqual("SST-2 arbitrary-label ICL", utility_evaluation_name(task))
 
+    def test_reporting_dispatches_bonham_capability_evaluator_ids(self) -> None:
+        self.assertEqual(
+            4, reporting.CANDIDATE_NLL_EVALUATORS["bonham_hellaswag_acc_norm"]
+        )
+        self.assertEqual(2, reporting.CANDIDATE_NLL_EVALUATORS["bonham_winogrande"])
+        self.assertIn("bonham_boolq", reporting.OPTION_PROBABILITY_EVALUATORS)
+        self.assertIn("bonham_rte", reporting.OPTION_PROBABILITY_EVALUATORS)
+
     def test_final_audit_reads_top_level_capability_registry(self) -> None:
         config = core.load_config()
         self.assertEqual(set(config["capability_tasks"]), audit._expected_capabilities(config))
