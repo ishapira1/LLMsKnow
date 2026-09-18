@@ -404,7 +404,7 @@ def _postprocess_generation_record(
 ) -> Mapping[str, Any]:
     """Apply the registered evaluator parser; no generic free-form exact match."""
 
-    if task.evaluator_id == "robert_triviaqa_wiki":
+    if task.evaluator_id in {"bonham_triviaqa_wiki", "robert_triviaqa_wiki"}:
         from .dynamicqa import normalize_dynamicqa_answer
 
         prediction = normalize_dynamicqa_answer(str(raw_output or ""))

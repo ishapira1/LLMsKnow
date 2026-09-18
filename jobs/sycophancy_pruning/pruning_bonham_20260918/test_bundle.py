@@ -24,6 +24,7 @@ import weight_analysis
 from bonham_runtime.capabilities import utility_evaluation_name
 from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluationTask
 from bonham_runtime.evaluation.runner import _paper_record_fields
+from bonham_runtime.evaluation.runner import _postprocess_generation_record
 from bonham_runtime.llm.huggingface import HuggingFaceLLM
 from bonham_runtime.weight_pruning.paper_pruning import prepare_examples
 
@@ -161,6 +162,25 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertEqual(2, reporting.CANDIDATE_NLL_EVALUATORS["bonham_winogrande"])
         self.assertIn("bonham_boolq", reporting.OPTION_PROBABILITY_EVALUATORS)
         self.assertIn("bonham_rte", reporting.OPTION_PROBABILITY_EVALUATORS)
+
+    def test_bonham_triviaqa_uses_registered_exact_match_parser(self) -> None:
+        task = RuntimeEvaluationTask(
+            example_id="triviaqa:q-1",
+            evaluator_id="bonham_triviaqa_wiki",
+            display_name="TriviaQA-Wiki",
+            dataset_id="triviaqa_wiki",
+            dataset_revision="0" * 40,
+            split="validation",
+            condition_id="utility.triviaqa_wiki",
+            messages=({"role": "user", "content": "What is the capital of France?"},),
+            output_mode="generation",
+            max_new_tokens=32,
+            gold_answers=("Paris",),
+            metadata={"accepted_aliases": ["Paris"]},
+        )
+        parsed = _postprocess_generation_record(task, "Paris")
+        self.assertEqual("valid", parsed["parse_status"])
+        self.assertTrue(parsed["correct"])
 
     def test_final_audit_reads_top_level_capability_registry(self) -> None:
         config = core.load_config()
