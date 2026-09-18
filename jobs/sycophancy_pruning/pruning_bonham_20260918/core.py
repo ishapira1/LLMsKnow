@@ -185,7 +185,12 @@ def normalize_question(raw: Mapping[str, Any], dataset_id: str) -> Question | No
     base = raw.get("base") if isinstance(raw.get("base"), Mapping) else raw
     split = str(raw.get("split", base.get("source_split", ""))).strip()
     identity = str(raw.get("id", base.get("source_example_id", ""))).strip()
-    question = str(raw.get("question", base.get("question", ""))).strip()
+    question = str(
+        raw.get(
+            "question",
+            raw.get("question_stem", base.get("question", base.get("question_stem", ""))),
+        )
+    ).strip()
     gold = str(raw.get("answerKey", base.get("correct_letter", ""))).strip().upper()
     choices = raw.get("choices")
     if isinstance(choices, Mapping):

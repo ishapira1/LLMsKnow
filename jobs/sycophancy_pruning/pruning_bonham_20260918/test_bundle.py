@@ -113,6 +113,28 @@ class PromptRegistryTests(unittest.TestCase):
         self.assertLessEqual(max(counts.values()) - min(counts.values()), 1)
 
 
+class FrozenQuestionNormalizationTests(unittest.TestCase):
+    def test_openbookqa_question_stem_is_normalized(self) -> None:
+        question = core.normalize_question(
+            {
+                "answerKey": "B",
+                "choices": {
+                    "label": ["A", "B", "C", "D"],
+                    "text": ["alpha", "beta", "gamma", "delta"],
+                },
+                "id": "openbook-test-1",
+                "question_stem": "Which choice is correct?",
+                "split": "test",
+            },
+            "openbookqa",
+        )
+        self.assertIsNotNone(question)
+        assert question is not None
+        self.assertEqual("Which choice is correct?", question.question)
+        self.assertEqual("test", question.source_split)
+        self.assertEqual("B", question.gold)
+
+
 class RuntimeIsolationTests(unittest.TestCase):
     def test_runtime_imports_are_bonham_local(self) -> None:
         self.assertIs(RuntimeEvaluationTask, evaluations.EvaluationTask)
