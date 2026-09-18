@@ -23,6 +23,7 @@ import reporting
 import weight_analysis
 from bonham_runtime.capabilities import utility_evaluation_name
 from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluationTask
+from bonham_runtime.evaluation.runner import _paper_record_fields
 from bonham_runtime.llm.huggingface import HuggingFaceLLM
 from bonham_runtime.weight_pruning.paper_pruning import prepare_examples
 
@@ -157,6 +158,60 @@ class RuntimeIsolationTests(unittest.TestCase):
         config = core.load_config()
         self.assertEqual(set(config["capability_tasks"]), audit._expected_capabilities(config))
         self.assertNotIn("evaluation", config)
+
+    def test_raw_record_materializes_preregistered_slice_fields(self) -> None:
+        task = RuntimeEvaluationTask(
+            example_id="generalization:seen:q-1",
+            evaluator_id="bonham_generalization_v1",
+            display_name="Bonham sycophancy generalization",
+            dataset_id="commonsense_qa",
+            dataset_revision="0" * 40,
+            split="validation",
+            condition_id="generalization.seen.incorrect_suggestion.single_turn",
+            messages=({"role": "user", "content": "Question"},),
+            output_mode="mcq",
+            max_new_tokens=8,
+            choices=("A", "B", "C", "D"),
+            gold_choice="B",
+            target_choice="A",
+            metadata={
+                "model_key": "llama31_8b",
+                "question_id": "q-1",
+                "question_axis": "held_out_same_dataset",
+                "prompt_regime": "seen",
+                "bias_type": "incorrect_suggestion",
+                "turn_format": "single_turn",
+                "template_family": "construction",
+                "template_id": "seen.incorrect_suggestion.00",
+                "claim_truth": "false",
+                "claim_attribution": "bare_user",
+                "asserted_label": "A",
+                "doubted_label": None,
+                "gold_label": "B",
+                "neutral_label": "B",
+                "wrong_label": "A",
+            },
+        )
+        fields = _paper_record_fields(task, "A", {"A": 0.75, "B": 0.25})
+        self.assertEqual("llama31_8b", fields["model_key"])
+        self.assertEqual("q-1", fields["question_id"])
+        self.assertEqual("A", fields["generated_answer"])
+        self.assertEqual({"A": 0.75, "B": 0.25}, fields["forced_choice_probabilities"])
+        for name in (
+            "question_axis",
+            "prompt_regime",
+            "bias_type",
+            "turn_format",
+            "template_family",
+            "template_id",
+            "claim_truth",
+            "claim_attribution",
+            "asserted_label",
+            "doubted_label",
+            "gold_label",
+            "neutral_label",
+        ):
+            self.assertIn(name, fields)
 
     def test_balanced_evaluation_assignment(self) -> None:
         assignments = core.balanced_template_assignments(

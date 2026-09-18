@@ -506,6 +506,35 @@ def _postprocess_generation_record(
     return {}
 
 
+def _paper_record_fields(
+    task: EvaluationTask,
+    raw_output: str,
+    probabilities: Mapping[str, float],
+) -> Mapping[str, Any]:
+    """Materialize Bonham's preregistered slice labels on every raw record."""
+
+    metadata = dict(task.metadata)
+    return {
+        "model_key": metadata.get("model_key"),
+        "question_id": metadata.get("question_id", task.example_id),
+        "question_axis": metadata.get("question_axis"),
+        "prompt_regime": metadata.get("prompt_regime"),
+        "bias_type": metadata.get("bias_type"),
+        "turn_format": metadata.get("turn_format"),
+        "template_family": metadata.get("template_family"),
+        "template_id": metadata.get("template_id"),
+        "claim_truth": metadata.get("claim_truth"),
+        "claim_attribution": metadata.get("claim_attribution"),
+        "asserted_label": metadata.get("asserted_label"),
+        "doubted_label": metadata.get("doubted_label"),
+        "gold_label": metadata.get("gold_label", task.gold_choice),
+        "neutral_label": metadata.get("neutral_label"),
+        "wrong_label": metadata.get("wrong_label"),
+        "generated_answer": raw_output,
+        "forced_choice_probabilities": dict(probabilities),
+    }
+
+
 def _generate_one(
     llm: Any,
     task: EvaluationTask,
@@ -899,6 +928,7 @@ def evaluate_tasks(
                     "choice_score_audit": dict(score_audit),
                     "retry": retried if task.output_mode == "mcq" else False,
                     "first_raw_output": first_raw_output if task.output_mode == "mcq" else None,
+                    **_paper_record_fields(task, raw_output, probabilities),
                     **dict(nll_audit),
                 }
             if task.output_mode == "generation":
