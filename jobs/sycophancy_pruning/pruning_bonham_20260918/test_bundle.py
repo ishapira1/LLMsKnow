@@ -215,6 +215,74 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertEqual(set(config["capability_tasks"]), audit._expected_capabilities(config))
         self.assertNotIn("evaluation", config)
 
+    def test_final_audit_authenticates_complete_score_chain(self) -> None:
+        config = core.load_config()
+        model_key = "llama31_8b"
+        specification = campaign.model_spec(config, model_key)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "manifests" / model_key / "n1_seed5" / "prune.jsonl"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text("{}\n" * 512, encoding="utf-8")
+            score_root = root / "scores" / model_key / "n1_seed5_prune"
+            score_root.mkdir(parents=True)
+            tensor_path = score_root / "layer0_q_proj.pt"
+            tensor_path.write_bytes(b"authenticated-score-tensor")
+            identity = {
+                "schema_version": 1,
+                "experiment": campaign.EXPERIMENT,
+                "model_key": model_key,
+                "model_id": specification["model_id"],
+                "model_revision": specification["revision"],
+                "score_id": "n1_seed5_prune",
+                "role": "prune",
+                "manifest": str(manifest.resolve()),
+                "manifest_sha256": core.sha256_file(manifest),
+                "num_examples": 512,
+                "aggregation": "signed_mean_negative_weight_times_gradient",
+                "attribution": "delta_i=-w_i*dL_dw_i",
+                "loss": "completion_nll",
+                "precision": "fp32_accumulation",
+                "eligible_projections": list(core.ELIGIBLE_PROJECTIONS),
+                "implementation_sha256": core.sha256_file(Path(campaign.__file__)),
+            }
+            core.atomic_json(score_root / "identity.json", identity)
+            parameter = "model.layers.0.self_attn.q_proj"
+            tensor_hash = core.sha256_file(tensor_path)
+            metadata = {
+                **identity,
+                "identity_sha256": core.sha256_file(score_root / "identity.json"),
+                "eligible_numel": 4,
+                "tensors": {
+                    parameter: {
+                        "file": tensor_path.name,
+                        "shape": [2, 2],
+                        "numel": 4,
+                        "block": 0,
+                        "projection": "q_proj",
+                        "sha256": tensor_hash,
+                    }
+                },
+            }
+            core.atomic_json(score_root / "metadata.json", metadata)
+            core.atomic_json(
+                score_root / "COMPLETE.json",
+                {
+                    "status": "complete",
+                    "identity_sha256": core.sha256_file(score_root / "identity.json"),
+                    "metadata_sha256": core.sha256_file(score_root / "metadata.json"),
+                    "tensor_count": 1,
+                    "tensor_hashes": {parameter: tensor_hash},
+                },
+            )
+            observed = audit._audit_score_cache(
+                root,
+                model_key=model_key,
+                specification=specification,
+                score_id="n1_seed5_prune",
+            )
+            self.assertEqual(4, observed["eligible_numel"])
+
     def test_raw_record_materializes_preregistered_slice_fields(self) -> None:
         task = RuntimeEvaluationTask(
             example_id="generalization:seen:q-1",

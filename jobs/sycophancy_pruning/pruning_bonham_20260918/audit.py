@@ -48,6 +48,15 @@ RAW_RECORD_FIELDS = {
     "generated_answer",
     "forced_choice_probabilities",
 }
+SCORE_EXPECTED_COUNTS = {
+    "n1_seed5_prune": 512,
+    "n1_seed17_prune": 512,
+    "n1_seed29_prune": 512,
+    "general_preserve": 512,
+    "selective_preserve": 1024,
+    "source_all_prune": 512,
+    "source_false_prune": 256,
+}
 
 
 def _require(condition: bool, message: str) -> None:
@@ -58,6 +67,96 @@ def _require(condition: bool, message: str) -> None:
 def _authenticated(path: Path, expected: str) -> None:
     _require(path.is_file(), f"Missing artifact: {path}")
     _require(sha256_file(path) == expected, f"Changed artifact: {path}")
+
+
+def _audit_score_cache(
+    root: Path,
+    *,
+    model_key: str,
+    specification: Mapping[str, Any],
+    score_id: str,
+) -> Mapping[str, Any]:
+    score_root = root / "scores" / model_key / score_id
+    complete = read_json(score_root / "COMPLETE.json")
+    identity = read_json(score_root / "identity.json")
+    metadata = read_json(score_root / "metadata.json")
+    _require(complete.get("status") == "complete", f"Score cache is incomplete: {score_root}")
+    _authenticated(score_root / "identity.json", str(complete["identity_sha256"]))
+    _authenticated(score_root / "metadata.json", str(complete["metadata_sha256"]))
+    _require(
+        metadata.get("identity_sha256") == complete["identity_sha256"],
+        f"Score identity chain changed: {score_root}",
+    )
+    manifest, expected_role, _seed = campaign._score_manifest(root, model_key, score_id)
+    expected_aggregation = (
+        "mean_absolute_per_example_weight_times_gradient"
+        if expected_role == "preserve"
+        else "signed_mean_negative_weight_times_gradient"
+    )
+    expected_count = int(SCORE_EXPECTED_COUNTS[score_id])
+    manifest_count = sum(
+        1 for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()
+    )
+    _require(
+        identity.get("experiment") == campaign.EXPERIMENT
+        and identity.get("model_key") == model_key
+        and identity.get("model_id") == specification["model_id"]
+        and identity.get("model_revision") == specification["revision"]
+        and identity.get("score_id") == score_id
+        and identity.get("role") == expected_role,
+        f"Score identity differs from the frozen protocol: {score_root}",
+    )
+    _require(
+        Path(str(identity.get("manifest", ""))).resolve() == manifest.resolve()
+        and identity.get("manifest_sha256") == sha256_file(manifest)
+        and int(identity.get("num_examples", -1)) == expected_count
+        and manifest_count == expected_count,
+        f"Score manifest identity/count changed: {score_root}",
+    )
+    _require(
+        identity.get("aggregation") == expected_aggregation
+        and identity.get("attribution") == "delta_i=-w_i*dL_dw_i"
+        and identity.get("loss") == "completion_nll"
+        and identity.get("precision") == "fp32_accumulation"
+        and tuple(identity.get("eligible_projections", ())) == ELIGIBLE_PROJECTIONS
+        and identity.get("implementation_sha256") == sha256_file(Path(campaign.__file__)),
+        f"Score definition differs from the frozen protocol: {score_root}",
+    )
+    for key, value in identity.items():
+        _require(metadata.get(key) == value, f"Score metadata changed identity field {key}: {score_root}")
+    tensors = dict(metadata.get("tensors", {}))
+    tensor_hashes = {str(key): str(value) for key, value in dict(complete.get("tensor_hashes", {})).items()}
+    _require(
+        tensors
+        and int(complete.get("tensor_count", -1)) == len(tensors)
+        and set(tensor_hashes) == set(tensors),
+        f"Score tensor inventory is incomplete: {score_root}",
+    )
+    eligible_numel = 0
+    for name, row in tensors.items():
+        filename = str(row.get("file", ""))
+        shape = tuple(int(value) for value in row.get("shape", ()))
+        numel = int(row.get("numel", -1))
+        expected_hash = str(row.get("sha256", ""))
+        _require(
+            filename
+            and Path(filename).name == filename
+            and str(name).rsplit(".", 1)[-1] in ELIGIBLE_PROJECTIONS
+            and str(row.get("projection")) == str(name).rsplit(".", 1)[-1]
+            and shape
+            and math.prod(shape) == numel
+            and numel > 0
+            and int(row.get("block", -1)) >= 0
+            and tensor_hashes[str(name)] == expected_hash,
+            f"Score tensor metadata is malformed: {score_root}/{name}",
+        )
+        _authenticated(score_root / filename, expected_hash)
+        eligible_numel += numel
+    _require(
+        int(metadata.get("eligible_numel", -1)) == eligible_numel,
+        f"Score eligible-parameter count changed: {score_root}",
+    )
+    return metadata
 
 
 def _expected_capabilities(config: Mapping[str, Any]) -> set[str]:
@@ -391,11 +490,18 @@ def final_audit(args: argparse.Namespace) -> None:
                     not overlap,
                     f"Question-ID overlap for {model_key}: {left_name}/{right_name}",
                 )
-        score_roles = {
-            score_id: read_json(root / "scores" / model_key / score_id / "metadata.json")[
-                "aggregation"
-            ]
+        score_metadata = {
+            score_id: _audit_score_cache(
+                root,
+                model_key=model_key,
+                specification=specification,
+                score_id=score_id,
+            )
             for score_id in campaign.SCORE_SPECS
+        }
+        score_roles = {
+            score_id: metadata["aggregation"]
+            for score_id, metadata in score_metadata.items()
         }
         _require(
             all(
@@ -419,6 +525,25 @@ def final_audit(args: argparse.Namespace) -> None:
             )
             complete = read_json(mask_root / "COMPLETE.json")
             masks[mask_id] = complete["indices_sha256"]
+            _require(
+                mask_metadata[mask_id]["prune_metadata_sha256"]
+                == sha256_file(
+                    root
+                    / "scores"
+                    / model_key
+                    / str(mask_metadata[mask_id]["prune_score_id"])
+                    / "metadata.json"
+                )
+                and mask_metadata[mask_id]["preserve_metadata_sha256"]
+                == sha256_file(
+                    root
+                    / "scores"
+                    / model_key
+                    / str(mask_metadata[mask_id]["preserve_score_id"])
+                    / "metadata.json"
+                ),
+                f"Mask is not bound to its authenticated score caches: {model_key}/{mask_id}",
+            )
         _require(
             mask_metadata["n1_mechanism"]["prune_score_id"] == "n1_seed5_prune"
             and mask_metadata["n2_selective"]["prune_score_id"] == "n1_seed5_prune"
@@ -453,6 +578,23 @@ def final_audit(args: argparse.Namespace) -> None:
                 and random_metadata["matched_to_indices_sha256"] == masks[target_id],
                 f"Random mask does not exactly match {target_id} for {model_key}",
             )
+            magnitude_audit = dict(random_metadata.get("magnitude_match_audit", {}))
+            _require(
+                set(magnitude_audit) == set(random_metadata["counts_by_module"]),
+                f"Random magnitude audit lacks modules for {model_key}/{random_id}",
+            )
+            for name, row in magnitude_audit.items():
+                target_bins = [int(value) for value in row.get("target_bin_counts", ())]
+                random_bins = [int(value) for value in row.get("random_bin_counts", ())]
+                _require(
+                    row.get("exact_bin_match") is True
+                    and row.get("disjoint") is True
+                    and len(target_bins) == 10
+                    and target_bins == random_bins
+                    and sum(target_bins) == int(random_metadata["counts_by_module"][name])
+                    and int(row.get("numel", -1)) == int(random_metadata["counts_by_module"][name]),
+                    f"Random magnitude-decile match fails for {model_key}/{random_id}/{name}",
+                )
             masks[random_id] = read_json(random_root / "COMPLETE.json")["indices_sha256"]
         for state_id in campaign.PRIMARY_STATE_IDS:
             _require(
