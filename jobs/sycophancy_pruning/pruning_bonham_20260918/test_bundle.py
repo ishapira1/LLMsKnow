@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -24,8 +25,10 @@ import prepare_capability_sources
 import weight_analysis
 from bonham_runtime.capabilities import utility_evaluation_name
 from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluationTask
+from bonham_runtime.evaluation.runner import _generate_one
 from bonham_runtime.evaluation.runner import _paper_record_fields
 from bonham_runtime.evaluation.runner import _postprocess_generation_record
+from bonham_runtime.llm.base import GenerationResult
 from bonham_runtime.llm.huggingface import HuggingFaceLLM
 from bonham_runtime.weight_pruning.paper_pruning import prepare_examples
 
@@ -382,6 +385,36 @@ class RuntimeIsolationTests(unittest.TestCase):
             "neutral_label",
         ):
             self.assertIn(name, fields)
+
+    def test_loaded_model_wrapper_supports_scalar_generation(self) -> None:
+        task = RuntimeEvaluationTask(
+            example_id="scalar-generation",
+            evaluator_id="bonham_generalization_v1",
+            display_name="Scalar generation regression",
+            dataset_id="commonsense_qa",
+            dataset_revision="0" * 40,
+            split="validation",
+            condition_id="scalar-generation",
+            messages=({"role": "user", "content": "Question"},),
+            output_mode="mcq",
+            max_new_tokens=8,
+            choices=("A", "B", "C", "D"),
+            gold_choice="A",
+            target_choice="A",
+            metadata={},
+        )
+        llm = campaign._LLM(object(), object(), "test/model")
+        expected = GenerationResult(response_raw="A")
+        with patch.object(HuggingFaceLLM, "generate", return_value=[expected]) as generate:
+            observed = _generate_one(
+                llm,
+                task,
+                task.messages,
+                steering_layer=None,
+                steering_addition=None,
+            )
+        self.assertIs(expected, observed)
+        generate.assert_called_once()
 
     def test_balanced_evaluation_assignment(self) -> None:
         assignments = core.balanced_template_assignments(

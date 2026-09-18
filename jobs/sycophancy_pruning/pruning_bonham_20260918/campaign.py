@@ -445,6 +445,20 @@ class _LLM:
         self.tokenizer = tokenizer
         self.model_name = model_name
 
+    def generate(self, messages: Sequence[Mapping[str, Any]], **kwargs: Any) -> Any:
+        """Reuse the established Hugging Face generation contract for a loaded model."""
+
+        from bonham_runtime.llm.huggingface import HuggingFaceLLM
+
+        return HuggingFaceLLM.generate(self, list(messages), **kwargs)
+
+    def score_choices(
+        self, messages: Sequence[Mapping[str, Any]], choices: Sequence[str]
+    ) -> Mapping[str, float]:
+        from bonham_runtime.llm.huggingface import HuggingFaceLLM
+
+        return HuggingFaceLLM.score_choices(self, list(messages), list(choices))
+
 
 def _evaluation_provenance(root: Path, model_key: str, config_path: Path) -> tuple[str, str]:
     smoke = read_json(root / "model_smoke" / model_key / "COMPLETE.json")
