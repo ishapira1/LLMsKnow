@@ -163,6 +163,12 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("bonham_boolq", reporting.OPTION_PROBABILITY_EVALUATORS)
         self.assertIn("bonham_rte", reporting.OPTION_PROBABILITY_EVALUATORS)
 
+    def test_reporting_latex_identifiers_escape_underscores(self) -> None:
+        self.assertEqual(
+            "openbook\\_qa",
+            reporting._latex_escape("openbook_qa"),
+        )
+
     def test_bonham_triviaqa_uses_registered_exact_match_parser(self) -> None:
         task = RuntimeEvaluationTask(
             example_id="triviaqa:q-1",

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 import csv
 import io
 import json
@@ -415,6 +415,10 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     atomic_text(path, stream.getvalue())
 
 
+def _latex_escape(value: Any) -> str:
+    return str(value).replace("\\", "\\textbackslash{}").replace("_", "\\_")
+
+
 def _capability_rows(root: Path) -> list[Mapping[str, Any]]:
     rows = []
     for model_key in campaign.MODEL_KEYS:
@@ -514,7 +518,17 @@ def _capability_rows(root: Path) -> list[Mapping[str, Any]]:
             evalplus_complete = root / "evalplus" / "results" / model_key / state_id / "COMPLETE.json"
             if evalplus_complete.is_file():
                 receipt = read_json(evalplus_complete)
+                evalplus_results = root / "evalplus" / "results" / model_key / state_id / "results.jsonl"
+                if receipt.get("results_sha256") != sha256_file(evalplus_results):
+                    raise ReportingError(f"Authenticated EvalPlus results changed: {evalplus_results}")
+                evalplus_counts = Counter(
+                    str(row["benchmark"]) for row in read_jsonl(evalplus_results)
+                )
                 for benchmark, value in receipt["pass_at_1"].items():
+                    if int(evalplus_counts[benchmark]) <= 0:
+                        raise ReportingError(
+                            f"EvalPlus denominator is empty for {model_key}/{state_id}/{benchmark}"
+                        )
                     rows.append(
                         {
                             "model_key": model_key,
@@ -523,7 +537,7 @@ def _capability_rows(root: Path) -> list[Mapping[str, Any]]:
                             "benchmark": benchmark,
                             "metric": "plus_pass_at_1",
                             "value": value,
-                            "denominator": None,
+                            "denominator": int(evalplus_counts[benchmark]),
                         }
                     )
     return rows
@@ -836,18 +850,21 @@ def report(args: argparse.Namespace) -> None:
     atomic_json(output / "paper_results.json", full_payload)
     figure_receipts = _figures(output, macros, source_advantage)
     latex = [
-        "\\begin{tabular}{lllrr}",
-        "Model & State & Regime & Movement & Categories \\\\ ",
+        "\\begin{tabular}{llllrrrr}",
+        "Model & State & Dataset & Regime & Mean & CI low & CI high & Categories \\\\ ",
         "\\midrule",
     ]
     for row in macros:
         if row["metric"] != "probability_movement":
             continue
-        model = str(row["model_key"]).replace("_", "\\_")
-        state = str(row["state_id"]).replace("_", "\\_")
-        regime = str(row["prompt_regime"]).replace("_", "\\_")
+        model = _latex_escape(row["model_key"])
+        state = _latex_escape(row["state_id"])
+        dataset = _latex_escape(row["dataset_id"])
+        regime = _latex_escape(row["prompt_regime"])
         latex.append(
-            f"{model} & {state} & {regime} & {float(row['mean']):.3f} & 4 \\\\"
+            f"{model} & {state} & {dataset} & {regime} & "
+            f"{float(row['mean']):.3f} & {float(row['ci_low']):.3f} & "
+            f"{float(row['ci_high']):.3f} & 4 \\\\"
         )
     latex.extend(("\\bottomrule", "\\end{tabular}"))
     atomic_text(output / "generalization_macro.tex", "\n".join(latex) + "\n")
