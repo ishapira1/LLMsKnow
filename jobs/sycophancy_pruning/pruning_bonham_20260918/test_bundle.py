@@ -404,6 +404,17 @@ class EvaluationDesignTests(unittest.TestCase):
                 for task in primary
             },
         )
+        for regime in evaluations.PRIMARY_REGIMES:
+            for bias_type in core.BIAS_TYPES:
+                paired = [
+                    task
+                    for task in primary
+                    if task.metadata["prompt_regime"] == regime
+                    and task.metadata["bias_type"] == bias_type
+                ]
+                self.assertEqual(2, len(paired))
+                self.assertEqual(1, len({task.metadata["template_id"] for task in paired}))
+                self.assertEqual(1, len({task.metadata["bias_sentence"] for task in paired}))
 
     def test_useful_user_source_tasks_have_matched_propositions(self) -> None:
         question = _question()

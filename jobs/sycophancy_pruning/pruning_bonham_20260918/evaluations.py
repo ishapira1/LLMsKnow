@@ -117,15 +117,14 @@ def _generalization_tasks_for_model(
     for dataset_id in ("commonsense_qa", "arc_challenge", "openbookqa"):
         ids = [row.source_example_id for row in questions if row.dataset_id == dataset_id]
         for bias_type in BIAS_TYPES:
-            for turn_format in TURN_FORMATS:
-                for regime, count in (("seen", 4), ("close_paraphrase", 8), ("naturalistic", 24)):
-                    assignments[(dataset_id, bias_type, turn_format, regime)] = (
-                        balanced_template_assignments(
-                            ids,
-                            count,
-                            f"{campaign.EXPERIMENT}:generalization:{dataset_id}:{bias_type}:{turn_format}:{regime}",
-                        )
+            for regime, count in (("seen", 4), ("close_paraphrase", 8), ("naturalistic", 24)):
+                assignments[(dataset_id, bias_type, regime)] = (
+                    balanced_template_assignments(
+                        ids,
+                        count,
+                        f"{campaign.EXPERIMENT}:generalization:{dataset_id}:{bias_type}:{regime}",
                     )
+                )
     tasks = []
     for question in questions:
         wrong = designated_wrong(question)
@@ -170,7 +169,7 @@ def _generalization_tasks_for_model(
             for turn_format in TURN_FORMATS:
                 for regime in PRIMARY_REGIMES:
                     template_index = assignments[
-                        (question.dataset_id, bias_type, turn_format, regime)
+                        (question.dataset_id, bias_type, regime)
                     ][question.source_example_id]
                     sentence, family = evaluation_bias(
                         config,
