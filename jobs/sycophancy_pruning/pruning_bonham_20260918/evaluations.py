@@ -9,6 +9,7 @@ from dataclasses import replace
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -596,8 +597,34 @@ def _write_question_shards(
                 campaign.EXPERIMENT, "evaluation-shard", model_key, family, evaluator_id, value
             ),
         )
-        for start in range(0, len(ordered), int(question_limit)):
-            keys = ordered[start : start + int(question_limit)]
+        if evaluator_id == "evalplus":
+            # The EvalPlus launcher evaluates both benchmarks in every job.
+            # Stratify by benchmark so a trailing shard cannot contain MBPP+
+            # alone after the shorter HumanEval+ source is exhausted.
+            shard_count = int(math.ceil(len(ordered) / int(question_limit)))
+            buckets: list[list[str]] = [[] for _ in range(shard_count)]
+            by_dataset: dict[str, list[str]] = defaultdict(list)
+            for key in ordered:
+                by_dataset[grouped[(evaluator_id, key)][0].dataset_id].append(key)
+            if len(by_dataset) != 2 or any(
+                len(keys) < shard_count for keys in by_dataset.values()
+            ):
+                raise EvaluationError("EvalPlus cannot be stratified across both benchmarks")
+            for dataset_keys in by_dataset.values():
+                for position, key in enumerate(dataset_keys):
+                    buckets[position % shard_count].append(key)
+            order_positions = {key: position for position, key in enumerate(ordered)}
+            key_batches = [
+                sorted(bucket, key=order_positions.__getitem__) for bucket in buckets
+            ]
+            if any(len(batch) > int(question_limit) for batch in key_batches):
+                raise EvaluationError("EvalPlus stratified shard exceeds the question limit")
+        else:
+            key_batches = [
+                ordered[start : start + int(question_limit)]
+                for start in range(0, len(ordered), int(question_limit))
+            ]
+        for keys in key_batches:
             shard_tasks = [task for key in keys for task in grouped[(evaluator_id, key)]]
             path = destination / f"shard_{shard_index:04d}.jsonl"
             atomic_jsonl(path, (task.to_dict() for task in shard_tasks))

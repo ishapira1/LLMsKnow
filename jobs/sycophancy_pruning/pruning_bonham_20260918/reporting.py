@@ -298,6 +298,7 @@ def _matched_differences(
     left_value: str,
     right_value: str,
     label: str,
+    prompt_regime: str = "primary_matched_attribution",
 ) -> list[Mapping[str, Any]]:
     identity_fields = (
         "model_key",
@@ -311,7 +312,7 @@ def _matched_differences(
     indexed = {
         tuple(row[field] for field in identity_fields) + (row[pair_field],): row
         for row in rows
-        if row.get("prompt_regime") == "primary_matched_attribution"
+        if row.get("prompt_regime") == prompt_regime
     }
     output = []
     base_keys = {key[:-1] for key in indexed}
@@ -362,20 +363,98 @@ def _capability_rows(root: Path) -> list[Mapping[str, Any]]:
     rows = []
     for model_key in campaign.MODEL_KEYS:
         for state_id in campaign.PRIMARY_STATE_IDS:
-            family_root = root / "evaluations" / "results" / model_key / state_id / "capabilities"
-            for directory in sorted(path for path in family_root.glob("shard_*") if path.is_dir()):
-                summary = read_json(directory / "summary.json")
-                for metric in summary.get("metrics", []):
-                    rows.append(
-                        {
-                            "model_key": model_key,
-                            "state_id": state_id,
-                            "evaluator_id": summary["evaluator_id"],
-                            "metric": metric.get("metric"),
-                            "value": metric.get("value"),
-                            "denominator": metric.get("denominator"),
-                        }
+            raw = _records(root, model_key, state_id, "capabilities")
+            grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
+            for record in raw:
+                display = str(record["display_name"])
+                if record["evaluator_id"] == "symbolic_icl_200":
+                    display = (
+                        "SST-2 arbitrary-label ICL"
+                        if record["dataset_id"] == "sst2_symbolic_icl"
+                        else "AG News arbitrary-label ICL"
                     )
+                grouped[(str(record["evaluator_id"]), display)].append(record)
+            for (evaluator_id, display), records in sorted(grouped.items()):
+                if evaluator_id == "evalplus":
+                    continue
+                values = []
+                metric = "accuracy"
+                if evaluator_id in {"robert_hellaswag_acc_norm", "robert_winogrande"}:
+                    candidates_by_question: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+                    for record in records:
+                        candidates_by_question[str(record["task_metadata"]["question_id"])].append(record)
+                    expected = 4 if evaluator_id == "robert_hellaswag_acc_norm" else 2
+                    for candidates in candidates_by_question.values():
+                        if len(candidates) != expected:
+                            raise ReportingError(f"Incomplete candidate bundle for {display}")
+                        selected = min(candidates, key=lambda row: float(row["response_mean_nll"]))
+                        values.append(
+                            float(
+                                int(selected["task_metadata"]["candidate_index"])
+                                == int(selected["task_metadata"]["gold_candidate_index"])
+                            )
+                        )
+                elif evaluator_id in {"mmlu_full", "mmlu_pro_full"}:
+                    group_field = "subject" if evaluator_id == "mmlu_full" else "category"
+                    strata: dict[str, list[float]] = defaultdict(list)
+                    for record in records:
+                        if evaluator_id == "mmlu_full":
+                            probabilities = dict(record.get("choice_probabilities", {}))
+                            prediction = max(probabilities, key=probabilities.get) if probabilities else None
+                            correct = prediction == record.get("gold_choice")
+                        else:
+                            correct = bool(record.get("correct"))
+                        strata[str(record["task_metadata"][group_field])].append(float(correct))
+                    values = [float(np.mean(stratum)) for stratum in strata.values()]
+                    metric = "macro_accuracy"
+                elif evaluator_id in {"robert_boolq", "robert_rte"}:
+                    for record in records:
+                        probabilities = dict(record.get("choice_probabilities", {}))
+                        prediction = max(probabilities, key=probabilities.get) if probabilities else None
+                        values.append(float(prediction == record.get("gold_choice")))
+                else:
+                    values = [
+                        float(bool(record["correct"]))
+                        for record in records
+                        if record.get("correct") is not None
+                    ]
+                if not values:
+                    raise ReportingError(f"Capability metric is empty for {display}")
+                rows.append(
+                    {
+                        "model_key": model_key,
+                        "state_id": state_id,
+                        "evaluator_id": evaluator_id,
+                        "benchmark": display,
+                        "metric": metric,
+                        "value": float(np.mean(values)),
+                        "denominator": len(values),
+                    }
+                )
+            openbook = [
+                record
+                for record in _records(root, model_key, state_id, "generalization")
+                if record["dataset_id"] == "openbookqa"
+                and record.get("task_metadata", {}).get("bias_type") == "neutral"
+            ]
+            openbook_values = []
+            for record in openbook:
+                probabilities = dict(record.get("choice_probabilities", {}))
+                prediction = max(probabilities, key=probabilities.get) if probabilities else None
+                openbook_values.append(float(prediction == record.get("gold_choice")))
+            if len(openbook_values) != 500:
+                raise ReportingError("OpenBookQA neutral reuse is not exactly 500 questions")
+            rows.append(
+                {
+                    "model_key": model_key,
+                    "state_id": state_id,
+                    "evaluator_id": "bonham_openbookqa_reuse",
+                    "benchmark": "OpenBookQA",
+                    "metric": "accuracy",
+                    "value": float(np.mean(openbook_values)),
+                    "denominator": 500,
+                }
+            )
             evalplus_complete = root / "evalplus" / "results" / model_key / state_id / "COMPLETE.json"
             if evalplus_complete.is_file():
                 receipt = read_json(evalplus_complete)
@@ -385,6 +464,7 @@ def _capability_rows(root: Path) -> list[Mapping[str, Any]]:
                             "model_key": model_key,
                             "state_id": state_id,
                             "evaluator_id": benchmark,
+                            "benchmark": benchmark,
                             "metric": "plus_pass_at_1",
                             "value": value,
                             "denominator": None,
@@ -640,8 +720,11 @@ def report(args: argparse.Namespace) -> None:
         ),
         ("probability_movement", "log_odds_movement"),
     )
+    native_rows = [
+        row for row in all_useful_effects if row["prompt_regime"] == "heldout_native_tool"
+    ]
     native_transfer = _summaries(
-        [row for row in all_useful_effects if row["prompt_regime"] == "heldout_native_tool"],
+        native_rows,
         (
             "model_key",
             "state_id",
@@ -651,6 +734,19 @@ def report(args: argparse.Namespace) -> None:
             "claim_attribution",
         ),
         ("probability_movement", "log_odds_movement", "adoption_or_rejection", "invalid"),
+    )
+    native_advantage_rows = _matched_differences(
+        native_rows,
+        pair_field="claim_attribution",
+        left_value="native_tool",
+        right_value="matched_bare_user",
+        label="native_tool_advantage",
+        prompt_regime="heldout_native_tool",
+    )
+    native_advantage = _summaries(
+        native_advantage_rows,
+        ("model_key", "state_id", "dataset_id", "claim_truth", "claim_type"),
+        ("probability_movement", "log_odds_movement"),
     )
     capabilities = _capability_rows(root)
     artifacts = {
@@ -662,6 +758,7 @@ def report(args: argparse.Namespace) -> None:
         "reliable_source_advantage.csv": source_advantage,
         "pruning_effect.csv": pruning_effect,
         "native_tool_transfer.csv": native_transfer,
+        "native_tool_advantage.csv": native_advantage,
         "general_capabilities.csv": capabilities,
     }
     for filename, rows in artifacts.items():
@@ -677,6 +774,7 @@ def report(args: argparse.Namespace) -> None:
         "reliable_source_advantage": source_advantage,
         "pruning_effect": pruning_effect,
         "native_tool_transfer": native_transfer,
+        "native_tool_advantage": native_advantage,
         "general_capabilities": capabilities,
     }
     atomic_json(output / "paper_results.json", full_payload)

@@ -362,6 +362,45 @@ class EvaluationDesignTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(10, first["n_questions"])
 
+    def test_evalplus_shards_are_stratified_by_benchmark(self) -> None:
+        tasks = []
+        for dataset_id, count in (("humaneval_plus", 8), ("mbpp_plus", 12)):
+            for index in range(count):
+                tasks.append(
+                    evaluations.EvaluationTask(
+                        example_id=f"{dataset_id}-{index}",
+                        evaluator_id="evalplus",
+                        display_name=(
+                            "HumanEval+" if dataset_id == "humaneval_plus" else "MBPP+"
+                        ),
+                        dataset_id=dataset_id,
+                        split="test",
+                        dataset_revision="0" * 64,
+                        condition_id="benchmark_native",
+                        messages=({"role": "user", "content": f"Solve {index}"},),
+                        output_mode="generation",
+                        max_new_tokens=128,
+                        metadata={"question_id": f"{dataset_id}-{index}"},
+                    )
+                )
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory)
+            receipt = evaluations._write_question_shards(
+                tasks,
+                destination=destination,
+                family="capabilities",
+                model_key="llama31_8b",
+                question_limit=5,
+            )
+            self.assertEqual(4, receipt["shard_count"])
+            for entry in core.read_jsonl(destination / "index.jsonl"):
+                shard = core.read_jsonl(Path(entry["path"]))
+                self.assertLessEqual(entry["question_count"], 5)
+                self.assertEqual(
+                    {"humaneval_plus", "mbpp_plus"},
+                    {task["dataset_id"] for task in shard},
+                )
+
 
 class WeightAnalysisTests(unittest.TestCase):
     def test_structural_null_is_module_count_matched_and_deterministic(self) -> None:

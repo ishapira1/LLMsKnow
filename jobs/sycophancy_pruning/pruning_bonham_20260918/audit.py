@@ -136,10 +136,29 @@ def final_audit(args: argparse.Namespace) -> None:
         set(evaluation_complete.get("states", [])) == set(campaign.PRIMARY_STATE_IDS),
         "Evaluation state coverage is incomplete",
     )
+    evaluation_inputs = read_json(root / "evaluations" / "inputs" / "COMPLETE.json")
+    expected_capabilities = set(config["evaluation"]["capability_tasks"])
+    frozen_capabilities = set(evaluation_inputs.get("capability_names", []))
+    normalized_frozen = {
+        "TriviaQA" if name == "TriviaQA-Wiki" else name for name in frozen_capabilities
+    }
+    _require(
+        normalized_frozen == expected_capabilities,
+        f"Frozen capability suite differs from the protocol: {sorted(frozen_capabilities)}",
+    )
     evalplus_complete = read_json(root / "evalplus" / "results" / "COMPLETE.json")
     _require(evalplus_complete.get("publication_count") == 24, "Code state/model coverage is incomplete")
     report = read_json(root / "reports" / "COMPLETE.json")
     _require(report.get("bootstrap_replicates") == 2000, "Report bootstrap count changed")
+    paper_results = read_json(root / "reports" / "paper_results.json")
+    reported_capabilities = {
+        "TriviaQA" if row["benchmark"] == "TriviaQA-Wiki" else row["benchmark"]
+        for row in paper_results.get("general_capabilities", [])
+    }
+    _require(
+        reported_capabilities == expected_capabilities,
+        f"Reported capability coverage is incomplete: {sorted(reported_capabilities)}",
+    )
     weight = read_json(root / "weight_analysis" / "COMPLETE.json")
     _require(weight.get("cross_architecture_intersections") == 0, "Cross-architecture weights mixed")
     receipt = {
@@ -160,7 +179,8 @@ def final_audit(args: argparse.Namespace) -> None:
         "models": model_audits,
         "factual_question_counts": dict(evaluation_counts),
         "state_ids": list(campaign.PRIMARY_STATE_IDS),
-        "mask_count": 6,
+        "primary_state_mask_count_per_model": 4,
+        "localization_mask_count_per_model": 2,
         "primary_masks_exactly_1000": True,
         "protection_fraction": 0.00005,
         "n1_n2_pruning_byte_identical": True,
