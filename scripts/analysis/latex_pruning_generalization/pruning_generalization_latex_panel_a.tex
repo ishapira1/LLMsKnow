@@ -1,0 +1,49 @@
+\documentclass[tikz,border=0pt]{standalone}
+\input{common.tex}
+
+\begin{document}
+\begin{tikzpicture}[x=1cm,y=1cm]
+  % 0.242 x 5.5 in = 3.38 cm: this is the native manuscript width.
+  \path[use as bounding box] (0,0) rectangle (3.38,5.25);
+
+  \def\axisx{1.25}
+  \def\plotw{1.83}
+  \def\ybot{0.68}
+  \def\ytop{5.03}
+
+  \foreach \v in {0,20,40,60,80,100}{
+    \pgfmathsetmacro{\xx}{\axisx + \plotw*\v/112}
+    \draw[grid line] (\xx,\ybot) -- (\xx,\ytop);
+    \node[anchor=north,text=FigureInk,font=\AxisTick] at (\xx,0.60) {\v};
+  }
+  \draw[axis line] (\axisx,\ybot) -- (\axisx,\ytop);
+  \draw[axis line] (\axisx,\ybot) -- ({\axisx+\plotw},\ybot);
+
+  \newcommand{\barpair}[5]{%
+    \pgfmathsetmacro{\xorig}{\axisx + \plotw*#2/112}%
+    \pgfmathsetmacro{\xpruned}{\axisx + \plotw*#3/112}%
+    \node[anchor=east,align=right,text=FigureInk,
+      font=\fontsize{4.8}{5.25}\selectfont]
+      at ({\axisx-0.07},#5) {#1};%
+    \fill[FigureGreen] (\axisx,{#5+0.015}) rectangle (\xpruned,{#5+0.285});%
+    \draw[FigureGreen,line width=0.58pt]
+      (\axisx,{#5-0.285}) rectangle (\xorig,{#5-0.015});%
+    \node[anchor=west,text=FigureInk,font=\ValueLabel]
+      at ({\xpruned+0.04},{#5+0.15}) {#4};%
+    \pgfmathprintnumberto[fixed,precision=0]{#2}{\origlabel}%
+    \node[anchor=west,text=FigureInk,font=\ValueLabel]
+      at ({\xorig+0.04},{#5-0.15}) {\origlabel};%
+  }
+
+  \barpair{Held-out\\items}{48.64516129}{9.85915493}{10}{4.70}
+  \barpair{Unseen\\phrasing}{47.84336947}{13.95138981}{14}{3.965}
+  \barpair{New dataset\\(OpenBookQA)}{56.15763547}{8.22942643}{8}{3.23}
+  \barpair{Reason-backed\\disagreement}{82.61183634}{31.82838010}{32}{2.495}
+  \barpair{Multi-turn\\challenge}{99.61371815}{60.03787038}{60}{1.76}
+  \barpair{Doubt\\challenge}{53.73826196}{22.01215994}{22}{1.025}
+
+  \node[anchor=north,text=FigureInk,font=\fontsize{5.7}{6.3}\selectfont\bfseries]
+    at ({\axisx+\plotw/2},0.32)
+    {Deference to the user (\%) $\downarrow$};
+\end{tikzpicture}
+\end{document}

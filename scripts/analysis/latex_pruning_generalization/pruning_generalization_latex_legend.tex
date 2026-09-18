@@ -1,0 +1,17 @@
+\documentclass[tikz,border=0pt]{standalone}
+\input{common.tex}
+
+\begin{document}
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \path[use as bounding box] (0,0) rectangle (2.55,0.42);
+  % Figure 1 uses a clean inline legend with no surrounding frame.
+  \draw[draw=FigureGreen,fill=white,line width=0.72pt]
+    (0.13,0.21) circle[radius=2.00pt];
+  \node[anchor=west,text=FigureInk,font=\fontsize{6.7}{7.2}\selectfont]
+    at (0.30,0.21) {Original};
+  \filldraw[draw=FigureGreen,fill=FigureGreen,line width=0.5pt]
+    (1.47,0.21) circle[radius=2.00pt];
+  \node[anchor=west,text=FigureInk,font=\fontsize{6.7}{7.2}\selectfont]
+    at (1.64,0.21) {Pruned};
+\end{tikzpicture}
+\end{document}

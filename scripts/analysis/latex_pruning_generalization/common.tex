@@ -1,0 +1,37 @@
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+
+\definecolor{FigureGreen}{HTML}{31956F}
+\definecolor{FigureInk}{HTML}{1F2430}
+\definecolor{FigureSecondary}{HTML}{4B5563}
+\definecolor{FigureDelta}{HTML}{5F6F82}
+\definecolor{FigureAxis}{HTML}{66707A}
+\definecolor{FigureGrid}{HTML}{EFF2F4}
+\definecolor{FigureConnector}{HTML}{8F9AA5}
+\definecolor{FigureBracket}{HTML}{59636E}
+\definecolor{FigureDivider}{HTML}{D4DADD}
+\definecolor{FigureCaution}{HTML}{8A5445}
+\definecolor{FigureLegendBorder}{HTML}{AEB8C2}
+
+% These are final-paper sizes.  The panel PDFs are authored at the exact widths
+% used by the 5.5-inch ICLR text block, so these fonts are not subsequently
+% miniaturized by \includegraphics.
+\newcommand{\PanelLetter}{\fontsize{7.5}{8.1}\selectfont\bfseries}
+\newcommand{\PanelTitle}{\fontsize{5.2}{6.0}\selectfont}
+\newcommand{\AxisTitle}{\fontsize{7.2}{8.0}\selectfont\bfseries}
+\newcommand{\AxisTick}{\fontsize{5.5}{6.0}\selectfont}
+\newcommand{\DatasetLabel}{\fontsize{4.2}{4.7}\selectfont}
+\newcommand{\ValueLabel}{\fontsize{5.3}{5.8}\selectfont}
+\newcommand{\DeltaLabel}{\fontsize{4.9}{5.4}\selectfont}
+\newcommand{\FamilyLabel}{\fontsize{5.4}{5.9}\selectfont\bfseries}
+\newcommand{\FamilyDescription}{\fontsize{3.8}{4.3}\selectfont}
+
+\tikzset{
+  axis line/.style={draw=FigureAxis,line width=0.48pt},
+  grid line/.style={draw=FigureGrid,line width=0.28pt},
+  connector/.style={draw=FigureConnector,line width=0.78pt,line cap=round},
+  family bracket/.style={draw=FigureBracket,line width=0.44pt,line cap=butt}
+}
