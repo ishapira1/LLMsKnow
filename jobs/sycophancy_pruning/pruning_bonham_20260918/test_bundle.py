@@ -20,6 +20,7 @@ import campaign
 import audit
 import evaluations
 import reporting
+import prepare_capability_sources
 import weight_analysis
 from bonham_runtime.capabilities import utility_evaluation_name
 from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluationTask
@@ -214,6 +215,10 @@ class RuntimeIsolationTests(unittest.TestCase):
         config = core.load_config()
         self.assertEqual(set(config["capability_tasks"]), audit._expected_capabilities(config))
         self.assertNotIn("evaluation", config)
+        self.assertEqual(
+            {"boolq", "rte", "hellaswag", "winogrande", "triviaqa_wiki"},
+            set(prepare_capability_sources.SPECS),
+        )
 
     def test_final_audit_authenticates_complete_score_chain(self) -> None:
         config = core.load_config()

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import campaign
+import prepare_capability_sources
 from core import (
     DEFAULT_CONFIG,
     ELIGIBLE_PROJECTIONS,
@@ -157,6 +158,44 @@ def _audit_score_cache(
         f"Score eligible-parameter count changed: {score_root}",
     )
     return metadata
+
+
+def _audit_capability_sources(root: Path) -> str:
+    source_root = root / "sources" / "capabilities"
+    complete_path = source_root / "COMPLETE.json"
+    complete = read_json(complete_path)
+    _require(
+        complete.get("status") == "complete"
+        and complete.get("experiment") == campaign.EXPERIMENT,
+        "Capability-source freeze is incomplete or belongs to another experiment",
+    )
+    sources = dict(complete.get("sources", {}))
+    _require(
+        set(sources) == set(prepare_capability_sources.SPECS),
+        "Capability-source registry differs from the frozen protocol",
+    )
+    for name, (repo_id, subset, split, revision) in prepare_capability_sources.SPECS.items():
+        row = dict(sources[name])
+        population = int(row.get("population_count", -1))
+        selected = int(row.get("selected_count", -1))
+        _require(
+            row.get("repo_id") == repo_id
+            and row.get("config") == subset
+            and row.get("split") == split
+            and row.get("revision") == revision
+            and row.get("selection") == "outcome-independent SHA-256 rank, cap 500"
+            and population > 0
+            and selected == min(500, population),
+            f"Capability-source protocol changed for {name}",
+        )
+        _authenticated(Path(str(row["path"])), str(row["sha256"]))
+        if name in {"winogrande", "triviaqa_wiki"}:
+            _require(int(row.get("shot_count", -1)) == 5, f"Capability demos changed for {name}")
+            _authenticated(
+                Path(str(row["demonstrations_path"])),
+                str(row["demonstrations_sha256"]),
+            )
+    return sha256_file(complete_path)
 
 
 def _expected_capabilities(config: Mapping[str, Any]) -> set[str]:
@@ -405,6 +444,11 @@ def final_audit(args: argparse.Namespace) -> None:
         == {key: value["revision"] for key, value in config["datasets"].items()},
         "Dataset revisions differ from the frozen protocol",
     )
+    _authenticated(
+        Path(str(source["suite_source_bindings"])),
+        str(source["suite_source_bindings_sha256"]),
+    )
+    capability_source_complete_sha256 = _audit_capability_sources(root)
     evaluation_questions = read_jsonl(root / "inputs" / "evaluation_questions.jsonl")
     evaluation_counts = Counter(row["dataset_id"] for row in evaluation_questions)
     _require(
@@ -620,6 +664,13 @@ def final_audit(args: argparse.Namespace) -> None:
         "Raw evaluation record census differs from the authenticated completion receipt",
     )
     evaluation_inputs = read_json(root / "evaluations" / "inputs" / "COMPLETE.json")
+    _require(
+        evaluation_inputs.get("source_bindings_sha256")
+        == source["suite_source_bindings_sha256"]
+        and evaluation_inputs.get("external_utility_complete_sha256")
+        == capability_source_complete_sha256,
+        "Evaluation manifests are not bound to the authenticated source freezes",
+    )
     expected_capabilities = _expected_capabilities(config)
     frozen_capabilities = set(evaluation_inputs.get("capability_names", []))
     normalized_frozen = {
@@ -716,6 +767,7 @@ def final_audit(args: argparse.Namespace) -> None:
         "experiment": campaign.EXPERIMENT,
         "config_sha256": sha256_file(args.config),
         "source_freeze_sha256": sha256_file(root / "inputs" / "SOURCE_FREEZE_COMPLETE.json"),
+        "capability_source_complete_sha256": capability_source_complete_sha256,
         "evaluation_complete_sha256": sha256_file(
             root / "evaluations" / "results" / "COMPLETE.json"
         ),
