@@ -42,10 +42,10 @@ from core import (
     source_template_indices,
     stable_hash,
 )
-from llmssycoph.evaluation.anti_sycophancy_baselines import STRONG_PROMPT, WEAK_PROMPT
-from llmssycoph.evaluation.registries import REGISTRY_SCHEMA_VERSION
-from llmssycoph.evaluation.runner import EvaluationTask, read_task_manifest, run_evaluation_cell
-from llmssycoph.evaluation.schemas import StateSpec
+from bonham_runtime.evaluation.anti_sycophancy_baselines import STRONG_PROMPT, WEAK_PROMPT
+from bonham_runtime.evaluation.registries import REGISTRY_SCHEMA_VERSION
+from bonham_runtime.evaluation.runner import EvaluationTask, read_task_manifest, run_evaluation_cell
+from bonham_runtime.evaluation.schemas import StateSpec
 
 
 EXPERIMENT = "pruning_bonham_20260918"
@@ -311,7 +311,7 @@ def model_snapshot(hf_cache: Path, specification: Mapping[str, Any]) -> Path:
 
 
 def _load_model(snapshot: Path) -> tuple[Any, Any]:
-    from llmssycoph.llm.huggingface import HuggingFaceLLM
+    from bonham_runtime.llm.huggingface import HuggingFaceLLM
 
     model, tokenizer = HuggingFaceLLM._load_model_and_tokenizer(
         model_name=str(snapshot),
@@ -328,7 +328,7 @@ def _load_model(snapshot: Path) -> tuple[Any, Any]:
 
 
 def _eligible_modules(model: Any) -> list[tuple[str, Any, int]]:
-    from tools.weight_pruning.paper_pruning import eligible_linear_weights
+    from bonham_runtime.weight_pruning.paper_pruning import eligible_linear_weights
 
     modules = [
         (str(name), module, int(block))
@@ -360,7 +360,7 @@ def _read_state(path: Path) -> StateSpec:
 
 
 def model_smoke(args: argparse.Namespace) -> None:
-    from tools.weight_pruning.paper_pruning import eligible_linear_weights
+    from bonham_runtime.weight_pruning.paper_pruning import eligible_linear_weights
 
     config = load_config(args.config)
     specification = model_spec(config, args.model_key)
@@ -1317,7 +1317,7 @@ def _score_manifest(root: Path, model_key: str, score_id: str) -> tuple[Path, st
 
 def score_component(args: argparse.Namespace) -> None:
     import torch
-    from tools.weight_pruning.paper_pruning import (
+    from bonham_runtime.weight_pruning.paper_pruning import (
         _safe_tensor_name,
         backward_example,
         load_manifest,
@@ -1590,7 +1590,7 @@ def build_masks(args: argparse.Namespace) -> None:
 
 
 def build_random_mask(args: argparse.Namespace) -> None:
-    from tools.weight_pruning.paper_pruning import _magnitude_matched_random
+    from bonham_runtime.weight_pruning.paper_pruning import _magnitude_matched_random
 
     config = load_config(args.config)
     root = Path(args.result_root)

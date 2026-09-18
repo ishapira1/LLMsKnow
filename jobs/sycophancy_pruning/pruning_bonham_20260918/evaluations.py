@@ -7,12 +7,10 @@ import argparse
 from collections import Counter, defaultdict
 from dataclasses import replace
 import hashlib
-import importlib.util
 import json
 import math
 import os
 from pathlib import Path
-import sys
 from typing import Any, Mapping, Sequence
 
 import campaign
@@ -35,8 +33,9 @@ from core import (
     sha256_file,
     stable_hash,
 )
-from llmssycoph.evaluation.artifacts import validate_complete_bundle
-from llmssycoph.evaluation.runner import EvaluationTask, read_task_manifest, run_evaluation_cell
+from bonham_runtime.evaluation.artifacts import validate_complete_bundle
+from bonham_runtime.evaluation.runner import EvaluationTask, read_task_manifest, run_evaluation_cell
+from bonham_runtime.capabilities import build_capability_tasks, utility_evaluation_name
 
 
 QUESTION_SHARD_SIZE = 25
@@ -517,54 +516,15 @@ def _useful_tasks_for_model(
     return tasks
 
 
-def _load_module(module_name: str, path: Path) -> Any:
-    specification = importlib.util.spec_from_file_location(module_name, path)
-    if specification is None or specification.loader is None:
-        raise ImportError(path)
-    module = importlib.util.module_from_spec(specification)
-    sys.modules[module_name] = module
-    specification.loader.exec_module(module)
-    return module
-
-
 def _capability_tasks(
     suite_source_bindings: Path, external_utility_root: Path
 ) -> list[EvaluationTask]:
-    """Reuse the established frozen task builders while filtering Bonham's scope."""
-
-    prior_root = Path(__file__).resolve().parent.parent / "pruning_robert_plant_aug_20"
-    original_campaign = sys.modules.get("campaign")
-    original_social = sys.modules.get("social")
-    try:
-        prior_campaign = _load_module("campaign", prior_root / "campaign.py")
-        _load_module("social", prior_root / "social.py")
-        prior_evaluations = _load_module(
-            "bonham_prior_robert_evaluations", prior_root / "evaluations.py"
-        )
-        tasks = prior_evaluations.build_utility_tasks(
-            suite_source_bindings, external_utility_root
-        )
-        names = {prior_evaluations._utility_evaluation_name(task) for task in tasks}
-        missing = CAPABILITY_NAMES.difference(names)
-        if missing:
-            raise EvaluationError(f"Established capability builder lacks: {sorted(missing)}")
-        # OpenBookQA is evaluated under the exact same neutral messages in the
-        # generalization suite and is deliberately reused rather than rerun.
-        return [
-            task
-            for task in tasks
-            if prior_evaluations._utility_evaluation_name(task) in CAPABILITY_NAMES
-            and prior_evaluations._utility_evaluation_name(task) != "OpenBookQA"
-        ]
-    finally:
-        if original_campaign is None:
-            sys.modules.pop("campaign", None)
-        else:
-            sys.modules["campaign"] = original_campaign
-        if original_social is None:
-            sys.modules.pop("social", None)
-        else:
-            sys.modules["social"] = original_social
+    tasks = build_capability_tasks(suite_source_bindings, external_utility_root)
+    names = {utility_evaluation_name(task) for task in tasks}
+    missing = CAPABILITY_NAMES.difference(names | {"OpenBookQA"})
+    if missing:
+        raise EvaluationError(f"Capability builder lacks: {sorted(missing)}")
+    return tasks
 
 
 def _task_question_key(task: EvaluationTask) -> str:

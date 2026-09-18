@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 import campaign
 from core import atomic_json, atomic_jsonl, read_json, read_jsonl, sha256_file, sha256_json
-from llmssycoph.evaluation.evalplus_sandbox import (
+from bonham_runtime.evaluation.evalplus_sandbox import (
     EVALPLUS_RESULT_NAME,
     EVALPLUS_TASK_COUNTS,
     EvalPlusSandboxSpec,

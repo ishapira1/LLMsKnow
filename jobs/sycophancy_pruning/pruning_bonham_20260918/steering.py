@@ -27,7 +27,7 @@ from core import (
     sha256_file,
     sha256_json,
 )
-from llmssycoph.evaluation.schemas import StateSpec
+from bonham_runtime.evaluation.schemas import StateSpec
 
 
 ALPHAS = (-4.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 4.0)
@@ -130,7 +130,7 @@ def _rows(root: Path, model_key: str, partition: str) -> list[Mapping[str, Any]]
 
 
 def extract(args: argparse.Namespace) -> None:
-    from llmssycoph.interventions.activations import extract_prompt_state
+    from bonham_runtime.interventions.activations import extract_prompt_state
 
     config = load_config(args.config)
     root = Path(args.result_root)
@@ -212,7 +212,7 @@ def _margin(scores: Mapping[str, float], gold: str, wrong: str) -> float:
 
 
 def develop(args: argparse.Namespace) -> None:
-    from llmssycoph.interventions.activations import score_with_residual_additions
+    from bonham_runtime.interventions.activations import score_with_residual_additions
 
     config = load_config(args.config)
     root = Path(args.result_root)

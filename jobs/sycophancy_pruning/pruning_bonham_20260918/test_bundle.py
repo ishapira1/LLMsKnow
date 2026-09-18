@@ -20,6 +20,10 @@ import campaign
 import evaluations
 import reporting
 import weight_analysis
+from bonham_runtime.capabilities import utility_evaluation_name
+from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluationTask
+from bonham_runtime.llm.huggingface import HuggingFaceLLM
+from bonham_runtime.weight_pruning.paper_pruning import prepare_examples
 
 
 def _question() -> core.Question:
@@ -103,6 +107,50 @@ class PromptRegistryTests(unittest.TestCase):
         self.assertEqual(48, sum(counts[index] for index in range(3, 12)))
         self.assertEqual(set(range(12)), set(indices))
         self.assertLessEqual(max(counts.values()) - min(counts.values()), 1)
+
+
+class RuntimeIsolationTests(unittest.TestCase):
+    def test_runtime_imports_are_bonham_local(self) -> None:
+        self.assertIs(RuntimeEvaluationTask, evaluations.EvaluationTask)
+        self.assertTrue(callable(prepare_examples))
+        self.assertTrue(hasattr(HuggingFaceLLM, "_load_model_and_tokenizer"))
+
+    def test_bundle_has_no_historical_campaign_dependency(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        forbidden = (
+            "llmssycoph.evaluation",
+            "pruning_robert_plant",
+            "tools.weight_pruning.paper_pruning",
+            "llmssycoph.llm.huggingface",
+            "llmssycoph.interventions.activations",
+            "llmssycoph.pruning.live_inference",
+        )
+        offenders = []
+        for source in sorted(bundle.rglob("*.py")):
+            if source == Path(__file__).resolve():
+                continue
+            text = source.read_text(encoding="utf-8")
+            for needle in forbidden:
+                if needle in text:
+                    offenders.append((str(source.relative_to(bundle)), needle))
+        self.assertEqual([], offenders)
+
+    def test_capability_name_projection(self) -> None:
+        task = RuntimeEvaluationTask(
+            example_id="symbolic:test",
+            evaluator_id="symbolic_icl_200",
+            display_name="Symbolic in-context learning",
+            dataset_id="sst2_symbolic_icl",
+            dataset_revision="0" * 40,
+            split="validation",
+            condition_id="utility.symbolic_icl",
+            messages=({"role": "user", "content": "Classify."},),
+            output_mode="generation",
+            max_new_tokens=4,
+            gold_answers=("foo",),
+            metadata={"question_id": "test"},
+        )
+        self.assertEqual("SST-2 arbitrary-label ICL", utility_evaluation_name(task))
 
     def test_balanced_evaluation_assignment(self) -> None:
         assignments = core.balanced_template_assignments(
