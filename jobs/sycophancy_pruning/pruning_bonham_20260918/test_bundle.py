@@ -202,6 +202,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("'0-79%16'", submit)
         self.assertIn("'0-319%16'", submit)
         self.assertIn("'0-47%16'", submit)
+        self.assertIn("model_smoke) command+=(--time 02:00:00)", submit)
         self.assertEqual(
             {
                 "generalization": 60,
