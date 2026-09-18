@@ -17,7 +17,7 @@ submit_job() {
   [[ -z "$partition" ]] || command+=(--partition "$partition")
   [[ -z "$gres" ]] || command+=(--gres "$gres")
   case "$stage" in
-    model_smoke) command+=(--time 02:00:00) ;;
+    model_smoke) command+=(--time 01:00:00) ;;
     score_component) command+=(--time 24:00:00 --mem 120G) ;;
     neutral_screen|n1_screen|source_screen) command+=(--time 06:00:00) ;;
     eval_generalization|eval_useful_assertions|eval_capabilities) command+=(--time 05:00:00) ;;
