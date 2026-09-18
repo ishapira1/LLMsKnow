@@ -203,7 +203,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("'0-319%16'", submit)
         self.assertIn("'0-47%16'", submit)
         self.assertIn("model_smoke) command+=(--time 01:00:00)", submit)
-        self.assertIn('smoke_partition="$partition,gpu_requeue"', submit)
+        self.assertIn("smoke_partition=gpu_requeue", submit)
         self.assertEqual(
             {
                 "generalization": 60,

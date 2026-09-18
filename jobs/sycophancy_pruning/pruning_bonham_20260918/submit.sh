@@ -74,7 +74,7 @@ smokes=(); neutrals=()
 for index in 0 1 2; do
   model="${models[$index]}"
   if [[ "$model" == qwen25_7b ]]; then partition=gpu; gres=gpu:nvidia_a100-sxm4-80gb:1; else partition=gpu_h200; gres=gpu:nvidia_h200:1; fi
-  smoke_partition="$partition,gpu_requeue"
+  smoke_partition=gpu_requeue
   smokes[$index]="$(submit_job "bonh_${model}_smk" model_smoke "$gpu" "$source_freeze" '' "$model" "$smoke_partition" "$gres")"
   neutrals[$index]="$(submit_job "bonh_${model}_neu" neutral_screen "$gpu" "${smokes[$index]}" '0-79%16' "$model" "$partition" "$gres")"
 done
