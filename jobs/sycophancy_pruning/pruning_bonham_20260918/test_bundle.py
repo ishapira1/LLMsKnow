@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_DIR / "src"))
 import core
 import campaign
 import evaluations
+import weight_analysis
 
 
 def _question() -> core.Question:
@@ -296,6 +297,32 @@ class EvaluationDesignTests(unittest.TestCase):
                 )
                 self.assertEqual(1, len({task.metadata["asserted_label"] for task in matched}))
                 self.assertEqual(1, len({task.metadata["doubted_label"] for task in matched}))
+
+
+class WeightAnalysisTests(unittest.TestCase):
+    def test_structural_null_is_module_count_matched_and_deterministic(self) -> None:
+        left = {
+            "model.layers.0.self_attn.q_proj": torch.tensor([0, 1]),
+            "model.layers.1.mlp.up_proj": torch.tensor([0]),
+        }
+        right = {
+            "model.layers.0.self_attn.q_proj": torch.tensor([1, 2]),
+            "model.layers.1.mlp.up_proj": torch.tensor([1]),
+        }
+        universe = {
+            "model.layers.0.self_attn.q_proj": 10,
+            "model.layers.1.mlp.up_proj": 5,
+        }
+        first = weight_analysis._structural_null(
+            left, right, universe, namespace="unit-test", replicates=1000
+        )
+        second = weight_analysis._structural_null(
+            left, right, universe, namespace="unit-test", replicates=1000
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(1, first["observed_intersection"])
+        self.assertEqual(1000, first["replicates"])
+        self.assertGreater(first["expected_intersection"], 0)
 
 
 if __name__ == "__main__":
