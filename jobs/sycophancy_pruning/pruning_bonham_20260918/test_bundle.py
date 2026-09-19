@@ -561,6 +561,8 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("replace_pending_regular_job", source)
         self.assertIn('existing_partition" != "$GPU_PARTITION', source)
         self.assertIn('scancel "$existing"', source)
+        self.assertIn("source_wave_complete", source)
+        self.assertIn("replace_terminal_job", source)
 
     def test_gemma_exact_supplement_preserves_original_cell_quota(self) -> None:
         bundle = Path(__file__).resolve().parent

@@ -41,6 +41,21 @@ job_partition() {
     | tr ' ' '\n' | sed -n 's/^Partition=//p' | head -1
 }
 
+source_wave_complete() {
+  local model="$1" offset="$2" shard_count state_index state_id observed
+  local -a states=(
+    unpruned n1_mechanism n2_selective random_n1
+    random_n2 weak_prompt strong_prompt prompt_only_meandiff
+  )
+  shard_count="$(wc -l < "$RESULT_ROOT/evaluations/inputs/$model/source_attribution/index.jsonl" | tr -d ' ')"
+  for ((state_index = offset; state_index < offset + 4; state_index++)); do
+    state_id="${states[$state_index]}"
+    observed="$(find "$RESULT_ROOT/evaluations/results/$model/$state_id/source_attribution" \
+      -type f -name COMPLETE 2>/dev/null | wc -l | tr -d ' ')"
+    (( observed >= shard_count )) || return 1
+  done
+}
+
 wait_jobs() {
   local label="$1"
   shift
@@ -139,6 +154,12 @@ submit_wave() {
       scancel "$existing"
       existing=''
     fi
+    case "$existing_state" in
+      FAILED|CANCELLED|OUT_OF_MEMORY|NODE_FAIL|TIMEOUT|PREEMPTED)
+        log "replace_terminal_job name=$name job_id=$existing state=$existing_state"
+        existing=''
+        ;;
+    esac
   fi
   if [[ -n "$existing" ]]; then
     log "reuse_job name=$name job_id=$existing"
@@ -200,12 +221,20 @@ run_model_source_waves() {
     *) printf 'Unknown one-GPU source model: %s\n' "$model" >&2; return 2 ;;
   esac
   wait_for_pipeline "$model"
-  wait_for_gpu_test_slot
-  job_id="$(submit_wave "bonh_${short_name}_src0" "$model" 0 1 48G 4 192G)"
-  wait_jobs "${short_name}_source_0" "$job_id"
-  wait_for_gpu_test_slot
-  job_id="$(submit_wave "bonh_${short_name}_src1" "$model" 4 1 48G 4 192G)"
-  wait_jobs "${short_name}_source_1" "$job_id"
+  if source_wave_complete "$model" 0; then
+    log "source_wave_already_complete model=$model offset=0"
+  else
+    wait_for_gpu_test_slot
+    job_id="$(submit_wave "bonh_${short_name}_src0" "$model" 0 1 48G 4 192G)"
+    wait_jobs "${short_name}_source_0" "$job_id"
+  fi
+  if source_wave_complete "$model" 4; then
+    log "source_wave_already_complete model=$model offset=4"
+  else
+    wait_for_gpu_test_slot
+    job_id="$(submit_wave "bonh_${short_name}_src1" "$model" 4 1 48G 4 192G)"
+    wait_jobs "${short_name}_source_1" "$job_id"
+  fi
 }
 
 run_gemma_wave() {
