@@ -20,38 +20,10 @@ job_state() {
   sacct -X -j "$1" -n -P -o State 2>/dev/null | head -1
 }
 
-wait_for_prerequisites() {
-  local llama_mask qwen_mask llama_eval qwen_eval combined
-  while true; do
-    llama_mask="$(job_state "$LLAMA_CORE_MASK_JOB_ID")"
-    qwen_mask="$(job_state "$QWEN_CORE_MASK_JOB_ID")"
-    llama_eval="$(job_state "$LLAMA_EVAL_PREP_JOB_ID")"
-    qwen_eval="$(job_state "$QWEN_EVAL_PREP_JOB_ID")"
-    printf 'time=%s llama_mask=%s qwen_mask=%s llama_evalprep=%s qwen_evalprep=%s\n' \
-      "$(date -Is)" "$llama_mask" "$qwen_mask" "$llama_eval" "$qwen_eval"
-    if [[ "$llama_mask" == COMPLETED* && "$qwen_mask" == COMPLETED* && \
-          "$llama_eval" == COMPLETED* && "$qwen_eval" == COMPLETED* ]]; then
-      return 0
-    fi
-    combined="$llama_mask:$qwen_mask:$llama_eval:$qwen_eval"
-    case "$combined" in
-      *FAILED*|*CANCELLED*|*OUT_OF_MEMORY*|*TIMEOUT*|*NODE_FAIL*)
-        printf 'prerequisite_failure=%s\n' "$combined" >&2
-        return 1
-        ;;
-    esac
-    sleep "$POLL_SECONDS"
-  done
-}
-
-wait_for_gpu_test_clear() {
+gpu_test_has_slot() {
   local active
-  while true; do
-    active="$(squeue -h -u "$USER_NAME" -p "$GPU_PARTITION" | wc -l | tr -d ' ')"
-    if (( active == 0 )); then return 0; fi
-    printf 'time=%s waiting_gpu_test_clear=%s\n' "$(date -Is)" "$active"
-    sleep "$POLL_SECONDS"
-  done
+  active="$(squeue -h -u "$USER_NAME" -p "$GPU_PARTITION" | wc -l | tr -d ' ')"
+  (( active < 2 ))
 }
 
 submit_pipeline() {
@@ -73,9 +45,36 @@ submit_pipeline() {
   printf '%s\n' "$job_id"
 }
 
-wait_for_prerequisites
-wait_for_gpu_test_clear
-llama_pipeline="$(submit_pipeline llama31_8b llama)"
-qwen_pipeline="$(submit_pipeline qwen25_7b qwen)"
+llama_pipeline="$(squeue -h -u "$USER_NAME" -n bonh_llama_pipeline -o '%A' | head -1)"
+qwen_pipeline="$(squeue -h -u "$USER_NAME" -n bonh_qwen_pipeline -o '%A' | head -1)"
+while [[ -z "$llama_pipeline" || -z "$qwen_pipeline" ]]; do
+  llama_mask="$(job_state "$LLAMA_CORE_MASK_JOB_ID")"
+  qwen_mask="$(job_state "$QWEN_CORE_MASK_JOB_ID")"
+  llama_eval="$(job_state "$LLAMA_EVAL_PREP_JOB_ID")"
+  qwen_eval="$(job_state "$QWEN_EVAL_PREP_JOB_ID")"
+  combined="$llama_mask:$qwen_mask:$llama_eval:$qwen_eval"
+  printf 'time=%s llama_mask=%s qwen_mask=%s llama_evalprep=%s qwen_evalprep=%s llama_pipeline=%s qwen_pipeline=%s\n' \
+    "$(date -Is)" "$llama_mask" "$qwen_mask" "$llama_eval" "$qwen_eval" \
+    "${llama_pipeline:-none}" "${qwen_pipeline:-none}"
+  case "$combined" in
+    *FAILED*|*CANCELLED*|*OUT_OF_MEMORY*|*TIMEOUT*|*NODE_FAIL*)
+      printf 'prerequisite_failure=%s\n' "$combined" >&2
+      exit 1
+      ;;
+  esac
+  if [[ -z "$qwen_pipeline" && "$qwen_mask" == COMPLETED* && "$qwen_eval" == COMPLETED* ]] && \
+      gpu_test_has_slot; then
+    qwen_pipeline="$(submit_pipeline qwen25_7b qwen)"
+    printf 'time=%s submitted_model=qwen25_7b pipeline=%s\n' \
+      "$(date -Is)" "$qwen_pipeline"
+  fi
+  if [[ -z "$llama_pipeline" && "$llama_mask" == COMPLETED* && "$llama_eval" == COMPLETED* ]] && \
+      gpu_test_has_slot; then
+    llama_pipeline="$(submit_pipeline llama31_8b llama)"
+    printf 'time=%s submitted_model=llama31_8b pipeline=%s\n' \
+      "$(date -Is)" "$llama_pipeline"
+  fi
+  [[ -n "$llama_pipeline" && -n "$qwen_pipeline" ]] || sleep "$POLL_SECONDS"
+done
 printf 'time=%s llama_pipeline=%s qwen_pipeline=%s\n' \
   "$(date -Is)" "$llama_pipeline" "$qwen_pipeline"

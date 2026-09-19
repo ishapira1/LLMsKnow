@@ -477,7 +477,10 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("BONHAM_BUNDLE_DIR=$BUNDLE_DIR", watcher)
         self.assertIn('gpu:nvidia_a100_3g.20gb', watcher)
         self.assertIn('--gres="$GPU_GRES:4"', watcher)
-        self.assertIn("wait_for_gpu_test_clear", watcher)
+        self.assertIn("gpu_test_has_slot", watcher)
+        self.assertIn("active < 2", watcher)
+        self.assertIn("submitted_model=qwen25_7b", watcher)
+        self.assertIn("submitted_model=llama31_8b", watcher)
         self.assertIn("gpu_model_pipeline.sbatch", watcher)
 
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
