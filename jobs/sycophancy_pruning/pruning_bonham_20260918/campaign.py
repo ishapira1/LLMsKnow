@@ -1310,33 +1310,58 @@ def _allocate_n1(
     if set(candidates) != set(expected_cells):
         missing = sorted(set(expected_cells).difference(candidates))
         raise CampaignError(f"N1 screen lacks qualifying cells: {missing}")
+    raw_shortfalls = {cell: len(candidates[cell]) for cell in expected_cells if len(candidates[cell]) < 16}
+    if raw_shortfalls:
+        raise CampaignError(f"N1 cells have fewer than 16 qualifying questions: {raw_shortfalls}")
+
+    # Solve the 32-cell, capacity-16 assignment exactly.  A greedy allocator can
+    # falsely fail when a flexible cell consumes a question needed by a scarce
+    # cell.  Expanding each cell into deterministic slots and using augmenting
+    # paths gives a maximum bipartite matching while retaining stable tie order.
     ordered_cells = sorted(expected_cells, key=lambda cell: (len(candidates[cell]), cell))
-    selected = []
-    used_questions = set()
-    for cell in ordered_cells:
-        ordered = sorted(
-            candidates[cell],
+    slots = [(cell, position) for cell in ordered_cells for position in range(16)]
+    adjacency = {
+        slot: sorted(
+            candidates[slot[0]],
             key=lambda row: stable_hash(
                 EXPERIMENT,
                 "n1-allocation",
                 seed,
                 *model_keys,
+                slot[1],
                 row["task_metadata"]["question_key"],
                 row["condition_id"],
             ),
         )
-        available = [
-            row
-            for row in ordered
-            if str(row["task_metadata"]["question_key"]) not in used_questions
-        ]
-        if len(available) < 16:
+        for slot in slots
+    }
+    slot_record: dict[tuple[tuple[str, str, str, int], int], Mapping[str, Any]] = {}
+    question_slot: dict[str, tuple[tuple[str, str, str, int], int]] = {}
+
+    def augment(
+        slot: tuple[tuple[str, str, str, int], int], seen_questions: set[str]
+    ) -> bool:
+        for record in adjacency[slot]:
+            question_key = str(record["task_metadata"]["question_key"])
+            if question_key in seen_questions:
+                continue
+            seen_questions.add(question_key)
+            previous = question_slot.get(question_key)
+            if previous is None or augment(previous, seen_questions):
+                question_slot[question_key] = slot
+                slot_record[slot] = record
+                return True
+        return False
+
+    for slot in slots:
+        if not augment(slot, set()):
+            matched_by_cell = Counter(item[0] for item in slot_record)
             raise CampaignError(
-                f"N1 cell {cell} has only {len(available)} unused qualifying questions"
+                "N1 distinct-question assignment is infeasible: "
+                f"failed_slot={slot}, matched_by_cell={dict(matched_by_cell)}"
             )
-        chosen = available[:16]
-        selected.extend(chosen)
-        used_questions.update(str(row["task_metadata"]["question_key"]) for row in chosen)
+    selected = list(slot_record.values())
+    used_questions = set(question_slot)
     if len(selected) != 512 or len(used_questions) != 512:
         raise CampaignError("N1 allocation is not 512 distinct questions")
     return sorted(
