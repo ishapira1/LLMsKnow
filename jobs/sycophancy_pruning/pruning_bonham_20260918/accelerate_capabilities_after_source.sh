@@ -74,6 +74,23 @@ family_complete() {
   done
 }
 
+state_block_complete() {
+  local model="$1" family="$2" offset="$3" index_path shard_count last_shard index state
+  local -a states=(
+    unpruned n1_mechanism n2_selective random_n1
+    random_n2 weak_prompt strong_prompt prompt_only_meandiff
+  )
+  index_path="$RESULT_ROOT/evaluations/inputs/$model/$family/index.jsonl"
+  [[ -s "$index_path" ]] || return 1
+  shard_count="$(wc -l < "$index_path" | tr -d ' ')"
+  [[ "$shard_count" =~ ^[1-9][0-9]*$ ]] || return 1
+  last_shard="$((shard_count - 1))"
+  for ((index = offset; index < offset + 4; index++)); do
+    state="${states[$index]}"
+    [[ -f "$RESULT_ROOT/evaluations/results/$model/$state/$family/$(printf 'shard_%04d' "$last_shard")/COMPLETE" ]] || return 1
+  done
+}
+
 wait_for_sources() {
   while ! family_complete qwen25_7b source_attribution || \
         ! family_complete llama31_8b source_attribution; do
@@ -134,15 +151,29 @@ submit_capability_job() {
 }
 
 run_wave() {
-  local offset="$1" qwen_job llama_job
-  if family_complete qwen25_7b capabilities && family_complete llama31_8b capabilities; then
-    log 'qwen_llama_capabilities_already_complete=1'
+  local offset="$1" job_id
+  local -a jobs=()
+  if state_block_complete qwen25_7b capabilities "$offset" && \
+     state_block_complete llama31_8b capabilities "$offset"; then
+    log "qwen_llama_capability_block_already_complete=1 offset=$offset"
     return 0
   fi
   wait_for_gpu_test_clear
-  qwen_job="$(submit_capability_job "bonh_qwen_cap${offset}s" qwen25_7b "$offset")"
-  llama_job="$(submit_capability_job "bonh_llama_cap${offset}s" llama31_8b "$offset")"
-  wait_jobs "qwen_llama_capabilities_offset_$offset" "$qwen_job" "$llama_job"
+  if ! state_block_complete qwen25_7b capabilities "$offset"; then
+    job_id="$(submit_capability_job "bonh_qwen_cap${offset}s" qwen25_7b "$offset")"
+    jobs+=("$job_id")
+  else
+    log "model_capability_block_already_complete=1 model=qwen25_7b offset=$offset"
+  fi
+  if ! state_block_complete llama31_8b capabilities "$offset"; then
+    job_id="$(submit_capability_job "bonh_llama_cap${offset}s" llama31_8b "$offset")"
+    jobs+=("$job_id")
+  else
+    log "model_capability_block_already_complete=1 model=llama31_8b offset=$offset"
+  fi
+  if (( ${#jobs[@]} > 0 )); then
+    wait_jobs "qwen_llama_capabilities_offset_$offset" "${jobs[@]}"
+  fi
 }
 
 log "capabilities_after_source_supervisor_start commit=$(git -C "$REPO_DIR" rev-parse --short HEAD)"
