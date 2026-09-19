@@ -19,23 +19,25 @@ source "$BONHAM_BUNDLE_DIR/common.sh"
 require_runtime
 : "${STAGE:?STAGE is required}"
 : "${MODEL_KEY:?MODEL_KEY is required}"
-: "${PACK_START:?PACK_START is required}"
-: "${PACK_END:?PACK_END is required}"
 
 LANES="${LANES:-${SLURM_NTASKS:-1}}"
 GPUS_PER_LANE="${GPUS_PER_LANE:-1}"
 CPUS_PER_LANE="${CPUS_PER_LANE:-4}"
 MEM_PER_LANE="${MEM_PER_LANE:-48G}"
-if ! [[ "$PACK_START" =~ ^[0-9]+$ && "$PACK_END" =~ ^[0-9]+$ && "$LANES" =~ ^[1-9][0-9]*$ && "$GPUS_PER_LANE" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'PACK_START/PACK_END must be non-negative and LANES/GPUS_PER_LANE must be positive integers\n' >&2
-  exit 2
-fi
-if (( PACK_START > PACK_END )); then
-  printf 'PACK_START must be no greater than PACK_END\n' >&2
+if ! [[ "$LANES" =~ ^[1-9][0-9]*$ && "$GPUS_PER_LANE" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'LANES and GPUS_PER_LANE must be positive integers\n' >&2
   exit 2
 fi
 case "$STAGE" in
-  neutral_screen|n1_screen|source_screen) ;;
+  neutral_screen|n1_screen|source_screen)
+    : "${PACK_START:?PACK_START is required}"
+    : "${PACK_END:?PACK_END is required}"
+    if ! [[ "$PACK_START" =~ ^[0-9]+$ && "$PACK_END" =~ ^[0-9]+$ ]] || (( PACK_START > PACK_END )); then
+      printf 'PACK_START/PACK_END must be non-negative with start no greater than end\n' >&2
+      exit 2
+    fi
+    ;;
+  screen_sequence) ;;
   *) printf 'gpu_multilane supports screen stages only: %s\n' "$STAGE" >&2; exit 2 ;;
 esac
 
@@ -46,7 +48,7 @@ fi
 cd "$REPO_DIR"
 start_epoch="$(date +%s)"
 printf 'experiment=pruning_bonham_20260918\nstage=%s\nmodel=%s\nlanes=%s\ngpus_per_lane=%s\nmem_per_lane=%s\npack_start=%s\npack_end=%s\n' \
-  "$STAGE" "$MODEL_KEY" "$LANES" "$GPUS_PER_LANE" "$MEM_PER_LANE" "$PACK_START" "$PACK_END"
+  "$STAGE" "$MODEL_KEY" "$LANES" "$GPUS_PER_LANE" "$MEM_PER_LANE" "${PACK_START:-not_applicable}" "${PACK_END:-not_applicable}"
 printf 'slurm_job_id=%s\nhostname=%s\nworking_directory=%s\npython=%s\nstart_time=%s\n' \
   "${SLURM_JOB_ID:-unset}" "$(hostname)" "$PWD" "$PYTHON_BIN" "$(date -Is)"
 nvidia-smi || true
@@ -63,21 +65,35 @@ requeue_job() {
 trap requeue_job USR1
 
 for ((lane = 0; lane < LANES; lane++)); do
-  lane_start="$((PACK_START + lane))"
-  if (( lane_start > PACK_END )); then
-    continue
+  if [[ "$STAGE" == screen_sequence ]]; then
+    IFS=',' read -r -a screen_stages <<< "${SCREEN_STAGES_CSV:-n1_screen,source_screen}"
+    command=(
+      "$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" run-screen-sequence
+      --result-root "$RESULT_ROOT"
+      --model-key "$MODEL_KEY"
+      --hf-cache "$HF_CACHE_DIR"
+      --stages "${screen_stages[@]}"
+      --lane-index "$lane"
+      --lane-count "$LANES"
+      --batch-size "${SCREEN_BATCH_SIZE:-4}"
+    )
+  else
+    lane_start="$((PACK_START + lane))"
+    if (( lane_start > PACK_END )); then
+      continue
+    fi
+    command=(
+      "$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" run-screen-pack
+      --result-root "$RESULT_ROOT"
+      --model-key "$MODEL_KEY"
+      --hf-cache "$HF_CACHE_DIR"
+      --stage "$STAGE"
+      --shard-start "$lane_start"
+      --shard-end "$PACK_END"
+      --shard-step "$LANES"
+      --batch-size "${SCREEN_BATCH_SIZE:-4}"
+    )
   fi
-  command=(
-    "$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" run-screen-pack
-    --result-root "$RESULT_ROOT"
-    --model-key "$MODEL_KEY"
-    --hf-cache "$HF_CACHE_DIR"
-    --stage "$STAGE"
-    --shard-start "$lane_start"
-    --shard-end "$PACK_END"
-    --shard-step "$LANES"
-    --batch-size "${SCREEN_BATCH_SIZE:-4}"
-  )
   printf 'lane=%s\n' "$lane"
   print_command "${command[@]}"
   srun --exclusive --exact --nodes=1 --ntasks=1 --cpus-per-task="$CPUS_PER_LANE" \

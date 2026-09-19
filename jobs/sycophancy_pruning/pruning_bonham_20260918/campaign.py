@@ -626,6 +626,108 @@ def run_screen_pack(args: argparse.Namespace) -> None:
     )
 
 
+def run_screen_sequence(args: argparse.Namespace) -> None:
+    """Run several screen stages in one deterministic resident-model lane."""
+
+    lane_index = int(args.lane_index)
+    lane_count = int(args.lane_count)
+    if lane_count <= 0 or lane_index < 0 or lane_index >= lane_count:
+        raise CampaignError("Screen-sequence lane index/count are inconsistent")
+    stages = tuple(dict.fromkeys(str(stage) for stage in args.stages))
+    if not stages:
+        raise CampaignError("Screen sequence requires at least one stage")
+
+    result_root = Path(args.result_root)
+    work: dict[str, list[int]] = {}
+    for stage in stages:
+        indices = screen_shard_indices(
+            lane_index, int(SCREEN_SHARD_LIMITS[stage]) - 1, lane_count
+        )
+        input_dir = _screen_input_dir(result_root, stage, args.model_key)
+        materialized = [
+            index
+            for index in indices
+            if (input_dir / f"shard_{index:04d}.jsonl").is_file()
+        ]
+        if not materialized:
+            raise CampaignError(
+                f"No materialized {stage} shards for lane {lane_index}/{lane_count}"
+            )
+        work[stage] = materialized
+
+    config = load_config(args.config)
+    specification = model_spec(config, args.model_key)
+    model, tokenizer = _load_model(model_snapshot(args.hf_cache, specification))
+    llm = _LLM(model, tokenizer, str(specification["model_id"]))
+    state = _read_state(_state_path(result_root, args.model_key, "unpruned"))
+    snapshot_hash, condition_hash = _evaluation_provenance(
+        result_root, args.model_key, args.config
+    )
+
+    stage_counts = {}
+    for stage in stages:
+        stage_args = argparse.Namespace(**vars(args))
+        stage_args.stage = stage
+        input_dir = _screen_input_dir(result_root, stage, args.model_key)
+        completed = []
+        for index in work[stage]:
+            task_shard = input_dir / f"shard_{index:04d}.jsonl"
+            output = result_root / stage / args.model_key / f"shard_{index:04d}"
+            print(
+                json.dumps(
+                    {
+                        "event": "screen_sequence_shard_start",
+                        "stage": stage,
+                        "model_key": args.model_key,
+                        "lane_index": lane_index,
+                        "lane_count": lane_count,
+                        "shard_index": index,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            summary = _run_screen_shard(
+                args=stage_args,
+                llm=llm,
+                state=state,
+                snapshot_hash=snapshot_hash,
+                condition_hash=condition_hash,
+                task_shard=task_shard,
+                shard_index=index,
+                output=output,
+            )
+            completed.append(index)
+            print(
+                json.dumps(
+                    {
+                        "event": "screen_sequence_shard_complete",
+                        "stage": stage,
+                        "model_key": args.model_key,
+                        "lane_index": lane_index,
+                        "shard_index": index,
+                        "record_count": int(summary["record_count"]),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        stage_counts[stage] = len(completed)
+    print(
+        json.dumps(
+            {
+                "status": "complete",
+                "model_key": args.model_key,
+                "lane_index": lane_index,
+                "lane_count": lane_count,
+                "stage_counts": stage_counts,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 def _collect_records(root: Path, stage: str, model_key: str) -> list[Mapping[str, Any]]:
     stage_root = Path(root) / stage / model_key
     directories = sorted(path for path in stage_root.glob("shard_*") if path.is_dir())
@@ -1904,6 +2006,21 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--shard-step", type=int, default=1)
     command.add_argument("--batch-size", type=int, default=4)
     command.set_defaults(func=run_screen_pack)
+
+    command = subparsers.add_parser("run-screen-sequence")
+    command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument("--model-key", choices=MODEL_KEYS, required=True)
+    command.add_argument("--hf-cache", type=Path, required=True)
+    command.add_argument(
+        "--stages",
+        nargs="+",
+        choices=("neutral_screen", "n1_screen", "source_screen"),
+        required=True,
+    )
+    command.add_argument("--lane-index", type=int, required=True)
+    command.add_argument("--lane-count", type=int, required=True)
+    command.add_argument("--batch-size", type=int, default=4)
+    command.set_defaults(func=run_screen_sequence)
 
     command = subparsers.add_parser("prepare-screens")
     command.add_argument("--result-root", type=Path, required=True)

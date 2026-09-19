@@ -248,6 +248,8 @@ class RuntimeIsolationTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("run-screen-pack", runner)
+        self.assertIn("run-screen-sequence", runner)
+        self.assertIn("n1_screen,source_screen", runner)
         self.assertIn('--shard-step "$LANES"', runner)
         self.assertIn('--gpus-per-task="$GPUS_PER_LANE"', runner)
         self.assertIn('--mem="$MEM_PER_LANE"', runner)
