@@ -10,6 +10,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 from typing import Any, Iterable, Mapping, Sequence
 
 
@@ -29,10 +30,24 @@ ELIGIBLE_PROJECTIONS = (
 TURN_FORMATS = ("single_turn", "multi_turn")
 BIAS_TYPES = ("incorrect_suggestion", "doubt_correct")
 SOURCE_CLAIMS = ("suggest_c", "suggest_w", "doubt_w", "doubt_c")
+_CANONICAL_SHARD_DIRECTORY = re.compile(r"^shard_[0-9]{4}$")
 
 
 class BonhamError(RuntimeError):
     pass
+
+
+def canonical_shard_directories(root: Path) -> list[Path]:
+    """Return published shard bundles, excluding retained physical attempts."""
+
+    directory = Path(root)
+    if not directory.is_dir():
+        return []
+    return sorted(
+        path
+        for path in directory.iterdir()
+        if _CANONICAL_SHARD_DIRECTORY.fullmatch(path.name) and path.is_dir()
+    )
 
 
 def canonical_json(value: Any) -> str:

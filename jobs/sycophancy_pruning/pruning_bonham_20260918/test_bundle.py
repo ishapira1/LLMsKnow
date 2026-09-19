@@ -152,6 +152,37 @@ class FrozenQuestionNormalizationTests(unittest.TestCase):
 
 
 class RuntimeIsolationTests(unittest.TestCase):
+    def test_screen_collection_ignores_retained_physical_attempts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stage_root = root / "neutral_screen" / "llama31_8b"
+            attempt = stage_root / "shard_0000.partial.pid1-123"
+            canonical = stage_root / "shard_0000"
+            attempt.mkdir(parents=True)
+            canonical.mkdir()
+            record = {
+                "task_metadata": {"question_key": "commonsense_qa:q-1"},
+                "parse_status": "valid",
+                "parsed_value": "A",
+            }
+            payload = json.dumps(record, sort_keys=True) + "\n"
+            for directory in (attempt, canonical):
+                records = directory / "records.jsonl"
+                records.write_text(payload, encoding="utf-8")
+                (directory / "COMPLETE").write_text(
+                    json.dumps(
+                        {"file_sha256": {"records.jsonl": core.sha256_file(records)}}
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            rows = campaign._collect_records(root, "neutral_screen", "llama31_8b")
+            self.assertEqual([record], rows)
+            self.assertEqual(
+                [canonical], core.canonical_shard_directories(stage_root)
+            )
+
     def test_runtime_imports_are_bonham_local(self) -> None:
         self.assertIs(RuntimeEvaluationTask, evaluations.EvaluationTask)
         self.assertTrue(callable(prepare_examples))

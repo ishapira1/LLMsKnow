@@ -27,6 +27,7 @@ from core import (
     Question,
     atomic_json,
     atomic_jsonl,
+    canonical_shard_directories,
     canonical_json,
     construction_bias,
     designated_wrong,
@@ -730,7 +731,7 @@ def run_screen_sequence(args: argparse.Namespace) -> None:
 
 def _collect_records(root: Path, stage: str, model_key: str) -> list[Mapping[str, Any]]:
     stage_root = Path(root) / stage / model_key
-    directories = sorted(path for path in stage_root.glob("shard_*") if path.is_dir())
+    directories = canonical_shard_directories(stage_root)
     if not directories:
         raise CampaignError(f"No completed records found under {stage_root}")
     rows = []

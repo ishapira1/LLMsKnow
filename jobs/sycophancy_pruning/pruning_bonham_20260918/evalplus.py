@@ -13,7 +13,15 @@ import time
 from typing import Any, Mapping
 
 import campaign
-from core import atomic_json, atomic_jsonl, read_json, read_jsonl, sha256_file, sha256_json
+from core import (
+    atomic_json,
+    atomic_jsonl,
+    canonical_shard_directories,
+    read_json,
+    read_jsonl,
+    sha256_file,
+    sha256_json,
+)
 from bonham_runtime.evaluation.evalplus_sandbox import (
     EVALPLUS_RESULT_NAME,
     EVALPLUS_TASK_COUNTS,
@@ -39,7 +47,7 @@ def _sample_rows(root: Path, model_key: str, state_id: str, benchmark: str) -> l
     filename = BENCHMARK_FILES[benchmark]
     rows = []
     family_root = root / "evaluations" / "results" / model_key / state_id / "capabilities"
-    for directory in sorted(path for path in family_root.glob("shard_*") if path.is_dir()):
+    for directory in canonical_shard_directories(family_root):
         complete_path = directory / "COMPLETE"
         sample_path = directory / filename
         if not sample_path.is_file():

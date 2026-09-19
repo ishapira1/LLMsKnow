@@ -15,7 +15,16 @@ from typing import Any, Iterable, Mapping, Sequence
 import numpy as np
 
 import campaign
-from core import atomic_json, atomic_text, canonical_json, read_json, read_jsonl, sha256_file, stable_hash
+from core import (
+    atomic_json,
+    atomic_text,
+    canonical_json,
+    canonical_shard_directories,
+    read_json,
+    read_jsonl,
+    sha256_file,
+    stable_hash,
+)
 
 
 BOOTSTRAP_REPLICATES = 2_000
@@ -58,7 +67,7 @@ class ReportingError(campaign.CampaignError):
 def _records(root: Path, model_key: str, state_id: str, family: str) -> list[Mapping[str, Any]]:
     result = []
     family_root = root / "evaluations" / "results" / model_key / state_id / family
-    for directory in sorted(path for path in family_root.glob("shard_*") if path.is_dir()):
+    for directory in canonical_shard_directories(family_root):
         complete = read_json(directory / "COMPLETE")
         records = directory / "records.jsonl"
         if dict(complete.get("file_sha256", {})).get("records.jsonl") != sha256_file(records):

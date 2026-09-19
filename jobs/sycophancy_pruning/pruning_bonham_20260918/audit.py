@@ -17,6 +17,7 @@ from core import (
     ELIGIBLE_PROJECTIONS,
     REASONING_BACKED_REGISTRY,
     atomic_json,
+    canonical_shard_directories,
     load_config,
     mask_coordinates,
     read_json,
@@ -408,7 +409,8 @@ def _audit_raw_evaluation_records(root: Path) -> int:
         for state_id in campaign.PRIMARY_STATE_IDS:
             for family in ("generalization", "useful_assertions", "capabilities"):
                 family_root = root / "evaluations" / "results" / model_key / state_id / family
-                for path in sorted(family_root.glob("shard_*/records.jsonl")):
+                for directory in canonical_shard_directories(family_root):
+                    path = directory / "records.jsonl"
                     with path.open("r", encoding="utf-8") as handle:
                         for line_number, line in enumerate(handle, 1):
                             if not line.strip():
