@@ -684,8 +684,12 @@ def prepare(args: argparse.Namespace) -> None:
     capabilities = _capability_tasks(
         args.suite_source_bindings, args.external_utility_root
     )
+    requested_model_key = getattr(args, "model_key", None)
+    selected_model_keys = (
+        (requested_model_key,) if requested_model_key else campaign.MODEL_KEYS
+    )
     outputs = {}
-    for model_key in campaign.MODEL_KEYS:
+    for model_key in selected_model_keys:
         neutral = campaign._record_by_question(
             campaign._collect_records(root, "neutral_screen", model_key)
         )
@@ -811,11 +815,25 @@ def prepare(args: argparse.Namespace) -> None:
             for task in useful_primary
         ):
             raise EvaluationError("Useful-assertion tasks lack factorial labels")
-    receipt = {
+        model_receipt = {
+            "status": "complete",
+            "experiment": campaign.EXPERIMENT,
+            "model_key": model_key,
+            "factual_question_counts": dict(counts),
+            "model_outputs": model_outputs,
+            "reasoning_backed_prompt_registry_sha256": sha256_file(
+                REASONING_BACKED_REGISTRY
+            ),
+            "source_bindings_sha256": sha256_file(args.suite_source_bindings),
+            "external_utility_complete_sha256": sha256_file(
+                Path(args.external_utility_root) / "COMPLETE.json"
+            ),
+        }
+        atomic_json(model_root / "COMPLETE.json", model_receipt)
+    common_receipt = {
         "status": "complete",
         "experiment": campaign.EXPERIMENT,
         "factual_question_counts": dict(counts),
-        "models": outputs,
         "openbookqa_capability_reuse": (
             "generalization neutral records; no redundant capability rerun"
         ),
@@ -827,7 +845,30 @@ def prepare(args: argparse.Namespace) -> None:
             Path(args.external_utility_root) / "COMPLETE.json"
         ),
     }
-    atomic_json(root / "evaluations" / "inputs" / "COMPLETE.json", receipt)
+    model_receipts = {
+        model_key: root / "evaluations" / "inputs" / model_key / "COMPLETE.json"
+        for model_key in campaign.MODEL_KEYS
+    }
+    if all(path.is_file() for path in model_receipts.values()):
+        receipt = {
+            **common_receipt,
+            "models": {
+                model_key: read_json(path)["model_outputs"]
+                for model_key, path in model_receipts.items()
+            },
+        }
+        atomic_json(root / "evaluations" / "inputs" / "COMPLETE.json", receipt)
+    else:
+        receipt = {
+            "status": "partial",
+            "campaign_complete": False,
+            "completed_models": sorted(
+                model_key
+                for model_key, path in model_receipts.items()
+                if path.is_file()
+            ),
+            "models": outputs,
+        }
     print(json.dumps(receipt, indent=2, sort_keys=True))
 
 
@@ -1036,6 +1077,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--result-root", type=Path, required=True)
     command.add_argument("--suite-source-bindings", type=Path, required=True)
     command.add_argument("--external-utility-root", type=Path, required=True)
+    command.add_argument("--model-key", choices=campaign.MODEL_KEYS)
     command.set_defaults(func=prepare)
 
     command = subparsers.add_parser("run-shard")

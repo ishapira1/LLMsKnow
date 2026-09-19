@@ -320,6 +320,23 @@ class RuntimeIsolationTests(unittest.TestCase):
         )
         self.assertEqual("core", parsed.scope)
 
+    def test_evaluation_freeze_supports_model_specific_publication(self) -> None:
+        parser = evaluations.build_parser()
+        parsed = parser.parse_args(
+            [
+                "prepare",
+                "--result-root",
+                "/tmp/bonham",
+                "--suite-source-bindings",
+                "/tmp/bindings.json",
+                "--external-utility-root",
+                "/tmp/utility",
+                "--model-key",
+                "qwen25_7b",
+            ]
+        )
+        self.assertEqual("qwen25_7b", parsed.model_key)
+
     def test_evaluation_state_runner_is_resident_and_covers_all_states(self) -> None:
         bundle = Path(__file__).resolve().parent
         runner = (bundle / "gpu_eval_states.sbatch").read_text(encoding="utf-8")
