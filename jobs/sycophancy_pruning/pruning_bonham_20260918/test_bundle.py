@@ -401,6 +401,13 @@ class RuntimeIsolationTests(unittest.TestCase):
             self.assertIn(token, supervisor)
         self.assertIn("wait_for_eval_prerequisites", supervisor)
         self.assertIn("wait_for_gpu_test_clear", supervisor)
+        self.assertIn("BONHAM_EARLY_QWEN_LLAMA_ONLY", supervisor)
+        self.assertIn(
+            'evaluations/inputs/$model/COMPLETE.json', supervisor
+        )
+        self.assertIn("wait_for_model_eval_prerequisites qwen25_7b llama31_8b", supervisor)
+        self.assertIn("wait_for_model_steering qwen25_7b llama31_8b", supervisor)
+        self.assertIn("early_qwen_llama_supervisor_complete=1", supervisor)
         self.assertIn(
             "bonh_evalval_acc eval_validate serial_requeue 02:00:00", supervisor
         )

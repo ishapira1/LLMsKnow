@@ -5,6 +5,7 @@ source "$(cd "$(dirname "$0")" && pwd -P)/common.sh"
 require_runtime
 
 POLL_SECONDS="${POLL_SECONDS:-30}"
+EARLY_QWEN_LLAMA_ONLY="${BONHAM_EARLY_QWEN_LLAMA_ONLY:-0}"
 ACCOUNT="${BONHAM_ACCOUNT:-barak_lab}"
 GPU_PARTITION="${BONHAM_GPU_TEST_PARTITION:-gpu_test}"
 GPU_GRES="${BONHAM_GPU_TEST_GRES:-gpu:nvidia_a100_3g.20gb}"
@@ -13,6 +14,10 @@ USER_NAME="${USER:-ishapira}"
 
 [[ "$POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   printf 'POLL_SECONDS must be a positive integer\n' >&2
+  exit 2
+}
+[[ "$EARLY_QWEN_LLAMA_ONLY" == 0 || "$EARLY_QWEN_LLAMA_ONLY" == 1 ]] || {
+  printf 'BONHAM_EARLY_QWEN_LLAMA_ONLY must be 0 or 1\n' >&2
   exit 2
 }
 
@@ -91,6 +96,39 @@ wait_for_eval_prerequisites() {
       return 0
     fi
     log 'waiting_for_evaluation_prerequisites=1'
+    sleep "$POLL_SECONDS"
+  done
+}
+
+wait_for_model_eval_prerequisites() {
+  local ready model
+  while true; do
+    ready=1
+    for model in "$@"; do
+      [[ -f "$RESULT_ROOT/evaluations/inputs/$model/COMPLETE.json" ]] || ready=0
+      [[ -f "$RESULT_ROOT/states/$model/MASK_STATES_COMPLETE.json" ]] || ready=0
+    done
+    if (( ready == 1 )); then
+      log "model_evaluation_prerequisites_complete models=$*"
+      return 0
+    fi
+    log "waiting_for_model_evaluation_prerequisites models=$*"
+    sleep "$POLL_SECONDS"
+  done
+}
+
+wait_for_model_steering() {
+  local ready model
+  while true; do
+    ready=1
+    for model in "$@"; do
+      [[ -f "$RESULT_ROOT/steering/$model/frozen/COMPLETE.json" ]] || ready=0
+    done
+    if (( ready == 1 )); then
+      log "model_steering_complete models=$*"
+      return 0
+    fi
+    log "waiting_for_model_steering models=$*"
     sleep "$POLL_SECONDS"
   done
 }
@@ -190,7 +228,19 @@ wait_for_weight_analysis() {
   done
 }
 
-log "supervisor_start result_root=$RESULT_ROOT commit=$(git -C "$REPO_DIR" rev-parse --short HEAD)"
+log "supervisor_start result_root=$RESULT_ROOT commit=$(git -C "$REPO_DIR" rev-parse --short HEAD) early_qwen_llama_only=$EARLY_QWEN_LLAMA_ONLY"
+if (( EARLY_QWEN_LLAMA_ONLY == 1 )); then
+  # Start the four non-steering states as soon as each model's frozen inputs and
+  # mask states exist.  Steering can finish concurrently before the second wave.
+  wait_for_model_eval_prerequisites qwen25_7b llama31_8b
+  run_qwen_llama_wave core0 0 paper_core
+  wait_for_model_steering qwen25_7b llama31_8b
+  run_qwen_llama_wave core1 4 paper_core
+  run_qwen_llama_wave cap0 0 capabilities
+  run_qwen_llama_wave cap1 4 capabilities
+  log 'early_qwen_llama_supervisor_complete=1'
+  exit 0
+fi
 wait_for_eval_prerequisites
 
 # Paper results first, without changing any frozen task or final-audit requirement.
