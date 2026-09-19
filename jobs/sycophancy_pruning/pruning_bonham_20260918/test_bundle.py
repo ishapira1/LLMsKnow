@@ -234,6 +234,25 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("stride=120", gpu_array)
         self.assertIn("stride=80", gpu_array)
 
+    def test_packed_screen_lane_indices_are_exact_and_validated(self) -> None:
+        self.assertEqual((2, 6, 10), campaign.screen_shard_indices(2, 10, 4))
+        with self.assertRaises(campaign.CampaignError):
+            campaign.screen_shard_indices(-1, 10, 4)
+        with self.assertRaises(campaign.CampaignError):
+            campaign.screen_shard_indices(10, 2, 4)
+        with self.assertRaises(campaign.CampaignError):
+            campaign.screen_shard_indices(2, 10, 0)
+
+    def test_multilane_runner_uses_resident_model_pack_and_required_mail(self) -> None:
+        runner = (Path(__file__).resolve().parent / "gpu_multilane.sbatch").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("run-screen-pack", runner)
+        self.assertIn('--shard-step "$LANES"', runner)
+        self.assertIn('--gpus-per-task="$GPUS_PER_LANE"', runner)
+        self.assertIn("#SBATCH --mail-type=END,FAIL", runner)
+        self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", runner)
+
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
         submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
         self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)

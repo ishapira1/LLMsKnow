@@ -472,24 +472,158 @@ def run_screen(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     specification = model_spec(config, args.model_key)
     model, tokenizer = _load_model(model_snapshot(args.hf_cache, specification))
-    tasks, manifest_hash = read_task_manifest(args.task_shard)
     state = _read_state(_state_path(args.result_root, args.model_key, "unpruned"))
     snapshot_hash, condition_hash = _evaluation_provenance(
         Path(args.result_root), args.model_key, args.config
     )
-    summary = run_evaluation_cell(
-        llm=_LLM(model, tokenizer, str(specification["model_id"])),
+    llm = _LLM(model, tokenizer, str(specification["model_id"]))
+    summary = _run_screen_shard(
+        args=args,
+        llm=llm,
+        state=state,
+        snapshot_hash=snapshot_hash,
+        condition_hash=condition_hash,
+        task_shard=Path(args.task_shard),
+        shard_index=int(args.shard_index),
+        output=Path(args.output),
+    )
+    print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+def _run_screen_shard(
+    *,
+    args: argparse.Namespace,
+    llm: _LLM,
+    state: StateSpec,
+    snapshot_hash: str,
+    condition_hash: str,
+    task_shard: Path,
+    shard_index: int,
+    output: Path,
+) -> Mapping[str, Any]:
+    tasks, manifest_hash = read_task_manifest(task_shard)
+    return run_evaluation_cell(
+        llm=llm,
         state=state,
         tasks=tasks,
         task_manifest_sha256=manifest_hash,
         snapshot_inventory_sha256=snapshot_hash,
         condition_registry_sha256=condition_hash,
-        output_dir=args.output,
-        run_id=f"{EXPERIMENT}:{args.stage}:{args.model_key}:{args.shard_index}",
+        output_dir=output,
+        run_id=f"{EXPERIMENT}:{args.stage}:{args.model_key}:{shard_index}",
         inference_batch_size=int(args.batch_size),
         require_batched_inference=int(args.batch_size) > 1,
     )
-    print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+def screen_shard_indices(start: int, end: int, step: int) -> tuple[int, ...]:
+    if start < 0 or end < 0:
+        raise CampaignError("Packed screen shard bounds must be non-negative")
+    if start > end:
+        raise CampaignError("Packed screen shard start must not exceed its end")
+    if step <= 0:
+        raise CampaignError("Packed screen shard step must be positive")
+    return tuple(range(start, end + 1, step))
+
+
+def _screen_input_dir(result_root: Path, stage: str, model_key: str) -> Path:
+    if stage == "neutral_screen":
+        return result_root / "inputs" / "neutral_screen_shards"
+    if stage == "n1_screen":
+        return result_root / "inputs" / "n1_screen_shards"
+    if stage == "source_screen":
+        return result_root / "inputs" / "source_screen_shards" / model_key
+    raise CampaignError(f"Unsupported packed screen stage: {stage}")
+
+
+def run_screen_pack(args: argparse.Namespace) -> None:
+    """Run a deterministic shard lane while keeping one model resident on the GPU."""
+
+    indices = screen_shard_indices(
+        int(args.shard_start), int(args.shard_end), int(args.shard_step)
+    )
+    stage_limit = int(SCREEN_SHARD_LIMITS[args.stage])
+    if indices[-1] >= stage_limit:
+        raise CampaignError(
+            f"Packed {args.stage} shard {indices[-1]} exceeds capacity {stage_limit}"
+        )
+
+    result_root = Path(args.result_root)
+    input_dir = _screen_input_dir(result_root, args.stage, args.model_key)
+    materialized = [
+        index
+        for index in indices
+        if (input_dir / f"shard_{index:04d}.jsonl").is_file()
+    ]
+    if not materialized:
+        raise CampaignError(
+            f"No materialized {args.stage} shards in packed lane {indices[0]}:{indices[-1]}:{args.shard_step}"
+        )
+
+    config = load_config(args.config)
+    specification = model_spec(config, args.model_key)
+    model, tokenizer = _load_model(model_snapshot(args.hf_cache, specification))
+    llm = _LLM(model, tokenizer, str(specification["model_id"]))
+    state = _read_state(_state_path(result_root, args.model_key, "unpruned"))
+    snapshot_hash, condition_hash = _evaluation_provenance(
+        result_root, args.model_key, args.config
+    )
+
+    completed = []
+    for index in materialized:
+        task_shard = input_dir / f"shard_{index:04d}.jsonl"
+        output = result_root / args.stage / args.model_key / f"shard_{index:04d}"
+        print(
+            json.dumps(
+                {
+                    "event": "packed_screen_shard_start",
+                    "stage": args.stage,
+                    "model_key": args.model_key,
+                    "shard_index": index,
+                    "task_shard": str(task_shard),
+                    "output": str(output),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        summary = _run_screen_shard(
+            args=args,
+            llm=llm,
+            state=state,
+            snapshot_hash=snapshot_hash,
+            condition_hash=condition_hash,
+            task_shard=task_shard,
+            shard_index=index,
+            output=output,
+        )
+        completed.append(index)
+        print(
+            json.dumps(
+                {
+                    "event": "packed_screen_shard_complete",
+                    "stage": args.stage,
+                    "model_key": args.model_key,
+                    "shard_index": index,
+                    "record_count": int(summary["record_count"]),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+    print(
+        json.dumps(
+            {
+                "status": "complete",
+                "stage": args.stage,
+                "model_key": args.model_key,
+                "completed_shards": completed,
+                "completed_count": len(completed),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 def _collect_records(root: Path, stage: str, model_key: str) -> list[Mapping[str, Any]]:
@@ -1757,6 +1891,19 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--output", type=Path, required=True)
     command.add_argument("--batch-size", type=int, default=4)
     command.set_defaults(func=run_screen)
+
+    command = subparsers.add_parser("run-screen-pack")
+    command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument("--model-key", choices=MODEL_KEYS, required=True)
+    command.add_argument("--hf-cache", type=Path, required=True)
+    command.add_argument(
+        "--stage", choices=("neutral_screen", "n1_screen", "source_screen"), required=True
+    )
+    command.add_argument("--shard-start", type=int, required=True)
+    command.add_argument("--shard-end", type=int, required=True)
+    command.add_argument("--shard-step", type=int, default=1)
+    command.add_argument("--batch-size", type=int, default=4)
+    command.set_defaults(func=run_screen_pack)
 
     command = subparsers.add_parser("prepare-screens")
     command.add_argument("--result-root", type=Path, required=True)
