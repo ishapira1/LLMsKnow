@@ -1705,6 +1705,27 @@ def allocate_manifests(args: argparse.Namespace) -> None:
                 },
             }
 
+    # Complete all behavior/disjointness feasibility checks before publishing
+    # any immutable manifest.  A later-model source shortfall must not leave a
+    # partially materialized campaign that cannot be safely retried.
+    preservation_keys = {_question_key(question) for question in factual_questions}
+    selected_source_by_model = {}
+    for model_key in MODEL_KEYS:
+        n1_question_keys = {
+            str(row["task_metadata"]["question_key"])
+            for seed in (5, 17, 29)
+            for row in allocations[seed][model_key]
+        }
+        candidates = read_jsonl(
+            root / "inputs" / "source_screen_candidates" / f"{model_key}.jsonl"
+        )
+        selected_source_by_model[model_key] = _allocate_source_questions(
+            source_records[model_key],
+            candidates,
+            excluded_question_keys=n1_question_keys | preservation_keys,
+            model_key=model_key,
+        )
+
     all_receipts = {}
     for model_key in MODEL_KEYS:
         specification = model_spec(config, model_key)
@@ -1741,18 +1762,7 @@ def allocate_manifests(args: argparse.Namespace) -> None:
             for seed_rows in n1_rows_by_seed.values()
             for row in seed_rows
         }
-        preservation_keys = {
-            _question_key(question) for question in factual_questions
-        }
-        candidates = read_jsonl(
-            root / "inputs" / "source_screen_candidates" / f"{model_key}.jsonl"
-        )
-        selected_source = _allocate_source_questions(
-            source_records[model_key],
-            candidates,
-            excluded_question_keys=n1_question_keys | preservation_keys,
-            model_key=model_key,
-        )
+        selected_source = selected_source_by_model[model_key]
         atomic_jsonl(
             root / "inputs" / "selected_source_questions" / f"{model_key}.jsonl",
             selected_source,
