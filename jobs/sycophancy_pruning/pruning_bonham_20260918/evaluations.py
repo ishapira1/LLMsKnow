@@ -388,8 +388,8 @@ def _useful_tasks_for_model(
     }
     for question in questions:
         neutral = neutral_records.get(_question_key(question))
-        parsed = str(neutral.get("parsed_value", "")) if neutral else ""
-        if neutral is None or neutral.get("parse_status") != "valid" or parsed not in question.labels:
+        parsed = campaign.screen_choice(neutral or {})
+        if neutral is None or parsed not in question.labels:
             continue
         initially_correct = parsed == question.gold
         wrong = designated_wrong(question) if initially_correct else parsed
@@ -427,6 +427,7 @@ def _useful_tasks_for_model(
                         "neutral_label": parsed,
                         "wrong_label": wrong,
                         "neutral_cohort": cohort,
+                        "neutral_choice_source": "candidate_renormalized_argmax",
                         "source_reliability": 0.9 if attribution == "source" else None,
                         "retry_on_invalid": False,
                     }

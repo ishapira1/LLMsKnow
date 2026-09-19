@@ -303,6 +303,10 @@ def _audit_n1_rows(rows: list[Mapping[str, Any]], model_key: str) -> None:
     )
     for row in rows:
         _require(row.get("behavior_qualified") is True, f"N1 row is not behavior-qualified: {model_key}")
+        _require(
+            row.get("qualification_choice_source") == "candidate_renormalized_argmax",
+            f"N1 qualification choice source changed: {model_key}",
+        )
         target = str(row["attribution_target_choice"])
         gold = str(row["gold_choice"])
         if row["bias_type"] == "incorrect_suggestion":
@@ -317,6 +321,8 @@ def _audit_source_rows(rows: list[Mapping[str, Any]], model_key: str) -> None:
         all(
             row.get("claim_attribution") == "reliable_source"
             and row.get("source_aligned") is True
+            and row.get("qualification_choice_source")
+            == "candidate_renormalized_argmax"
             for row in rows
         ),
         f"N2 contains a non-source-aligned or bare-user row for {model_key}",

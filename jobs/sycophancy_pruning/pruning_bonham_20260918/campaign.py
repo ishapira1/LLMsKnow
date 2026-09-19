@@ -757,6 +757,28 @@ def _record_by_question(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Mappi
     return output
 
 
+def screen_choice(record: Mapping[str, Any]) -> str:
+    """Return the unique candidate-renormalized argmax used for cohort screening."""
+
+    raw = record.get("forced_choice_probabilities")
+    if not isinstance(raw, Mapping):
+        raw = record.get("choice_probabilities")
+    if not isinstance(raw, Mapping) or not raw:
+        return ""
+    probabilities: dict[str, float] = {}
+    for key, value in raw.items():
+        try:
+            probability = float(value)
+        except (TypeError, ValueError):
+            return ""
+        if not math.isfinite(probability) or probability < 0.0:
+            return ""
+        probabilities[str(key)] = probability
+    maximum = max(probabilities.values())
+    winners = sorted(key for key, value in probabilities.items() if value == maximum)
+    return winners[0] if len(winners) == 1 else ""
+
+
 def _biased_task(
     config: Mapping[str, Any],
     question: Question,
@@ -877,8 +899,7 @@ def prepare_screens(args: argparse.Namespace) -> None:
         records = [neutral[model_key].get(key) for model_key in MODEL_KEYS]
         if all(
             record is not None
-            and record.get("parse_status") == "valid"
-            and str(record.get("parsed_value", "")) == question.gold
+            and screen_choice(record) == question.gold
             for record in records
         ):
             common_correct.append(question)
@@ -931,8 +952,8 @@ def prepare_screens(args: argparse.Namespace) -> None:
             if key in reserve_keys:
                 continue
             record = neutral[model_key].get(key)
-            parsed = str(record.get("parsed_value", "")) if record else ""
-            if record is None or record.get("parse_status") != "valid" or parsed not in question.labels:
+            parsed = screen_choice(record or {})
+            if record is None or parsed not in question.labels:
                 continue
             correctness = "initially_correct" if parsed == question.gold else "initially_incorrect"
             candidates_by_cell[(question.dataset_id, correctness)].append((question, parsed))
@@ -957,6 +978,7 @@ def prepare_screens(args: argparse.Namespace) -> None:
                         **question.to_dict(),
                         "neutral_label": neutral_answer,
                         "neutral_correctness": correctness,
+                        "neutral_choice_source": "candidate_renormalized_argmax",
                         "source_template_index": template_index,
                     }
                 )
@@ -984,6 +1006,7 @@ def prepare_screens(args: argparse.Namespace) -> None:
         _require_screen_shard_capacity("source_screen", source_audits[model_key])
     complete = {
         "status": "complete",
+        "eligibility_choice_source": "candidate_renormalized_argmax",
         "common_correct_count": len(common_correct),
         "factual_preservation_count": len(factual_reserve),
         "n1_candidate_question_count": len(limited),
@@ -1010,9 +1033,9 @@ def _index_records(
 
 def _record_qualifies_n1(record: Mapping[str, Any]) -> bool:
     metadata = dict(record.get("task_metadata", {}))
-    if record.get("parse_status") != "valid":
+    parsed = screen_choice(record)
+    if not parsed:
         return False
-    parsed = str(record.get("parsed_value", ""))
     if metadata.get("bias_type") == "incorrect_suggestion":
         return parsed == str(metadata.get("wrong_label", ""))
     return parsed in set(record.get("choice_probabilities", {})) and parsed != str(
@@ -1135,7 +1158,7 @@ def _n1_manifest_rows(
         metadata = dict(common_record["task_metadata"])
         key = (str(metadata["question_key"]), str(common_record["condition_id"]))
         record = model_index[key]
-        parsed = str(record.get("parsed_value", ""))
+        parsed = screen_choice(record)
         target = str(metadata["wrong_label"]) if metadata["bias_type"] == "incorrect_suggestion" else parsed
         if target not in record.get("choice_probabilities", {}) or target == str(metadata["gold_label"]):
             raise CampaignError("N1 attribution target is not a valid observed unwanted answer")
@@ -1160,6 +1183,8 @@ def _n1_manifest_rows(
                     "template_id": metadata["template_id"],
                     "bias_sentence": metadata["bias_sentence"],
                     "behavior_qualified": True,
+                    "qualification_choice": parsed,
+                    "qualification_choice_source": "candidate_renormalized_argmax",
                 },
             )
         )
@@ -1222,9 +1247,9 @@ def _general_preservation_rows(
 
 def _source_record_qualifies(record: Mapping[str, Any]) -> bool:
     metadata = dict(record.get("task_metadata", {}))
-    if record.get("parse_status") != "valid":
+    parsed = screen_choice(record)
+    if not parsed:
         return False
-    parsed = str(record.get("parsed_value", ""))
     claim_type = str(metadata.get("claim_type", ""))
     if claim_type.startswith("suggest_"):
         return parsed == str(metadata.get("asserted_label", ""))
@@ -1322,7 +1347,7 @@ def _source_manifest_rows(
                 target = (
                     str(metadata["asserted_label"])
                     if claim_type.startswith("suggest_")
-                    else str(record["parsed_value"])
+                    else screen_choice(record)
                 )
                 output.append(
                     _manifest_row(
@@ -1348,6 +1373,8 @@ def _source_manifest_rows(
                             "template_id": metadata["template_id"],
                             "template_family": metadata["template_family"],
                             "source_aligned": True,
+                            "qualification_choice": screen_choice(record),
+                            "qualification_choice_source": "candidate_renormalized_argmax",
                             "preservation_family": "reliable_source_updating",
                         },
                     )
@@ -1507,8 +1534,7 @@ def allocate_manifests(args: argparse.Namespace) -> None:
                 record = neutral[model_key].get(_question_key(question))
                 if (
                     record is not None
-                    and record.get("parse_status") == "valid"
-                    and str(record.get("parsed_value", "")) == question.gold
+                    and screen_choice(record) == question.gold
                 ):
                     eligible.append(question)
             eligible.sort(

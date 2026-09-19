@@ -625,6 +625,21 @@ class ScoreAndSelectorTests(unittest.TestCase):
 
 
 class AllocationTests(unittest.TestCase):
+    def test_screen_choice_uses_forced_argmax_when_generation_is_malformed(self) -> None:
+        record = {
+            "parse_status": "malformed",
+            "parsed_value": "",
+            "forced_choice_probabilities": {
+                "A": 0.1,
+                "B": 0.7,
+                "C": 0.1,
+                "D": 0.1,
+            },
+        }
+        self.assertEqual("B", campaign.screen_choice(record))
+        record["forced_choice_probabilities"] = {"A": 0.5, "B": 0.5}
+        self.assertEqual("", campaign.screen_choice(record))
+
     def test_n1_exact_factorial_allocation(self) -> None:
         records = {}
         for dataset_id in ("commonsense_qa", "arc_challenge"):
@@ -777,6 +792,10 @@ class EvaluationDesignTests(unittest.TestCase):
         neutral_record = {
             "parse_status": "valid",
             "parsed_value": question.gold,
+            "forced_choice_probabilities": {
+                label: 0.7 if label == question.gold else 0.1
+                for label in question.labels
+            },
         }
         tasks = evaluations._useful_tasks_for_model(
             self.config,
