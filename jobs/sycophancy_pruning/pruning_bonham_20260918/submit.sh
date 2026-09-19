@@ -17,9 +17,10 @@ submit_job() {
   [[ -z "$partition" ]] || command+=(--partition "$partition")
   [[ -z "$gres" ]] || command+=(--gres "$gres")
   case "$stage" in
-    model_smoke) command+=(--time 01:00:00) ;;
+    model_smoke) command+=(--time 00:10:00) ;;
     score_component) command+=(--time 24:00:00 --mem 120G) ;;
-    neutral_screen|n1_screen|source_screen) command+=(--time 06:00:00) ;;
+    neutral_screen) command+=(--time 00:10:00) ;;
+    n1_screen|source_screen) command+=(--time 06:00:00) ;;
     eval_generalization|eval_useful_assertions|eval_capabilities) command+=(--time 05:00:00) ;;
     evalplus_run) command+=(--time 03:00:00 --cpus-per-task 8 --mem 24G) ;;
   esac
@@ -73,8 +74,14 @@ models=(llama31_8b qwen25_7b gemma4_12b)
 smokes=(); neutrals=()
 for index in 0 1 2; do
   model="${models[$index]}"
-  if [[ "$model" == qwen25_7b ]]; then partition=gpu; gres=gpu:nvidia_a100-sxm4-80gb:1; else partition=gpu_h200; gres=gpu:nvidia_h200:1; fi
-  smoke_partition=gpu_requeue
+  if [[ "$model" == qwen25_7b ]]; then
+    partition=gpu,gpu_requeue
+    gres=gpu:nvidia_a100-sxm4-80gb:1
+  else
+    partition=gpu_h200,gpu_requeue
+    gres=gpu:nvidia_h200:1
+  fi
+  smoke_partition="$partition"
   smokes[$index]="$(submit_job "bonh_${model}_smk" model_smoke "$gpu" "$source_freeze" '' "$model" "$smoke_partition" "$gres")"
   neutrals[$index]="$(submit_job "bonh_${model}_neu" neutral_screen "$gpu" "${smokes[$index]}" '0-79%16' "$model" "$partition" "$gres")"
 done
@@ -84,7 +91,13 @@ prepare_screens="$(submit_job bonh_screenprep prepare_screens "$cpu" "${neutrals
 n1_screens=(); source_screens=()
 for index in 0 1 2; do
   model="${models[$index]}"
-  if [[ "$model" == qwen25_7b ]]; then partition=gpu; gres=gpu:nvidia_a100-sxm4-80gb:1; else partition=gpu_h200; gres=gpu:nvidia_h200:1; fi
+  if [[ "$model" == qwen25_7b ]]; then
+    partition=gpu,gpu_requeue
+    gres=gpu:nvidia_a100-sxm4-80gb:1
+  else
+    partition=gpu_h200,gpu_requeue
+    gres=gpu:nvidia_h200:1
+  fi
   n1_screens[$index]="$(submit_job "bonh_${model}_n1scr" n1_screen "$gpu" "$prepare_screens" '0-319%16' "$model" "$partition" "$gres")"
   source_screens[$index]="$(submit_job "bonh_${model}_srcscr" source_screen "$gpu" "$prepare_screens" '0-47%16' "$model" "$partition" "$gres")"
 done
@@ -96,7 +109,13 @@ eval_prepare="$(submit_job bonh_evalprep_0918 eval_prepare "$cpu" "$allocate:$ca
 scores=(); masks=(); randoms=(); states=(); steer_preps=(); steer_extracts=(); steer_develops=(); weights=()
 for index in 0 1 2; do
   model="${models[$index]}"
-  if [[ "$model" == qwen25_7b ]]; then partition=gpu; gres=gpu:nvidia_a100-sxm4-80gb:1; else partition=gpu_h200; gres=gpu:nvidia_h200:1; fi
+  if [[ "$model" == qwen25_7b ]]; then
+    partition=gpu,gpu_requeue
+    gres=gpu:nvidia_a100-sxm4-80gb:1
+  else
+    partition=gpu_h200,gpu_requeue
+    gres=gpu:nvidia_h200:1
+  fi
   scores[$index]="$(submit_job "bonh_${model}_score" score_component "$gpu" "$allocate" '0-6%7' "$model" "$partition" "$gres")"
   masks[$index]="$(submit_job "bonh_${model}_mask" build_masks "$cpu" "${scores[$index]}" '' "$model" '' '')"
   randoms[$index]="$(submit_job "bonh_${model}_rand" random_masks "$gpu" "${masks[$index]}" '' "$model" "$partition" "$gres")"
@@ -112,7 +131,13 @@ weight_aggregate="$(submit_job bonh_weightagg_0918 weight_aggregate "$cpu" "${we
 eval_general=(); eval_useful=(); eval_caps=()
 for index in 0 1 2; do
   model="${models[$index]}"
-  if [[ "$model" == qwen25_7b ]]; then partition=gpu; gres=gpu:nvidia_a100-sxm4-80gb:1; else partition=gpu_h200; gres=gpu:nvidia_h200:1; fi
+  if [[ "$model" == qwen25_7b ]]; then
+    partition=gpu,gpu_requeue
+    gres=gpu:nvidia_a100-sxm4-80gb:1
+  else
+    partition=gpu_h200,gpu_requeue
+    gres=gpu:nvidia_h200:1
+  fi
   eval_dependency="$eval_prepare:${states[$index]}:${steer_develops[$index]}"
   eval_general[$index]="$(submit_job "bonh_${model}_gen" eval_generalization "$gpu" "$eval_dependency" '0-479%16' "$model" "$partition" "$gres")"
   eval_useful[$index]="$(submit_job "bonh_${model}_use" eval_useful_assertions "$gpu" "$eval_dependency" '0-959%16' "$model" "$partition" "$gres")"
