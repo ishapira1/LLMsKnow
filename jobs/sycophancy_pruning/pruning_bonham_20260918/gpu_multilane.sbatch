@@ -66,7 +66,10 @@ trap requeue_job USR1
 
 for ((lane = 0; lane < LANES; lane++)); do
   if [[ "$STAGE" == screen_sequence ]]; then
-    IFS=',' read -r -a screen_stages <<< "${SCREEN_STAGES_CSV:-n1_screen,source_screen}"
+    # This production mode intentionally covers both qualification banks.
+    # Keep the stage list positional rather than comma-encoded in --export,
+    # because Slurm uses commas to delimit exported variables.
+    screen_stages=(n1_screen source_screen)
     command=(
       "$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" run-screen-sequence
       --result-root "$RESULT_ROOT"
