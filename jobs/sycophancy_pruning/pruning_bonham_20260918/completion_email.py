@@ -25,12 +25,18 @@ def _identity(root: Path, recipient: str) -> Mapping[str, Any]:
     audit = read_json(audit_path)
     if audit.get("status") != "complete":
         raise CompletionEmailError("Final audit receipt does not report complete status")
+    report_path = root / "reports" / "COMPLETE.json"
+    expected_report_sha256 = str(audit.get("report_complete_sha256", ""))
+    if not expected_report_sha256 or sha256_file(report_path) != expected_report_sha256:
+        raise CompletionEmailError(
+            "Paper-ready report receipt does not match the passing final audit"
+        )
     return {
         "experiment": str(audit.get("experiment", "")),
         "recipient": recipient,
         "audit_path": str(audit_path.resolve()),
         "audit_sha256": sha256_file(audit_path),
-        "report_complete_sha256": str(audit.get("report_complete_sha256", "")),
+        "report_complete_sha256": expected_report_sha256,
     }
 
 
