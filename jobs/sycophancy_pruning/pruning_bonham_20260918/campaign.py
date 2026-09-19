@@ -1033,6 +1033,10 @@ def extend_n1_screens(args: argparse.Namespace) -> None:
 
     config = load_config(args.config)
     root = Path(args.result_root)
+    complete_path = root / "inputs" / "N1_SCREEN_EXTENSION_COMPLETE.json"
+    if complete_path.is_file():
+        print(json.dumps(read_json(complete_path), indent=2, sort_keys=True))
+        return
     input_dir = root / "inputs" / "n1_screen_shards"
     existing_paths = sorted(input_dir.glob("shard_*.jsonl"))
     if not existing_paths:
@@ -1043,9 +1047,13 @@ def extend_n1_screens(args: argparse.Namespace) -> None:
         raise CampaignError("Primary N1 shard indices are not contiguous")
     old_index_path = input_dir / "index.jsonl"
     old_index_sha256 = sha256_file(old_index_path)
+    primary_entries = list(read_jsonl(old_index_path))
+    start_index = len(primary_entries)
+    if start_index <= 0 or start_index > len(existing_paths):
+        raise CampaignError("Primary N1 index is inconsistent with materialized shards")
 
     existing_question_keys: set[str] = set()
-    for path in existing_paths:
+    for path in existing_paths[:start_index]:
         for row in read_jsonl(path):
             key = str(dict(row.get("metadata", {})).get("question_key", ""))
             if not key:
@@ -1111,44 +1119,55 @@ def extend_n1_screens(args: argparse.Namespace) -> None:
     shard_size = int(args.shard_size)
     if shard_size <= 0:
         raise CampaignError("N1 extension shard size must be positive")
-    entries = list(read_jsonl(old_index_path))
-    start_index = len(existing_paths)
     extension_entries = []
     for offset, start in enumerate(range(0, len(tasks), shard_size)):
         shard_index = start_index + offset
         path = input_dir / f"shard_{shard_index:04d}.jsonl"
-        if path.exists():
-            raise CampaignError(f"Refusing to replace existing N1 shard: {path}")
         subset = tasks[start : start + shard_size]
-        _write_tasks(path, subset)
+        expected_text = "".join(canonical_json(task.to_dict()) + "\n" for task in subset)
+        expected_sha256 = hashlib.sha256(expected_text.encode("utf-8")).hexdigest()
+        if path.exists():
+            if sha256_file(path) != expected_sha256:
+                raise CampaignError(f"Changed N1 extension shard: {path}")
+        else:
+            _write_tasks(path, subset)
         entry = {
             "shard_index": shard_index,
             "task_count": len(subset),
             "path": str(path.resolve()),
-            "sha256": sha256_file(path),
+            "sha256": expected_sha256,
         }
         extension_entries.append(entry)
-        entries.append(entry)
 
-    audit = {"task_count": len(tasks), "shard_count": len(entries)}
+    total_shard_count = start_index + len(extension_entries)
+    if len(existing_paths) != total_shard_count:
+        raise CampaignError(
+            f"Unexpected N1 extension shard count: {len(existing_paths)} != {total_shard_count}"
+        )
+    audit = {"task_count": len(tasks), "shard_count": total_shard_count}
     _require_screen_shard_capacity("n1_screen", audit)
-    atomic_jsonl(old_index_path, entries)
+    extension_index_path = input_dir / "extension_index.jsonl"
+    if extension_index_path.is_file():
+        if list(read_jsonl(extension_index_path)) != extension_entries:
+            raise CampaignError("Changed N1 extension index")
+    else:
+        atomic_jsonl(extension_index_path, extension_entries)
     complete = {
         "status": "complete",
         "append_only": True,
         "dataset_id": "arc_challenge",
         "primary_shard_count": start_index,
         "extension_shard_count": len(extension_entries),
-        "total_shard_count": len(entries),
+        "total_shard_count": total_shard_count,
         "extension_question_count": len(candidates),
         "extension_task_count": len(tasks),
         "eligible_question_counts": dict(sorted(eligible_counts.items())),
         "primary_index_sha256": old_index_sha256,
-        "extended_index_sha256": sha256_file(old_index_path),
+        "extension_index_sha256": sha256_file(extension_index_path),
         "first_extension_shard": start_index,
-        "last_extension_shard": len(entries) - 1,
+        "last_extension_shard": total_shard_count - 1,
     }
-    atomic_json(root / "inputs" / "N1_SCREEN_EXTENSION_COMPLETE.json", complete)
+    atomic_json(complete_path, complete)
     print(json.dumps(complete, indent=2, sort_keys=True))
 
 
