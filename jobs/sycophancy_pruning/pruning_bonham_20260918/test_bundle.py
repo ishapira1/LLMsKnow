@@ -492,7 +492,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("submitted_model=llama31_8b", watcher)
         self.assertIn("gpu_model_pipeline.sbatch", watcher)
 
-    def test_analysis_fallback_waits_for_evaluations_and_uses_all_test_slices(self) -> None:
+    def test_analysis_fallback_keeps_released_test_slices_busy_until_scores_complete(self) -> None:
         bundle = Path(__file__).resolve().parent
         watcher = (bundle / "launch_analysis_fallback_when_evals_complete.sh").read_text(
             encoding="utf-8"
@@ -507,7 +507,18 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("active_array_tasks", watcher)
         self.assertIn('qwen_state" == COMPLETED', watcher)
         self.assertIn('llama_state" == COMPLETED', watcher)
-        self.assertIn("active_analysis_or_gpu_slot", watcher)
+        self.assertIn("gpu_test_has_slot", watcher)
+        self.assertIn("while :; do", watcher)
+        self.assertIn("llama_scores == 7 && qwen_scores == 7", watcher)
+        self.assertIn("fallback_terminal_incomplete", watcher)
+        self.assertIn(
+            'maybe_submit_model qwen25_7b qwen "$QWEN_ANALYSIS_ARRAY_JOB_ID"',
+            watcher,
+        )
+        self.assertIn(
+            'maybe_submit_model llama31_8b llama "$LLAMA_ANALYSIS_ARRAY_JOB_ID"',
+            watcher,
+        )
         self.assertIn('BLOCKS_PER_PASS=2', watcher)
         self.assertIn('LANES=2', watcher)
         self.assertIn('GPUS_PER_LANE=2', watcher)
