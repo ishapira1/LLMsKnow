@@ -2214,6 +2214,55 @@ def _save_mask(path: Path, indices: Mapping[str, Any], metadata: Mapping[str, An
     os.replace(attempt, path)
 
 
+def _derive_mask_prefix(
+    primary_root: Path, *, size: int, mask_id: str
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """Materialize an exact prefix of an authenticated primary ordering."""
+
+    import torch
+
+    primary_root = Path(primary_root)
+    primary_complete = read_json(primary_root / "COMPLETE.json")
+    primary_metadata = read_json(primary_root / "metadata.json")
+    ordering = read_jsonl(primary_root / "ordering.jsonl")
+    count = int(size)
+    if (
+        count <= 0
+        or count > len(ordering)
+        or int(primary_complete.get("selected_count", -1)) != len(ordering)
+        or [int(row["rank"]) for row in ordering] != list(range(1, len(ordering) + 1))
+    ):
+        raise CampaignError("Primary mask ordering cannot supply the requested prefix")
+    prefix = [dict(row) for row in ordering[:count]]
+    selected: dict[str, list[int]] = {}
+    for row in prefix:
+        selected.setdefault(str(row["parameter"]), []).append(int(row["flat_index"]))
+    indices = {
+        name: torch.tensor(sorted(values), dtype=torch.long)
+        for name, values in sorted(selected.items())
+    }
+    if sum(int(values.numel()) for values in indices.values()) != count:
+        raise CampaignError("Primary mask prefix contains repeated coordinates")
+    metadata = dict(primary_metadata)
+    metadata.pop("selected_count", None)
+    metadata.update(
+        {
+            "algorithm": "bonham_exact_primary_ordering_prefix_v1",
+            "source_algorithm": primary_metadata.get("algorithm"),
+            "mask_id": str(mask_id),
+            "n": count,
+            "counts_by_module": {
+                name: int(values.numel()) for name, values in indices.items()
+            },
+            "analysis_role": "sparsity_nesting_not_independent_stability",
+            "prefix_source_mask": "n1_mechanism",
+            "prefix_source_ordering_sha256": sha256_file(primary_root / "ordering.jsonl"),
+            "ordering": prefix,
+        }
+    )
+    return indices, metadata
+
+
 def build_masks(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     root = Path(args.result_root)
@@ -2264,15 +2313,18 @@ def build_masks(args: argparse.Namespace) -> None:
         print(json.dumps(complete, indent=2, sort_keys=True))
         return
 
+    primary_root = root / "masks" / args.model_key / "n1_mechanism"
     primary_coordinates = None
     for size in (250, 500, 1000):
-        indices, metadata = select_mask(
-            root / "scores" / args.model_key / "n1_seed5_prune",
-            root / "scores" / args.model_key / "general_preserve",
-            p=p,
-            n=size,
-            ordering_seed=f"{EXPERIMENT}:{args.model_key}:n1_mechanism",
-        )
+        mask_id = f"n1_prefix_{size}"
+        destination = root / "masks" / args.model_key / mask_id
+        if (destination / "COMPLETE.json").is_file():
+            indices = _load_indices(destination / "indices.pt")
+        else:
+            indices, metadata = _derive_mask_prefix(
+                primary_root, size=size, mask_id=mask_id
+            )
+            _save_mask(destination, indices, metadata)
         coordinates = {
             (name, int(index))
             for name, values in indices.items()
@@ -2281,19 +2333,8 @@ def build_masks(args: argparse.Namespace) -> None:
         if primary_coordinates is not None and not primary_coordinates < coordinates:
             raise CampaignError("N1 size-analysis masks are not exact nested prefixes")
         primary_coordinates = coordinates
-        metadata = {
-            **metadata,
-            "experiment": EXPERIMENT,
-            "model_key": args.model_key,
-            "mask_id": f"n1_prefix_{size}",
-            "analysis_role": "sparsity_nesting_not_independent_stability",
-            "prune_score_id": "n1_seed5_prune",
-            "preserve_score_id": "general_preserve",
-        }
-        destination = root / "masks" / args.model_key / f"n1_prefix_{size}"
-        _save_mask(destination, indices, metadata)
-        outputs[f"n1_prefix_{size}"] = read_json(destination / "COMPLETE.json")
-    primary = _load_indices(root / "masks" / args.model_key / "n1_mechanism" / "indices.pt")
+        outputs[mask_id] = read_json(destination / "COMPLETE.json")
+    primary = _load_indices(primary_root / "indices.pt")
     prefix = _load_indices(root / "masks" / args.model_key / "n1_prefix_1000" / "indices.pt")
     if {
         (name, int(index)) for name, values in primary.items() for index in values.tolist()

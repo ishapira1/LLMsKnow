@@ -773,6 +773,54 @@ class ScoreAndSelectorTests(unittest.TestCase):
         self.assertEqual(2.0, float(correct.item()))
         self.assertEqual(0.0, float(historical_wrong.item()))
 
+    def test_size_analysis_is_an_exact_primary_ordering_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            primary = Path(temporary) / "n1_mechanism"
+            ordering = [
+                {
+                    "rank": rank,
+                    "parameter": name,
+                    "flat_index": index,
+                    "within_matrix_percentile": 1.0 - rank / 10,
+                    "pruning_score": float(10 - rank),
+                    "tie_sha256": f"{rank:064x}",
+                }
+                for rank, (name, index) in enumerate(
+                    (("matrix_a", 4), ("matrix_b", 2), ("matrix_a", 1), ("matrix_b", 7)),
+                    1,
+                )
+            ]
+            campaign._save_mask(
+                primary,
+                {
+                    "matrix_a": torch.tensor([1, 4]),
+                    "matrix_b": torch.tensor([2, 7]),
+                },
+                {
+                    "algorithm": "bonham_per_matrix_protect_percentile_pool_v1",
+                    "p": 0.00005,
+                    "n": 4,
+                    "counts_by_module": {"matrix_a": 2, "matrix_b": 2},
+                    "prune_score_id": "n1_seed5_prune",
+                    "preserve_score_id": "general_preserve",
+                    "prune_metadata_sha256": "a" * 64,
+                    "preserve_metadata_sha256": "b" * 64,
+                    "ordering": ordering,
+                },
+            )
+            indices, metadata = campaign._derive_mask_prefix(
+                primary, size=2, mask_id="n1_prefix_2"
+            )
+        self.assertEqual({("matrix_a", 4), ("matrix_b", 2)}, {
+            (name, int(index))
+            for name, values in indices.items()
+            for index in values.tolist()
+        })
+        self.assertEqual(ordering[:2], metadata["ordering"])
+        self.assertEqual("bonham_exact_primary_ordering_prefix_v1", metadata["algorithm"])
+        self.assertEqual(2, metadata["n"])
+        self.assertEqual({"matrix_a": 1, "matrix_b": 1}, metadata["counts_by_module"])
+
     def test_selector_protection_determinism_exact_n_and_nested_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
