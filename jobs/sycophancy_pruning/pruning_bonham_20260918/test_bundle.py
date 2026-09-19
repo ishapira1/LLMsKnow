@@ -295,6 +295,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         lane = (bundle / "gpu_score_lane.sh").read_text(encoding="utf-8")
         for score_id in campaign.SCORE_SPECS:
             self.assertIn(score_id, lane)
+        self.assertIn("SCORE_IDS_COLON", lane)
         self.assertIn('--blocks-per-pass "$blocks_per_pass"', lane)
         self.assertIn('--gpus-per-task="$GPUS_PER_LANE"', runner)
         self.assertIn('--mem="$MEM_PER_LANE"', runner)

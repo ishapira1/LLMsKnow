@@ -29,6 +29,15 @@ score_ids=(
   source_false_prune
   general_preserve
 )
+if [[ -n "${SCORE_IDS_COLON:-}" ]]; then
+  IFS=':' read -r -a score_ids <<< "$SCORE_IDS_COLON"
+fi
+for score_id in "${score_ids[@]}"; do
+  case "$score_id" in
+    n1_seed5_prune|n1_seed17_prune|n1_seed29_prune|general_preserve|selective_preserve|source_all_prune|source_false_prune) ;;
+    *) printf 'Unsupported score ID in SCORE_IDS_COLON: %s\n' "$score_id" >&2; exit 2 ;;
+  esac
+done
 blocks_per_pass="${BLOCKS_PER_PASS:-1}"
 if ! [[ "$blocks_per_pass" =~ ^[1-9][0-9]*$ ]]; then
   printf 'BLOCKS_PER_PASS must be a positive integer\n' >&2
