@@ -16,15 +16,18 @@ if (( LANE_INDEX >= LANES )); then
   exit 2
 fi
 
+# The order balances manifest row counts under the two-lane accelerated setup:
+# even slots contain four 512-row caches, while odd slots contain the 1,024-,
+# 512-, and 256-row caches.  Cache identities do not depend on execution order.
 PYTHON_BIN="$(python_for_model "$MODEL_KEY")"; export PYTHON_BIN
 score_ids=(
   n1_seed5_prune
-  n1_seed17_prune
-  n1_seed29_prune
-  general_preserve
   selective_preserve
+  n1_seed17_prune
   source_all_prune
+  n1_seed29_prune
   source_false_prune
+  general_preserve
 )
 blocks_per_pass="${BLOCKS_PER_PASS:-1}"
 if ! [[ "$blocks_per_pass" =~ ^[1-9][0-9]*$ ]]; then
