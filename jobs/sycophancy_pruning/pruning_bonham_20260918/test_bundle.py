@@ -496,7 +496,8 @@ class RuntimeIsolationTests(unittest.TestCase):
                 "loss": "completion_nll",
                 "precision": "fp32_accumulation",
                 "eligible_projections": list(core.ELIGIBLE_PROJECTIONS),
-                "implementation_sha256": core.sha256_file(Path(campaign.__file__)),
+                "implementation_sha256": campaign._score_implementation_sha256(),
+                "implementation_scope": "attribution_code_and_vendored_scoring_dependencies",
             }
             core.atomic_json(score_root / "identity.json", identity)
             parameter = "model.layers.0.self_attn.q_proj"
@@ -701,6 +702,13 @@ class ScoreAndSelectorTests(unittest.TestCase):
 
 
 class AllocationTests(unittest.TestCase):
+    def test_score_implementation_hash_is_scoped_and_stable(self) -> None:
+        first = campaign._score_implementation_sha256()
+        second = campaign._score_implementation_sha256()
+        self.assertEqual(first, second)
+        self.assertEqual(64, len(first))
+        int(first, 16)
+
     def test_screen_choice_uses_forced_argmax_when_generation_is_malformed(self) -> None:
         record = {
             "parse_status": "malformed",

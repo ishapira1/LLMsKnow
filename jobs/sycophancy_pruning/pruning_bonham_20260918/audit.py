@@ -122,7 +122,9 @@ def _audit_score_cache(
         and identity.get("loss") == "completion_nll"
         and identity.get("precision") == "fp32_accumulation"
         and tuple(identity.get("eligible_projections", ())) == ELIGIBLE_PROJECTIONS
-        and identity.get("implementation_sha256") == sha256_file(Path(campaign.__file__)),
+        and identity.get("implementation_sha256") == campaign._score_implementation_sha256()
+        and identity.get("implementation_scope")
+        == "attribution_code_and_vendored_scoring_dependencies",
         f"Score definition differs from the frozen protocol: {score_root}",
     )
     for key, value in identity.items():

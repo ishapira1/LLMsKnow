@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -1939,6 +1940,29 @@ def _score_manifest(root: Path, model_key: str, score_id: str) -> tuple[Path, st
     return path, role, seed
 
 
+def _score_implementation_sha256() -> str:
+    """Hash only code that can affect attribution values.
+
+    Hashing the entire campaign module would make a scheduling or manifest-only
+    edit invalidate completed score caches even when the scoring implementation
+    is byte-identical.  The vendored pruning implementation is included by file
+    hash, while the model/module selection and orchestration functions are
+    included by exact source text.
+    """
+
+    from bonham_runtime.weight_pruning import paper_pruning
+
+    payload = canonical_json(
+        {
+            "score_component": inspect.getsource(score_component),
+            "eligible_modules": inspect.getsource(_eligible_modules),
+            "load_model": inspect.getsource(_load_model),
+            "paper_pruning_sha256": sha256_file(Path(paper_pruning.__file__)),
+        }
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def score_component(args: argparse.Namespace) -> None:
     import torch
     from bonham_runtime.weight_pruning.paper_pruning import (
@@ -1982,7 +2006,8 @@ def score_component(args: argparse.Namespace) -> None:
         "loss": "completion_nll",
         "precision": "fp32_accumulation",
         "eligible_projections": list(ELIGIBLE_PROJECTIONS),
-        "implementation_sha256": sha256_file(Path(__file__)),
+        "implementation_sha256": _score_implementation_sha256(),
+        "implementation_scope": "attribution_code_and_vendored_scoring_dependencies",
     }
     destination = root / "scores" / args.model_key / args.score_id
     if (destination / "COMPLETE.json").is_file():
