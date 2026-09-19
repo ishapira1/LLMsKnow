@@ -874,11 +874,21 @@ def _figures(
 
 def report(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
-    output = root / "reports"
+    early_qwen_llama = bool(getattr(args, "early_qwen_llama", False))
+    model_keys = (
+        ("qwen25_7b", "llama31_8b")
+        if early_qwen_llama
+        else campaign.MODEL_KEYS
+    )
+    output = (
+        root / "reports" / "early_qwen_llama"
+        if early_qwen_llama
+        else root / "reports"
+    )
     all_general_effects = []
     all_useful_effects = []
     all_source_attribution_effects = []
-    for model_key in campaign.MODEL_KEYS:
+    for model_key in model_keys:
         for state_id in campaign.PRIMARY_STATE_IDS:
             general_records = _records(root, model_key, state_id, "generalization")
             general_effects = _generalization_effect_rows(
@@ -1149,7 +1159,7 @@ def report(args: argparse.Namespace) -> None:
         ),
         USEFUL_METRICS,
     )
-    capabilities = _capability_rows(root)
+    capabilities = [] if early_qwen_llama else _capability_rows(root)
     artifacts = {
         "generalization_cells.csv": general_cells,
         "generalization_template_families.csv": general_families,
@@ -1218,6 +1228,13 @@ def report(args: argparse.Namespace) -> None:
     receipt = {
         "status": "complete",
         "experiment": campaign.EXPERIMENT,
+        "scope": (
+            "qwen_llama_paper_core_before_capabilities"
+            if early_qwen_llama
+            else "complete_campaign"
+        ),
+        "model_keys": list(model_keys),
+        "includes_capabilities": not early_qwen_llama,
         "bootstrap_replicates": BOOTSTRAP_REPLICATES,
         "csv_files": {
             filename: sha256_file(output / filename) for filename in sorted(artifacts)
@@ -1233,6 +1250,14 @@ def report(args: argparse.Namespace) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--result-root", type=Path, required=True)
+    parser.add_argument(
+        "--early-qwen-llama",
+        action="store_true",
+        help=(
+            "write an authenticated Qwen/Llama paper-core bundle under "
+            "reports/early_qwen_llama without waiting for capabilities or Gemma"
+        ),
+    )
     args = parser.parse_args()
     report(args)
     return 0

@@ -631,6 +631,22 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("run_wave 0", supervisor_source)
         self.assertIn("run_wave 4", supervisor_source)
 
+    def test_early_qwen_llama_report_waits_for_all_paper_core_families(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        report_source = (bundle / "reporting.py").read_text(encoding="utf-8")
+        cpu_source = (bundle / "cpu_stage.sbatch").read_text(encoding="utf-8")
+        supervisor_source = (
+            bundle / "accelerate_early_qwen_llama_report.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--early-qwen-llama", report_source)
+        self.assertIn('root / "reports" / "early_qwen_llama"', report_source)
+        self.assertIn('("qwen25_7b", "llama31_8b")', report_source)
+        self.assertIn("early_report)", cpu_source)
+        for family in ("generalization", "useful_assertions", "source_attribution"):
+            self.assertIn(family, supervisor_source)
+        self.assertIn("paper_core_complete", supervisor_source)
+        self.assertIn("serial_requeue", supervisor_source)
+
     def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -105,6 +105,9 @@ case "$STAGE" in
   report)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/reporting.py" --result-root "$RESULT_ROOT")
     ;;
+  early_report)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/reporting.py" --result-root "$RESULT_ROOT" --early-qwen-llama)
+    ;;
   final_audit)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/audit.py" --result-root "$RESULT_ROOT")
     ;;
