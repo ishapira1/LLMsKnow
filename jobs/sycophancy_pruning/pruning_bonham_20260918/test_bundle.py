@@ -272,6 +272,7 @@ class RuntimeIsolationTests(unittest.TestCase):
             {
                 "generalization": 60,
                 "useful_assertions": 120,
+                "source_attribution": 60,
                 "capabilities": 80,
             },
             evaluations.EVALUATION_SHARD_LIMITS,
