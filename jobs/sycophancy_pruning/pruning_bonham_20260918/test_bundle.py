@@ -302,6 +302,24 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("#SBATCH --mail-type=END,FAIL", runner)
         self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", runner)
 
+    def test_core_mask_stage_can_precede_analysis_masks(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        cpu_stage = (bundle / "cpu_stage.sbatch").read_text(encoding="utf-8")
+        self.assertIn("build_core_masks)", cpu_stage)
+        parser = campaign.build_parser()
+        parsed = parser.parse_args(
+            [
+                "build-masks",
+                "--result-root",
+                "/tmp/bonham",
+                "--model-key",
+                "llama31_8b",
+                "--scope",
+                "core",
+            ]
+        )
+        self.assertEqual("core", parsed.scope)
+
     def test_evaluation_state_runner_is_resident_and_covers_all_states(self) -> None:
         bundle = Path(__file__).resolve().parent
         runner = (bundle / "gpu_eval_states.sbatch").read_text(encoding="utf-8")

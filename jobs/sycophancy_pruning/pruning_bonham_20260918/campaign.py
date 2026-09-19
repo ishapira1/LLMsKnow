@@ -2194,8 +2194,14 @@ def build_masks(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
     p = float(config["selection"]["protection_fraction"])
     n = int(config["selection"]["mask_weight_count"])
+    scope = str(getattr(args, "scope", "all"))
+    mask_specs = (
+        {key: MASK_SPECS[key] for key in ("n1_mechanism", "n2_selective")}
+        if scope == "core"
+        else MASK_SPECS
+    )
     outputs = {}
-    for mask_id, (prune_id, preserve_id) in MASK_SPECS.items():
+    for mask_id, (prune_id, preserve_id) in mask_specs.items():
         indices, metadata = select_mask(
             root / "scores" / args.model_key / prune_id,
             root / "scores" / args.model_key / preserve_id,
@@ -2214,6 +2220,17 @@ def build_masks(args: argparse.Namespace) -> None:
         destination = root / "masks" / args.model_key / mask_id
         _save_mask(destination, indices, metadata)
         outputs[mask_id] = read_json(destination / "COMPLETE.json")
+
+    if scope == "core":
+        complete = {
+            "status": "complete",
+            "model_key": args.model_key,
+            "scope": "paper_core",
+            "masks": outputs,
+        }
+        atomic_json(root / "masks" / args.model_key / "CORE_MASKS_COMPLETE.json", complete)
+        print(json.dumps(complete, indent=2, sort_keys=True))
+        return
 
     primary_coordinates = None
     for size in (250, 500, 1000):
@@ -2457,6 +2474,7 @@ def build_parser() -> argparse.ArgumentParser:
     command = subparsers.add_parser("build-masks")
     command.add_argument("--result-root", type=Path, required=True)
     command.add_argument("--model-key", choices=MODEL_KEYS, required=True)
+    command.add_argument("--scope", choices=("core", "all"), default="all")
     command.set_defaults(func=build_masks)
 
     command = subparsers.add_parser("build-random-mask")

@@ -50,6 +50,9 @@ case "$STAGE" in
   build_masks)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" build-masks --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY")
     ;;
+  build_core_masks)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" build-masks --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY" --scope core)
+    ;;
   build_states)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" build-mask-states --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY")
     ;;
