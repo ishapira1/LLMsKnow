@@ -372,9 +372,9 @@ class RuntimeIsolationTests(unittest.TestCase):
             "source_attribution) evaluation_families=(source_attribution)",
             runner,
         )
-        self.assertIn(
-            "capabilities) evaluation_families=(capabilities)", runner
-        )
+        self.assertIn("capabilities)", runner)
+        self.assertIn("evaluation_families=(capabilities)", runner)
+        self.assertIn('CAPABILITY_EVALUATION_BATCH_SIZE:-1', runner)
         self.assertNotIn("EVALUATION_FAMILIES_CSV", runner)
         self.assertIn('--gpus-per-task="$GPUS_PER_STATE"', runner)
         self.assertIn('--mem="$MEM_PER_STATE"', runner)
@@ -639,6 +639,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn(marker, lane_source)
         self.assertIn('"$family_set" == capabilities', lane_source)
         self.assertIn('BONHAM_ALLOW_CAPABILITIES_DURING_SOURCE', lane_source)
+        self.assertIn('CAPABILITY_EVALUATION_BATCH_SIZE:-1', lane_source)
         self.assertIn("capabilities_deferred_until_source", lane_source)
         self.assertIn(marker, supervisor_source)
         self.assertIn(priority_marker, supervisor_source)

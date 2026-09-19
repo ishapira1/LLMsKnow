@@ -120,7 +120,7 @@ submit_capability_job() {
     --account="$ACCOUNT" --partition="$GPU_PARTITION" --job-name="$name" \
     --nodes=1 --ntasks=4 --cpus-per-task=4 --mem=192G --time=12:00:00 \
     --gres="$GPU_GRES:4" \
-    --export="ALL,BONHAM_BUNDLE_DIR=$BUNDLE_DIR,MODEL_KEY=$model,STATE_OFFSET=$offset,STATE_COUNT=4,GPUS_PER_STATE=1,CPUS_PER_STATE=4,MEM_PER_STATE=48G,EVALUATION_FAMILY_SET=capabilities,EVALUATION_BATCH_SIZE=4" \
+    --export="ALL,BONHAM_BUNDLE_DIR=$BUNDLE_DIR,MODEL_KEY=$model,STATE_OFFSET=$offset,STATE_COUNT=4,GPUS_PER_STATE=1,CPUS_PER_STATE=4,MEM_PER_STATE=48G,EVALUATION_FAMILY_SET=capabilities,CAPABILITY_EVALUATION_BATCH_SIZE=1" \
     --output="$LOG_ROOT/slurm/gpu_eval_states/%x_%j.out" \
     --error="$LOG_ROOT/slurm/gpu_eval_states/%x_%j.err" \
     "$BUNDLE_DIR/gpu_eval_states.sbatch")"

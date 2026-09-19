@@ -62,7 +62,10 @@ case "${EVALUATION_FAMILY_SET:-all}" in
   all) evaluation_families=(generalization useful_assertions source_attribution capabilities) ;;
   paper_core) evaluation_families=(generalization useful_assertions source_attribution) ;;
   source_attribution) evaluation_families=(source_attribution) ;;
-  capabilities) evaluation_families=(capabilities) ;;
+  capabilities)
+    evaluation_families=(capabilities)
+    EVALUATION_BATCH_SIZE="${CAPABILITY_EVALUATION_BATCH_SIZE:-1}"
+    ;;
   *)
     printf 'EVALUATION_FAMILY_SET must be all, paper_core, source_attribution, or capabilities: %s\n' \
       "$EVALUATION_FAMILY_SET" >&2

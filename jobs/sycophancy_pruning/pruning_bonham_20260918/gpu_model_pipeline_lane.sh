@@ -35,6 +35,7 @@ case "$mode" in
   evaluation)
     state_id="${1:?state id is required}"
     family_set="${2:?evaluation family set is required}"
+    evaluation_batch_size="${EVALUATION_BATCH_SIZE:-4}"
     defer_marker="$RESULT_ROOT/control/DEFER_QWEN_LLAMA_CAPABILITIES_UNTIL_SOURCE"
     if [[ "$family_set" == capabilities && "$MODEL_KEY" != gemma4_12b && \
           -f "$defer_marker" && \
@@ -46,13 +47,16 @@ case "$mode" in
     case "$family_set" in
       paper_core) families=(generalization useful_assertions source_attribution) ;;
       source_attribution) families=(source_attribution) ;;
-      capabilities) families=(capabilities) ;;
+      capabilities)
+        families=(capabilities)
+        evaluation_batch_size="${CAPABILITY_EVALUATION_BATCH_SIZE:-1}"
+        ;;
       *) printf 'unknown evaluation family set: %s\n' "$family_set" >&2; exit 2 ;;
     esac
     "$PYTHON_BIN" "$BUNDLE_DIR/evaluations.py" run-state-sequence \
       --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY" --state-id "$state_id" \
       --families "${families[@]}" --hf-cache "$HF_CACHE_DIR" \
-      --batch-size "${EVALUATION_BATCH_SIZE:-4}"
+      --batch-size "$evaluation_batch_size"
     ;;
   *)
     printf 'unknown pipeline lane mode: %s\n' "$mode" >&2
