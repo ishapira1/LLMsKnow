@@ -14,6 +14,7 @@ The frozen protocol is [`configs/experiments/pruning_bonham_20260918.json`](../.
 - Bare-user rows are rejected from N2's preservation bank.
 - Steering fit/development questions and all preservation questions are disjoint from mask and final-evaluation questions.
 - Rationale-framed pushback is evaluated as a separate multi-turn stress test using the four fixed prompts in [`reasoning_backed_pushback_templates.json`](reasoning_backed_pushback_templates.json), balanced exactly within each 500-question factual dataset. Its registry is authenticated when evaluation manifests are frozen. It is excluded from the primary four-category macro-average because its justifications are generic rather than question-grounded.
+- The main source-attribution sweep assigns exactly one of the twelve frozen credible-source templates or the native structured tool to each eligible question. Assignment is deterministic and balanced within model, dataset, and frozen initially-correct/initially-incorrect cohort. The assigned form is crossed with both applicable claim types and both turn formats, and every source result is paired with the exact same frozen bare-user question, proposition, target, truth status, and turn format.
 - No weight coordinate is compared across model architectures.
 - Stale `.run.lock` cleanup is never automatic. `ALLOW_STALE_LOCK_CLEANUP` must remain `0`.
 
@@ -57,6 +58,7 @@ The screen/evaluation arrays use conservative fixed ceilings because downstream 
 - reliable-source screening: 48 shards per model;
 - generalization: 60 shards per state/model;
 - useful assertions plus native-tool transfer: 120 shards per state/model;
+- matched source-attribution sweep: 60 shards per state/model;
 - capabilities: 80 shards per state/model.
 
 ## Restartable stage commands
@@ -99,6 +101,8 @@ $PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/steering.py develop 
 $CPU_PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/evaluations.py prepare \
   --result-root "$RESULT_ROOT" --suite-source-bindings "$SUITE_SOURCE_BINDINGS" \
   --external-utility-root "$CAPABILITY_SOURCE_ROOT"
+$CPU_PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/evaluations.py \
+  prepare-source-attribution --result-root "$RESULT_ROOT"
 $PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/evaluations.py run-shard \
   --result-root "$RESULT_ROOT" --model-key llama31_8b --state-id n1_mechanism \
   --family generalization --shard 0 --hf-cache "$HF_CACHE_DIR"
@@ -125,9 +129,10 @@ from source template 0 to source template 1 without changing any source-family
 total.
 
 For accelerated state-sequence execution, `gpu_eval_states.sbatch` accepts
-`EVALUATION_FAMILY_SET=paper_core` (generalization and useful assertions) or
-`EVALUATION_FAMILY_SET=capabilities`.  The default `all` runs all three
-families.  Splitting the presets changes only scheduling: every frozen cell is
+`EVALUATION_FAMILY_SET=paper_core` (generalization, useful assertions, and the
+source-attribution sweep), `EVALUATION_FAMILY_SET=source_attribution`, or
+`EVALUATION_FAMILY_SET=capabilities`.  The default `all` runs all four
+families. Splitting the presets changes only scheduling: every frozen cell is
 still required by evaluation validation and the final audit.
 
 `accelerate_tail.sh` is a restartable submission supervisor for the constrained
@@ -135,6 +140,8 @@ still required by evaluation validation and the final audit.
 EvalPlus, weight aggregation, reporting, final audit, and the authenticated
 completion email. Exact job names make restarts reuse submitted work rather
 than duplicate it; a failed stage stops the supervisor for diagnosis.
+`accelerate_source_attribution.sh` is the corresponding restartable packed-GPU
+supervisor for adding the matched source sweep to an already-running campaign.
 
 ```bash
 # Weight analysis, reporting, and audit

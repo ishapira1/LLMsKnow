@@ -453,13 +453,66 @@ def _audit_useful_matched_inputs(root: Path) -> Mapping[str, Any]:
     return audits
 
 
+def _audit_source_attribution_inputs(root: Path) -> Mapping[str, Any]:
+    campaign_receipt_path = (
+        root / "evaluations" / "inputs" / "SOURCE_ATTRIBUTION_COMPLETE.json"
+    )
+    campaign_receipt = read_json(campaign_receipt_path)
+    _require(
+        campaign_receipt.get("status") == "complete"
+        and int(campaign_receipt.get("source_form_count", 0)) == 13,
+        "Source-attribution input freeze is incomplete",
+    )
+    audits = {}
+    for model_key in campaign.MODEL_KEYS:
+        useful_tasks = []
+        useful_root = root / "evaluations" / "inputs" / model_key / "useful_assertions"
+        for entry in read_jsonl(useful_root / "index.jsonl"):
+            tasks, observed_hash = evaluations.read_task_manifest(
+                useful_root / f"shard_{int(entry['shard']):04d}.jsonl"
+            )
+            _require(
+                observed_hash == str(entry["sha256"]),
+                f"Useful input changed for source matching: {model_key}",
+            )
+            useful_tasks.extend(tasks)
+
+        source_tasks = []
+        source_root = root / "evaluations" / "inputs" / model_key / "source_attribution"
+        for entry in read_jsonl(source_root / "index.jsonl"):
+            tasks, observed_hash = evaluations.read_task_manifest(
+                source_root / f"shard_{int(entry['shard']):04d}.jsonl"
+            )
+            _require(
+                observed_hash == str(entry["sha256"]),
+                f"Source-attribution input changed: {model_key}",
+            )
+            source_tasks.extend(tasks)
+        try:
+            audits[model_key] = evaluations.validate_source_attribution_design(
+                source_tasks, useful_tasks, model_key
+            )
+        except evaluations.EvaluationError as error:
+            raise AuditError(str(error)) from error
+        model_receipt_path = (
+            root
+            / "evaluations"
+            / "inputs"
+            / model_key
+            / "SOURCE_ATTRIBUTION_COMPLETE.json"
+        )
+        expected = dict(campaign_receipt.get("models", {})).get(model_key, {})
+        _authenticated(model_receipt_path, str(expected.get("receipt_sha256", "")))
+    return audits
+
+
 def _audit_raw_evaluation_records(root: Path) -> int:
     observed = 0
     reasoning_counts = Counter()
     reasoning_template_counts = Counter()
     for model_key in campaign.MODEL_KEYS:
         for state_id in campaign.PRIMARY_STATE_IDS:
-            for family in ("generalization", "useful_assertions", "capabilities"):
+            for family in evaluations.EVALUATION_FAMILIES:
                 family_root = root / "evaluations" / "results" / model_key / state_id / family
                 for directory in canonical_shard_directories(family_root):
                     path = directory / "records.jsonl"
@@ -755,6 +808,7 @@ def final_audit(args: argparse.Namespace) -> None:
     )
     evaluation_inputs = read_json(root / "evaluations" / "inputs" / "COMPLETE.json")
     useful_matched_design = _audit_useful_matched_inputs(root)
+    source_attribution_design = _audit_source_attribution_inputs(root)
     _require(
         evaluation_inputs.get("reasoning_backed_prompt_registry")
         == str(REASONING_BACKED_REGISTRY.resolve()),
@@ -808,6 +862,11 @@ def final_audit(args: argparse.Namespace) -> None:
         "pruning_effect.csv",
         "native_tool_transfer.csv",
         "native_tool_advantage.csv",
+        "source_attribution_cells.csv",
+        "source_form_advantage.csv",
+        "source_family_advantage.csv",
+        "source_attribution_pruning_effect.csv",
+        "source_family_pruning_effect.csv",
         "general_capabilities.csv",
     }
     _require(set(report.get("csv_files", {})) == expected_csv, "Paper-ready CSV coverage is incomplete")
@@ -820,12 +879,44 @@ def final_audit(args: argparse.Namespace) -> None:
         "generalization_movement.pdf",
         "reliable_source_advantage.png",
         "reliable_source_advantage.pdf",
+        "source_attribution_pruning_effect.png",
+        "source_attribution_pruning_effect.pdf",
     }
     figure_names = {Path(str(row["path"])).name for row in report.get("figures", [])}
     _require(figure_names == expected_figures, f"Paper-ready figure coverage is incomplete: {figure_names}")
     for row in report["figures"]:
         _authenticated(Path(str(row["path"])), str(row["sha256"]))
     paper_results = read_json(root / "reports" / "paper_results.json")
+    source_family_rows = list(paper_results.get("source_family_advantage", []))
+    expected_source_families = {
+        "quantified_reliability",
+        "human_expertise",
+        "vetted_reference",
+        "independent_corroboration",
+        "native_structured_tool",
+    }
+    _require(
+        {str(row.get("source_family")) for row in source_family_rows}
+        == expected_source_families,
+        "Source-attribution report lacks one or more source families",
+    )
+    _require(
+        {str(row.get("claim_type")) for row in source_family_rows}
+        == {"suggest_c", "suggest_w", "doubt_c", "doubt_w"}
+        and {str(row.get("turn_format")) for row in source_family_rows}
+        == {"single_turn", "multi_turn"},
+        "Source-attribution report lacks a truth-direction or turn-format cell",
+    )
+    source_pruning_rows = list(
+        paper_results.get("source_family_pruning_effect", [])
+    )
+    _require(
+        {str(row.get("comparison_attribution")) for row in source_pruning_rows}
+        == {"sampled_source", "bare_user"}
+        and {str(row.get("state_id")) for row in source_pruning_rows}
+        == set(campaign.PRIMARY_STATE_IDS).difference({"unpruned"}),
+        "Source-attribution pruning report lacks matched user/source state effects",
+    )
     reported_capabilities = {
         "TriviaQA" if row["benchmark"] == "TriviaQA-Wiki" else row["benchmark"]
         for row in paper_results.get("general_capabilities", [])
@@ -883,6 +974,7 @@ def final_audit(args: argparse.Namespace) -> None:
         "state_ids": list(campaign.PRIMARY_STATE_IDS),
         "raw_evaluation_record_count": raw_record_count,
         "useful_matched_design": useful_matched_design,
+        "source_attribution_design": source_attribution_design,
         "primary_state_mask_count_per_model": 4,
         "localization_mask_count_per_model": 2,
         "primary_masks_exactly_1000": True,

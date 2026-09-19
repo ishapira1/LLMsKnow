@@ -358,11 +358,15 @@ class RuntimeIsolationTests(unittest.TestCase):
             self.assertIn(state_id, runner)
         self.assertIn("run-state-sequence", runner)
         self.assertIn(
-            "all) evaluation_families=(generalization useful_assertions capabilities)",
+            "all) evaluation_families=(generalization useful_assertions source_attribution capabilities)",
             runner,
         )
         self.assertIn(
-            "paper_core) evaluation_families=(generalization useful_assertions)",
+            "paper_core) evaluation_families=(generalization useful_assertions source_attribution)",
+            runner,
+        )
+        self.assertIn(
+            "source_attribution) evaluation_families=(source_attribution)",
             runner,
         )
         self.assertIn(
@@ -1334,6 +1338,85 @@ class EvaluationDesignTests(unittest.TestCase):
             evaluations.validate_useful_matched_design(
                 tampered, "llama31_8b"
             )
+
+    def test_source_attribution_sweep_samples_one_balanced_matched_form(self) -> None:
+        questions = []
+        neutral = {}
+        for index in range(26):
+            question = core.Question(
+                dataset_id="commonsense_qa",
+                source_example_id=f"source-q-{index:03d}",
+                source_split="validation",
+                question=f"Source sweep question {index}?",
+                labels=("A", "B", "C", "D"),
+                answers=("one", "two", "three", "four"),
+                gold="B",
+            )
+            questions.append(question)
+            neutral_label = "B" if index < 13 else "D"
+            neutral[evaluations._question_key(question)] = {
+                "parse_status": "valid",
+                "parsed_value": neutral_label,
+                "forced_choice_probabilities": {
+                    label: 0.7 if label == neutral_label else 0.1
+                    for label in question.labels
+                },
+            }
+        useful = evaluations._useful_tasks_for_model(
+            self.config, "llama31_8b", questions, neutral
+        )
+        source_tasks = evaluations._source_attribution_tasks_for_model(
+            self.config, "llama31_8b", questions, neutral
+        )
+        audit_result = evaluations.validate_source_attribution_design(
+            source_tasks, useful, "llama31_8b"
+        )
+        self.assertEqual(26, audit_result["question_count"])
+        self.assertEqual(104, audit_result["task_count"])
+        self.assertEqual(13, audit_result["source_form_count"])
+        self.assertTrue(audit_result["native_tool_included"])
+        by_question = {}
+        for task in source_tasks:
+            by_question.setdefault(task.metadata["question_key"], []).append(task)
+        self.assertEqual({4}, {len(tasks) for tasks in by_question.values()})
+        self.assertTrue(
+            all(
+                len({task.metadata["source_form_id"] for task in tasks}) == 1
+                for tasks in by_question.values()
+            )
+        )
+        self.assertEqual(
+            13,
+            len({tasks[0].metadata["source_form_id"] for tasks in by_question.values()}),
+        )
+        native = [
+            task
+            for task in source_tasks
+            if task.metadata["source_form_id"] == "native_structured_tool"
+        ]
+        self.assertEqual(8, len(native))
+        self.assertEqual(set(core.TURN_FORMATS), {task.metadata["turn_format"] for task in native})
+        self.assertTrue(all(task.tools for task in native))
+        text = [task for task in source_tasks if not task.tools]
+        self.assertEqual(96, len(text))
+        self.assertEqual(
+            {
+                "quantified_reliability",
+                "human_expertise",
+                "vetted_reference",
+                "independent_corroboration",
+            },
+            {task.metadata["template_family"] for task in text},
+        )
+        user_ids = {
+            task.example_id
+            for task in useful
+            if task.evaluator_id == "bonham_useful_assertions_v1"
+            and task.metadata["claim_attribution"] == "bare_user"
+        }
+        self.assertTrue(
+            all(task.metadata["matched_user_example_id"] in user_ids for task in source_tasks)
+        )
 
     def test_reporting_uses_opposite_directions_for_suggestion_and_doubt(self) -> None:
         common = {

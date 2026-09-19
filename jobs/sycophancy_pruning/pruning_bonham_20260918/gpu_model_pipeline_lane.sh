@@ -36,7 +36,8 @@ case "$mode" in
     state_id="${1:?state id is required}"
     family_set="${2:?evaluation family set is required}"
     case "$family_set" in
-      paper_core) families=(generalization useful_assertions) ;;
+      paper_core) families=(generalization useful_assertions source_attribution) ;;
+      source_attribution) families=(source_attribution) ;;
       capabilities) families=(capabilities) ;;
       *) printf 'unknown evaluation family set: %s\n' "$family_set" >&2; exit 2 ;;
     esac

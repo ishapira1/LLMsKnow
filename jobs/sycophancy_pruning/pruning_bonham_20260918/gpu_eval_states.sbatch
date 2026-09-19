@@ -40,11 +40,12 @@ PYTHON_BIN="$(python_for_model "$MODEL_KEY")"; export PYTHON_BIN
 # The default preserves the full original runner.  The paper-core preset lets the
 # accelerated campaign finish the Section 4/5 analyses before the capability tail.
 case "${EVALUATION_FAMILY_SET:-all}" in
-  all) evaluation_families=(generalization useful_assertions capabilities) ;;
-  paper_core) evaluation_families=(generalization useful_assertions) ;;
+  all) evaluation_families=(generalization useful_assertions source_attribution capabilities) ;;
+  paper_core) evaluation_families=(generalization useful_assertions source_attribution) ;;
+  source_attribution) evaluation_families=(source_attribution) ;;
   capabilities) evaluation_families=(capabilities) ;;
   *)
-    printf 'EVALUATION_FAMILY_SET must be all, paper_core, or capabilities: %s\n' \
+    printf 'EVALUATION_FAMILY_SET must be all, paper_core, source_attribution, or capabilities: %s\n' \
       "$EVALUATION_FAMILY_SET" >&2
     exit 2
     ;;

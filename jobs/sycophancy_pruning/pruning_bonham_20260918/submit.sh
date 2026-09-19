@@ -21,7 +21,7 @@ submit_job() {
     score_component) command+=(--time 24:00:00 --mem 120G) ;;
     neutral_screen) command+=(--time 00:10:00 --mem 48G) ;;
     n1_screen|source_screen) command+=(--time 06:00:00) ;;
-    eval_generalization|eval_useful_assertions|eval_capabilities) command+=(--time 05:00:00) ;;
+    eval_generalization|eval_useful_assertions|eval_source_attribution|eval_capabilities) command+=(--time 05:00:00) ;;
     evalplus_run) command+=(--time 03:00:00 --cpus-per-task 8 --mem 24G) ;;
   esac
   command+=("$script")
@@ -105,6 +105,7 @@ done
 screen_dependencies="${n1_screens[0]}:${n1_screens[1]}:${n1_screens[2]}:${source_screens[0]}:${source_screens[1]}:${source_screens[2]}"
 allocate="$(submit_job bonh_allocate_0918 allocate_manifests "$cpu" "$screen_dependencies" '' shared '' '')"
 eval_prepare="$(submit_job bonh_evalprep_0918 eval_prepare "$cpu" "$allocate:$cap_sources" '' shared '' '')"
+source_attribution_prepare="$(submit_job bonh_srcprep_0918 source_attribution_prepare "$cpu" "$eval_prepare" '' shared '' '')"
 
 scores=(); masks=(); randoms=(); states=(); steer_preps=(); steer_extracts=(); steer_develops=(); weights=()
 for index in 0 1 2; do
@@ -128,7 +129,7 @@ done
 
 weight_aggregate="$(submit_job bonh_weightagg_0918 weight_aggregate "$cpu" "${weights[0]}:${weights[1]}:${weights[2]}" '' shared '' '')"
 
-eval_general=(); eval_useful=(); eval_caps=()
+eval_general=(); eval_useful=(); eval_source=(); eval_caps=()
 for index in 0 1 2; do
   model="${models[$index]}"
   if [[ "$model" == qwen25_7b ]]; then
@@ -141,10 +142,11 @@ for index in 0 1 2; do
   eval_dependency="$eval_prepare:${states[$index]}:${steer_develops[$index]}"
   eval_general[$index]="$(submit_job "bonh_${model}_gen" eval_generalization "$gpu" "$eval_dependency" '0-479%16' "$model" "$partition" "$gres")"
   eval_useful[$index]="$(submit_job "bonh_${model}_use" eval_useful_assertions "$gpu" "$eval_dependency" '0-959%16' "$model" "$partition" "$gres")"
+  eval_source[$index]="$(submit_job "bonh_${model}_srcattr" eval_source_attribution "$gpu" "$source_attribution_prepare:${states[$index]}:${steer_develops[$index]}" '0-479%16' "$model" "$partition" "$gres")"
   eval_caps[$index]="$(submit_job "bonh_${model}_cap" eval_capabilities "$gpu" "$eval_dependency" '0-639%16' "$model" "$partition" "$gres")"
 done
 
-all_eval_dependencies="${eval_general[0]}:${eval_general[1]}:${eval_general[2]}:${eval_useful[0]}:${eval_useful[1]}:${eval_useful[2]}:${eval_caps[0]}:${eval_caps[1]}:${eval_caps[2]}"
+all_eval_dependencies="${eval_general[0]}:${eval_general[1]}:${eval_general[2]}:${eval_useful[0]}:${eval_useful[1]}:${eval_useful[2]}:${eval_source[0]}:${eval_source[1]}:${eval_source[2]}:${eval_caps[0]}:${eval_caps[1]}:${eval_caps[2]}"
 eval_validate="$(submit_job bonh_evalval_0918 eval_validate "$cpu" "$all_eval_dependencies" '' shared '' '')"
 evalplus_prepare="$(submit_job bonh_eprep_0918 evalplus_prepare "$cpu" "${eval_caps[0]}:${eval_caps[1]}:${eval_caps[2]}" '' shared '' '')"
 evalplus_run="$(submit_job bonh_eprun_0918 evalplus_run "$cpu" "$evalplus_prepare" '0-191%40' shared '' '')"

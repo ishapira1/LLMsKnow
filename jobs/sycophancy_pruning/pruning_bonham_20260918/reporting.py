@@ -221,6 +221,7 @@ def _useful_effect_rows(
         known_wrong = str(metadata["wrong_label"])
         output.append(
             {
+                "example_id": str(row.get("example_id", "")),
                 "model_key": model_key,
                 "state_id": state_id,
                 "dataset_id": str(row["dataset_id"]),
@@ -231,6 +232,12 @@ def _useful_effect_rows(
                 "claim_attribution": metadata["claim_attribution"],
                 "turn_format": metadata["turn_format"],
                 "neutral_cohort": metadata["neutral_cohort"],
+                "template_family": metadata.get("template_family"),
+                "template_id": metadata.get("template_id"),
+                "source_form_id": metadata.get("source_form_id"),
+                "source_form_index": metadata.get("source_form_index"),
+                "source_template_text": metadata.get("source_template_text"),
+                "matched_user_example_id": metadata.get("matched_user_example_id"),
                 "probability_movement": movement,
                 "log_odds_movement": log_odds,
                 "adoption_or_rejection": (
@@ -412,6 +419,132 @@ def _matched_differences(
     return output
 
 
+def _source_sweep_matched_rows(
+    source_rows: Sequence[Mapping[str, Any]],
+    useful_rows: Sequence[Mapping[str, Any]],
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+    """Pair every sampled source response with its exact frozen bare-user row."""
+
+    user_index = {
+        (row["model_key"], row["state_id"], row["example_id"]): row
+        for row in useful_rows
+        if row.get("claim_attribution") == "bare_user"
+    }
+    advantage_rows = []
+    paired_observations = []
+    signature_fields = (
+        "model_key",
+        "state_id",
+        "dataset_id",
+        "question_id",
+        "claim_truth",
+        "claim_type",
+        "turn_format",
+        "neutral_cohort",
+    )
+    for source in source_rows:
+        matched_id = str(source.get("matched_user_example_id", ""))
+        user = user_index.get((source["model_key"], source["state_id"], matched_id))
+        if user is None:
+            raise ReportingError(
+                f"Source sweep row lacks its matched bare-user result: {matched_id}"
+            )
+        if tuple(source.get(field) for field in signature_fields) != tuple(
+            user.get(field) for field in signature_fields
+        ):
+            raise ReportingError(
+                f"Source sweep result changed its matched user identity: {source['example_id']}"
+            )
+        common = {
+            field: source.get(field)
+            for field in signature_fields
+        }
+        common.update(
+            {
+                "source_form_id": source.get("source_form_id"),
+                "source_form_index": source.get("source_form_index"),
+                "source_family": source.get("template_family"),
+                "source_template_text": source.get("source_template_text"),
+                "source_claim_attribution": source.get("claim_attribution"),
+            }
+        )
+        advantage_rows.append(
+            {
+                **common,
+                "comparison": "source_minus_matched_bare_user",
+                **{
+                    metric: (
+                        None
+                        if source.get(metric) is None or user.get(metric) is None
+                        else float(source[metric]) - float(user[metric])
+                    )
+                    for metric in USEFUL_METRICS
+                },
+            }
+        )
+        for attribution, row in (("sampled_source", source), ("bare_user", user)):
+            paired_observations.append(
+                {
+                    **common,
+                    "comparison_attribution": attribution,
+                    **{metric: row.get(metric) for metric in USEFUL_METRICS},
+                }
+            )
+    return advantage_rows, paired_observations
+
+
+def _source_sweep_pruning_rows(
+    paired_observations: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Return state minus unpruned effects for source and matched-user responses."""
+
+    identity_fields = (
+        "model_key",
+        "dataset_id",
+        "question_id",
+        "claim_truth",
+        "claim_type",
+        "turn_format",
+        "neutral_cohort",
+        "source_form_id",
+        "source_form_index",
+        "source_family",
+        "source_template_text",
+        "source_claim_attribution",
+        "comparison_attribution",
+    )
+    indexed = {
+        tuple(row.get(field) for field in identity_fields) + (row["state_id"],): row
+        for row in paired_observations
+    }
+    output = []
+    for key, row in sorted(indexed.items(), key=lambda item: tuple(str(v) for v in item[0])):
+        state_id = str(key[-1])
+        if state_id == "unpruned":
+            continue
+        baseline = indexed.get(key[:-1] + ("unpruned",))
+        if baseline is None:
+            raise ReportingError(
+                f"Source-attribution pruning baseline is absent: {key[:-1]}"
+            )
+        output.append(
+            {
+                **dict(zip(identity_fields, key[:-1])),
+                "state_id": state_id,
+                "comparison": "state_minus_unpruned",
+                **{
+                    metric: (
+                        None
+                        if row.get(metric) is None or baseline.get(metric) is None
+                        else float(row[metric]) - float(baseline[metric])
+                    )
+                    for metric in USEFUL_METRICS
+                },
+            }
+        )
+    return output
+
+
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     headers = sorted({key for row in rows for key in row})
     stream = io.StringIO()
@@ -563,6 +696,7 @@ def _figures(
     output: Path,
     macros: Sequence[Mapping[str, Any]],
     source_advantage: Sequence[Mapping[str, Any]],
+    source_family_pruning_effect: Sequence[Mapping[str, Any]],
 ) -> list[Mapping[str, Any]]:
     import matplotlib.pyplot as plt
     import pandas as pd
@@ -646,6 +780,54 @@ def _figures(
             figure.savefig(path, dpi=300, bbox_inches="tight")
             artifacts.append({"path": str(path), "sha256": sha256_file(path)})
         plt.close(figure)
+    source_damage_rows = [
+        row
+        for row in source_family_pruning_effect
+        if row["metric"] == "probability_movement"
+        and row["state_id"] in {"n1_mechanism", "n2_selective"}
+        and row["comparison_attribution"] == "sampled_source"
+    ]
+    if source_damage_rows:
+        frame = pd.DataFrame(source_damage_rows)
+        family_order = [
+            "quantified_reliability",
+            "human_expertise",
+            "vetted_reference",
+            "independent_corroboration",
+            "native_structured_tool",
+        ]
+        figure, axis = plt.subplots(figsize=(12, 6.8))
+        sns.barplot(
+            data=frame,
+            x="source_family",
+            y="mean",
+            order=family_order,
+            hue="state_id",
+            hue_order=["n1_mechanism", "n2_selective"],
+            palette=["#73b3ab", "#d4651a"],
+            errorbar=None,
+            ax=axis,
+        )
+        axis.axhline(0.0, color="#555555", linewidth=1)
+        axis.set_title("Pruning Effect on Updating Across Source Forms", fontsize=19)
+        axis.set_xlabel("Source family", fontsize=15)
+        axis.set_ylabel("Pruned minus unpruned response movement", fontsize=15)
+        axis.tick_params(axis="both", labelsize=12)
+        axis.tick_params(axis="x", rotation=18)
+        axis.legend(
+            title="Model state",
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.23),
+            ncol=2,
+            frameon=True,
+        )
+        sns.despine(axis=axis)
+        figure.tight_layout()
+        for suffix in ("png", "pdf"):
+            path = output / f"source_attribution_pruning_effect.{suffix}"
+            figure.savefig(path, dpi=300, bbox_inches="tight")
+            artifacts.append({"path": str(path), "sha256": sha256_file(path)})
+        plt.close(figure)
     return artifacts
 
 
@@ -654,6 +836,7 @@ def report(args: argparse.Namespace) -> None:
     output = root / "reports"
     all_general_effects = []
     all_useful_effects = []
+    all_source_attribution_effects = []
     for model_key in campaign.MODEL_KEYS:
         for state_id in campaign.PRIMARY_STATE_IDS:
             general_records = _records(root, model_key, state_id, "generalization")
@@ -670,6 +853,14 @@ def report(args: argparse.Namespace) -> None:
             all_useful_effects.extend(
                 _useful_effect_rows(
                     useful_records, neutral, model_key, state_id
+                )
+            )
+            source_records = _records(
+                root, model_key, state_id, "source_attribution"
+            )
+            all_source_attribution_effects.extend(
+                _useful_effect_rows(
+                    source_records, neutral, model_key, state_id
                 )
             )
     primary_general = [
@@ -832,6 +1023,91 @@ def report(args: argparse.Namespace) -> None:
         ("model_key", "state_id", "dataset_id", "claim_truth", "claim_type"),
         USEFUL_METRICS,
     )
+    source_sweep_advantage_rows, source_sweep_paired = _source_sweep_matched_rows(
+        all_source_attribution_effects,
+        useful_primary,
+    )
+    source_attribution_cells = _summaries(
+        all_source_attribution_effects,
+        (
+            "model_key",
+            "state_id",
+            "dataset_id",
+            "claim_truth",
+            "claim_type",
+            "turn_format",
+            "neutral_cohort",
+            "template_family",
+            "source_form_id",
+            "source_form_index",
+        ),
+        USEFUL_METRICS,
+    )
+    source_form_advantage = _summaries(
+        source_sweep_advantage_rows,
+        (
+            "model_key",
+            "state_id",
+            "dataset_id",
+            "claim_truth",
+            "claim_type",
+            "turn_format",
+            "neutral_cohort",
+            "source_family",
+            "source_form_id",
+            "source_form_index",
+        ),
+        USEFUL_METRICS,
+    )
+    source_family_advantage = _summaries(
+        source_sweep_advantage_rows,
+        (
+            "model_key",
+            "state_id",
+            "dataset_id",
+            "claim_truth",
+            "claim_type",
+            "turn_format",
+            "neutral_cohort",
+            "source_family",
+        ),
+        USEFUL_METRICS,
+    )
+    source_sweep_pruning_rows = _source_sweep_pruning_rows(
+        source_sweep_paired
+    )
+    source_attribution_pruning_effect = _summaries(
+        source_sweep_pruning_rows,
+        (
+            "model_key",
+            "state_id",
+            "dataset_id",
+            "claim_truth",
+            "claim_type",
+            "turn_format",
+            "neutral_cohort",
+            "source_family",
+            "source_form_id",
+            "source_form_index",
+            "comparison_attribution",
+        ),
+        USEFUL_METRICS,
+    )
+    source_family_pruning_effect = _summaries(
+        source_sweep_pruning_rows,
+        (
+            "model_key",
+            "state_id",
+            "dataset_id",
+            "claim_truth",
+            "claim_type",
+            "turn_format",
+            "neutral_cohort",
+            "source_family",
+            "comparison_attribution",
+        ),
+        USEFUL_METRICS,
+    )
     capabilities = _capability_rows(root)
     artifacts = {
         "generalization_cells.csv": general_cells,
@@ -843,6 +1119,11 @@ def report(args: argparse.Namespace) -> None:
         "pruning_effect.csv": pruning_effect,
         "native_tool_transfer.csv": native_transfer,
         "native_tool_advantage.csv": native_advantage,
+        "source_attribution_cells.csv": source_attribution_cells,
+        "source_form_advantage.csv": source_form_advantage,
+        "source_family_advantage.csv": source_family_advantage,
+        "source_attribution_pruning_effect.csv": source_attribution_pruning_effect,
+        "source_family_pruning_effect.csv": source_family_pruning_effect,
         "general_capabilities.csv": capabilities,
     }
     for filename, rows in artifacts.items():
@@ -859,10 +1140,20 @@ def report(args: argparse.Namespace) -> None:
         "pruning_effect": pruning_effect,
         "native_tool_transfer": native_transfer,
         "native_tool_advantage": native_advantage,
+        "source_attribution_cells": source_attribution_cells,
+        "source_form_advantage": source_form_advantage,
+        "source_family_advantage": source_family_advantage,
+        "source_attribution_pruning_effect": source_attribution_pruning_effect,
+        "source_family_pruning_effect": source_family_pruning_effect,
         "general_capabilities": capabilities,
     }
     atomic_json(output / "paper_results.json", full_payload)
-    figure_receipts = _figures(output, macros, source_advantage)
+    figure_receipts = _figures(
+        output,
+        macros,
+        source_advantage,
+        source_family_pruning_effect,
+    )
     latex = [
         "\\begin{tabular}{llllrrrr}",
         "Model & State & Dataset & Regime & Mean & CI low & CI high & Categories \\\\ ",

@@ -65,6 +65,12 @@ case "$STAGE" in
   eval_prepare_model)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/evaluations.py" prepare --result-root "$RESULT_ROOT" --suite-source-bindings "$SUITE_SOURCE_BINDINGS" --external-utility-root "$CAPABILITY_SOURCE_ROOT" --model-key "$MODEL_KEY")
     ;;
+  source_attribution_prepare)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/evaluations.py" prepare-source-attribution --result-root "$RESULT_ROOT")
+    ;;
+  source_attribution_prepare_model)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/evaluations.py" prepare-source-attribution --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY")
+    ;;
   weight_model)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/weight_analysis.py" analyze-model --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY")
     ;;

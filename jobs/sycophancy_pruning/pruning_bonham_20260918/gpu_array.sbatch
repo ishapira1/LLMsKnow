@@ -60,12 +60,14 @@ case "$STAGE" in
   steering_develop)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/steering.py" develop --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY" --hf-cache "$HF_CACHE_DIR")
     ;;
-  eval_generalization|eval_useful_assertions|eval_capabilities)
+  eval_generalization|eval_useful_assertions|eval_source_attribution|eval_capabilities)
     states=(unpruned n1_mechanism n2_selective random_n1 random_n2 weak_prompt strong_prompt prompt_only_meandiff)
     if [[ "$STAGE" == eval_generalization ]]; then
       family=generalization; stride=60
     elif [[ "$STAGE" == eval_useful_assertions ]]; then
       family=useful_assertions; stride=120
+    elif [[ "$STAGE" == eval_source_attribution ]]; then
+      family=source_attribution; stride=60
     else
       family=capabilities; stride=80
     fi

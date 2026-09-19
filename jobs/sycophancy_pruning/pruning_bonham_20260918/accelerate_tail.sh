@@ -96,6 +96,7 @@ wait_for_eval_prerequisites() {
   while true; do
     ready=1
     [[ -f "$RESULT_ROOT/evaluations/inputs/COMPLETE.json" ]] || ready=0
+    [[ -f "$RESULT_ROOT/evaluations/inputs/SOURCE_ATTRIBUTION_COMPLETE.json" ]] || ready=0
     for model in qwen25_7b llama31_8b gemma4_12b; do
       [[ -f "$RESULT_ROOT/states/$model/MASK_STATES_COMPLETE.json" ]] || ready=0
       [[ -f "$RESULT_ROOT/steering/$model/frozen/COMPLETE.json" ]] || ready=0
@@ -115,6 +116,7 @@ wait_for_model_eval_prerequisites() {
     ready=1
     for model in "$@"; do
       [[ -f "$RESULT_ROOT/evaluations/inputs/$model/COMPLETE.json" ]] || ready=0
+      [[ -f "$RESULT_ROOT/evaluations/inputs/$model/SOURCE_ATTRIBUTION_COMPLETE.json" ]] || ready=0
       [[ -f "$RESULT_ROOT/states/$model/MASK_STATES_COMPLETE.json" ]] || ready=0
     done
     if (( ready == 1 )); then
@@ -246,7 +248,7 @@ wait_for_evaluation_artifacts() {
   while true; do
     ready=1
     for model in qwen25_7b llama31_8b gemma4_12b; do
-      for family in generalization useful_assertions capabilities; do
+      for family in generalization useful_assertions source_attribution capabilities; do
         index_path="$RESULT_ROOT/evaluations/inputs/$model/$family/index.jsonl"
         if [[ ! -s "$index_path" ]]; then
           ready=0
