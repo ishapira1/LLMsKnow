@@ -21,6 +21,7 @@ require_runtime
 
 STATE_OFFSET="${STATE_OFFSET:-0}"
 STATE_COUNT="${STATE_COUNT:-${SLURM_NTASKS:-1}}"
+STATE_INDICES="${STATE_INDICES:-}"
 GPUS_PER_STATE="${GPUS_PER_STATE:-1}"
 CPUS_PER_STATE="${CPUS_PER_STATE:-4}"
 MEM_PER_STATE="${MEM_PER_STATE:-48G}"
@@ -28,9 +29,27 @@ if ! [[ "$STATE_OFFSET" =~ ^[0-9]+$ && "$STATE_COUNT" =~ ^[1-9][0-9]*$ && "$GPUS
   printf 'STATE_OFFSET must be non-negative; STATE_COUNT/GPUS_PER_STATE must be positive\n' >&2
   exit 2
 fi
-if (( STATE_OFFSET + STATE_COUNT > 8 )); then
-  printf 'Requested state range exceeds the eight frozen states\n' >&2
-  exit 2
+state_indices=()
+if [[ -n "$STATE_INDICES" ]]; then
+  IFS=':' read -r -a state_indices <<< "$STATE_INDICES"
+  declare -A seen_state_indices=()
+  for state_index in "${state_indices[@]}"; do
+    if ! [[ "$state_index" =~ ^[0-7]$ ]] || [[ -n "${seen_state_indices[$state_index]:-}" ]]; then
+      printf 'STATE_INDICES must contain unique colon-separated indices from 0 through 7: %s\n' \
+        "$STATE_INDICES" >&2
+      exit 2
+    fi
+    seen_state_indices[$state_index]=1
+  done
+  STATE_COUNT="${#state_indices[@]}"
+else
+  if (( STATE_OFFSET + STATE_COUNT > 8 )); then
+    printf 'Requested state range exceeds the eight frozen states\n' >&2
+    exit 2
+  fi
+  for ((within = 0; within < STATE_COUNT; within++)); do
+    state_indices+=("$((STATE_OFFSET + within))")
+  done
 fi
 if (( GPUS_PER_STATE > 1 )); then
   export LLMSSYCOPH_DEVICE_MAP_AUTO=1
@@ -63,8 +82,8 @@ states=(
 
 cd "$REPO_DIR"
 start_epoch="$(date +%s)"
-printf 'experiment=pruning_bonham_20260918\nstage=evaluation_state_sequence\nmodel=%s\nstate_offset=%s\nstate_count=%s\ngpus_per_state=%s\nmem_per_state=%s\nfamilies=%s\n' \
-  "$MODEL_KEY" "$STATE_OFFSET" "$STATE_COUNT" "$GPUS_PER_STATE" "$MEM_PER_STATE" "${evaluation_families[*]}"
+printf 'experiment=pruning_bonham_20260918\nstage=evaluation_state_sequence\nmodel=%s\nstate_offset=%s\nstate_indices=%s\nstate_count=%s\ngpus_per_state=%s\nmem_per_state=%s\nfamilies=%s\n' \
+  "$MODEL_KEY" "$STATE_OFFSET" "${state_indices[*]}" "$STATE_COUNT" "$GPUS_PER_STATE" "$MEM_PER_STATE" "${evaluation_families[*]}"
 printf 'slurm_job_id=%s\nhostname=%s\nworking_directory=%s\npython=%s\nstart_time=%s\n' \
   "${SLURM_JOB_ID:-unset}" "$(hostname)" "$PWD" "$PYTHON_BIN" "$(date -Is)"
 nvidia-smi || true
@@ -80,8 +99,7 @@ requeue_job() {
 }
 trap requeue_job USR1
 
-for ((within = 0; within < STATE_COUNT; within++)); do
-  state_index="$((STATE_OFFSET + within))"
+for state_index in "${state_indices[@]}"; do
   state_id="${states[$state_index]}"
   command=(
     "$PYTHON_BIN" "$BUNDLE_DIR/evaluations.py" run-state-sequence

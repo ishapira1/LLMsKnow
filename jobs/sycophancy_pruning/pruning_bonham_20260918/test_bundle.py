@@ -567,6 +567,17 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn('scancel "$existing"', source)
         self.assertIn("source_wave_complete", source)
         self.assertIn("replace_terminal_job", source)
+        self.assertIn("missing_source_indices", source)
+        self.assertIn("submit_missing_wave", source)
+        self.assertIn("STATE_INDICES", source)
+
+    def test_state_evaluator_accepts_noncontiguous_state_pack(self) -> None:
+        source = (
+            Path(__file__).resolve().parent / "gpu_eval_states.sbatch"
+        ).read_text(encoding="utf-8")
+        self.assertIn('STATE_INDICES="${STATE_INDICES:-}"', source)
+        self.assertIn("unique colon-separated indices", source)
+        self.assertIn('for state_index in "${state_indices[@]}"', source)
 
     def test_gemma_exact_supplement_preserves_original_cell_quota(self) -> None:
         bundle = Path(__file__).resolve().parent

@@ -56,6 +56,25 @@ source_wave_complete() {
   done
 }
 
+missing_source_indices() {
+  local model="$1" shard_count state_index state_id observed separator=''
+  local -a states=(
+    unpruned n1_mechanism n2_selective random_n1
+    random_n2 weak_prompt strong_prompt prompt_only_meandiff
+  )
+  shard_count="$(wc -l < "$RESULT_ROOT/evaluations/inputs/$model/source_attribution/index.jsonl" | tr -d ' ')"
+  for ((state_index = 0; state_index < 8; state_index++)); do
+    state_id="${states[$state_index]}"
+    observed="$(find "$RESULT_ROOT/evaluations/results/$model/$state_id/source_attribution" \
+      -type f -name COMPLETE 2>/dev/null | wc -l | tr -d ' ')"
+    if (( observed < shard_count )); then
+      printf '%s%s' "$separator" "$state_index"
+      separator=':'
+    fi
+  done
+  printf '\n'
+}
+
 wait_jobs() {
   local label="$1"
   shift
@@ -183,6 +202,48 @@ submit_wave() {
   printf '%s\n' "$job_id"
 }
 
+submit_missing_wave() {
+  local name="$1" model="$2" state_indices="$3"
+  local existing existing_state raw job_id state_count total_mem
+  local -a requested_indices
+  IFS=':' read -r -a requested_indices <<< "$state_indices"
+  state_count="${#requested_indices[@]}"
+  (( state_count > 0 && state_count <= 8 )) || {
+    printf 'Invalid missing-state pack for %s: %s\n' "$model" "$state_indices" >&2
+    return 2
+  }
+  total_mem="$((state_count * 48))G"
+  existing="$(job_id_by_name "$name")"
+  if [[ -n "$existing" ]]; then
+    existing_state="$(job_state "$existing")"
+    case "$existing_state" in
+      PENDING|RUNNING|CONFIGURING|COMPLETING|REQUEUED|RESIZING|SUSPENDED)
+        log "reuse_missing_wave name=$name job_id=$existing state=$existing_state"
+        printf '%s\n' "$existing"
+        return 0
+        ;;
+      COMPLETED)
+        name="${name}_$(date +%H%M%S)"
+        ;;
+    esac
+  fi
+  raw="$(sbatch --parsable \
+    --account="$ACCOUNT" --partition="$GPU_PARTITION" --job-name="$name" \
+    --nodes=1 --ntasks="$state_count" --cpus-per-task=4 --mem="$total_mem" --time=12:00:00 \
+    --gres="$GPU_GRES:$state_count" \
+    --export="ALL,BONHAM_BUNDLE_DIR=$BUNDLE_DIR,MODEL_KEY=$model,STATE_INDICES=$state_indices,STATE_COUNT=$state_count,GPUS_PER_STATE=1,CPUS_PER_STATE=4,MEM_PER_STATE=48G,EVALUATION_FAMILY_SET=source_attribution,EVALUATION_BATCH_SIZE=4" \
+    --output="$LOG_ROOT/slurm/gpu_eval_states/%x_%j.out" \
+    --error="$LOG_ROOT/slurm/gpu_eval_states/%x_%j.err" \
+    "$BUNDLE_DIR/gpu_eval_states.sbatch")"
+  job_id="${raw%%;*}"
+  [[ "$job_id" =~ ^[0-9]+$ ]] || {
+    printf 'Unexpected sbatch response for %s: %s\n' "$name" "$raw" >&2
+    return 2
+  }
+  log "submitted_missing_wave name=$name job_id=$job_id model=$model state_indices=$state_indices"
+  printf '%s\n' "$job_id"
+}
+
 wait_for_pipeline() {
   local model="$1" pipeline_name pipeline_id state
   case "$model" in
@@ -214,27 +275,27 @@ wait_for_pipeline() {
 }
 
 run_model_source_waves() {
-  local model="$1" short_name job_id
+  local model="$1" short_name job_id state_indices
   case "$model" in
     qwen25_7b) short_name=qwen ;;
     llama31_8b) short_name=llama ;;
     *) printf 'Unknown one-GPU source model: %s\n' "$model" >&2; return 2 ;;
   esac
   wait_for_pipeline "$model"
-  if source_wave_complete "$model" 0; then
-    log "source_wave_already_complete model=$model offset=0"
-  else
-    wait_for_gpu_test_slot
-    job_id="$(submit_wave "bonh_${short_name}_src0" "$model" 0 1 48G 4 192G)"
-    wait_jobs "${short_name}_source_0" "$job_id"
+  state_indices="$(missing_source_indices "$model")"
+  if [[ -z "$state_indices" ]]; then
+    log "source_family_already_complete model=$model"
+    return 0
   fi
-  if source_wave_complete "$model" 4; then
-    log "source_wave_already_complete model=$model offset=4"
-  else
-    wait_for_gpu_test_slot
-    job_id="$(submit_wave "bonh_${short_name}_src1" "$model" 4 1 48G 4 192G)"
-    wait_jobs "${short_name}_source_1" "$job_id"
-  fi
+  wait_for_gpu_test_slot
+  job_id="$(submit_missing_wave "bonh_${short_name}_srcgap" "$model" "$state_indices")"
+  wait_jobs "${short_name}_source_missing" "$job_id"
+  state_indices="$(missing_source_indices "$model")"
+  [[ -z "$state_indices" ]] || {
+    printf 'Packed source wave ended with missing states for %s: %s\n' \
+      "$model" "$state_indices" >&2
+    return 1
+  }
 }
 
 run_gemma_wave() {
