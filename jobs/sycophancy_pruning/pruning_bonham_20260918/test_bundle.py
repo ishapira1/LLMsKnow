@@ -597,7 +597,9 @@ class RuntimeIsolationTests(unittest.TestCase):
             Path(__file__).resolve().parent / "accelerate_gemma_exact.sh"
         ).read_text(encoding="utf-8")
         self.assertIn("supplement_receipts_complete", source)
-        self.assertIn("gpu_test_has_slot", source)
+        self.assertIn("gpu_test_clear", source)
+        self.assertNotIn("gpu_test_has_slot", source)
+        self.assertIn("block the paper-critical source-attribution handoff", source)
         self.assertIn('LANES=2,GPUS_PER_LANE=2', source)
         self.assertIn("promote_supplement", source)
         self.assertIn("promote_scores", source)
@@ -609,6 +611,25 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("reuse_score_job", source)
         self.assertIn("reuse_pipeline_job", source)
         self.assertIn("paired_prompts.COMPLETE.json", source)
+
+    def test_qwen_llama_source_sweep_precedes_deferred_capabilities(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        lane_source = (bundle / "gpu_model_pipeline_lane.sh").read_text(
+            encoding="utf-8"
+        )
+        supervisor_source = (
+            bundle / "accelerate_capabilities_after_source.sh"
+        ).read_text(encoding="utf-8")
+        marker = "DEFER_QWEN_LLAMA_CAPABILITIES_UNTIL_SOURCE"
+        self.assertIn(marker, lane_source)
+        self.assertIn('"$family_set" == capabilities', lane_source)
+        self.assertIn("capabilities_deferred_until_source", lane_source)
+        self.assertIn(marker, supervisor_source)
+        self.assertIn("wait_for_sources", supervisor_source)
+        self.assertIn("source_attribution", supervisor_source)
+        self.assertIn('rm -f "$DEFER_MARKER"', supervisor_source)
+        self.assertIn("run_wave 0", supervisor_source)
+        self.assertIn("run_wave 4", supervisor_source)
 
     def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

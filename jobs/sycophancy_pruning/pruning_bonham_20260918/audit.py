@@ -903,6 +903,8 @@ def final_audit(args: argparse.Namespace) -> None:
         "generalization_movement.pdf",
         "reliable_source_advantage.png",
         "reliable_source_advantage.pdf",
+        "source_family_advantage.png",
+        "source_family_advantage.pdf",
         "source_attribution_pruning_effect.png",
         "source_attribution_pruning_effect.pdf",
     }

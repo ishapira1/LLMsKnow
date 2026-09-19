@@ -696,6 +696,7 @@ def _figures(
     output: Path,
     macros: Sequence[Mapping[str, Any]],
     source_advantage: Sequence[Mapping[str, Any]],
+    source_family_advantage: Sequence[Mapping[str, Any]],
     source_family_pruning_effect: Sequence[Mapping[str, Any]],
 ) -> list[Mapping[str, Any]]:
     import matplotlib.pyplot as plt
@@ -736,7 +737,7 @@ def _figures(
             ncol=3,
             frameon=True,
         )
-        sns.despine(axis=axis)
+        sns.despine(ax=axis)
         figure.tight_layout()
         for suffix in ("png", "pdf"):
             path = output / f"generalization_movement.{suffix}"
@@ -773,10 +774,57 @@ def _figures(
             ncol=2,
             frameon=True,
         )
-        sns.despine(axis=axis)
+        sns.despine(ax=axis)
         figure.tight_layout()
         for suffix in ("png", "pdf"):
             path = output / f"reliable_source_advantage.{suffix}"
+            figure.savefig(path, dpi=300, bbox_inches="tight")
+            artifacts.append({"path": str(path), "sha256": sha256_file(path)})
+        plt.close(figure)
+    family_order = [
+        "quantified_reliability",
+        "human_expertise",
+        "vetted_reference",
+        "independent_corroboration",
+        "native_structured_tool",
+    ]
+    family_advantage_rows = [
+        row
+        for row in source_family_advantage
+        if row["metric"] == "probability_movement"
+        and row["state_id"] in selected_states
+    ]
+    if family_advantage_rows:
+        frame = pd.DataFrame(family_advantage_rows)
+        figure, axis = plt.subplots(figsize=(12, 6.8))
+        sns.barplot(
+            data=frame,
+            x="source_family",
+            y="mean",
+            order=family_order,
+            hue="state_id",
+            hue_order=["unpruned", "n1_mechanism", "n2_selective"],
+            palette=["#8c8c8c", "#73b3ab", "#d4651a"],
+            errorbar=None,
+            ax=axis,
+        )
+        axis.axhline(0.0, color="#555555", linewidth=1)
+        axis.set_title("Source-Family Advantage Over Matched User Claims", fontsize=19)
+        axis.set_xlabel("Source family", fontsize=15)
+        axis.set_ylabel("Source movement minus matched user movement", fontsize=15)
+        axis.tick_params(axis="both", labelsize=12)
+        axis.tick_params(axis="x", rotation=18)
+        axis.legend(
+            title="Model state",
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.23),
+            ncol=3,
+            frameon=True,
+        )
+        sns.despine(ax=axis)
+        figure.tight_layout()
+        for suffix in ("png", "pdf"):
+            path = output / f"source_family_advantage.{suffix}"
             figure.savefig(path, dpi=300, bbox_inches="tight")
             artifacts.append({"path": str(path), "sha256": sha256_file(path)})
         plt.close(figure)
@@ -789,13 +837,6 @@ def _figures(
     ]
     if source_damage_rows:
         frame = pd.DataFrame(source_damage_rows)
-        family_order = [
-            "quantified_reliability",
-            "human_expertise",
-            "vetted_reference",
-            "independent_corroboration",
-            "native_structured_tool",
-        ]
         figure, axis = plt.subplots(figsize=(12, 6.8))
         sns.barplot(
             data=frame,
@@ -821,7 +862,7 @@ def _figures(
             ncol=2,
             frameon=True,
         )
-        sns.despine(axis=axis)
+        sns.despine(ax=axis)
         figure.tight_layout()
         for suffix in ("png", "pdf"):
             path = output / f"source_attribution_pruning_effect.{suffix}"
@@ -1152,6 +1193,7 @@ def report(args: argparse.Namespace) -> None:
         output,
         macros,
         source_advantage,
+        source_family_advantage,
         source_family_pruning_effect,
     )
     latex = [
