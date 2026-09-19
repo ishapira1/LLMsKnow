@@ -36,6 +36,33 @@ gpu_test_has_slot() {
   (( active < 2 ))
 }
 
+latest_job_id_by_name() {
+  sacct -S 2026-09-19 -X -n --name "$1" --parsable2 --format=JobIDRaw 2>/dev/null \
+    | cut -d'|' -f1 | grep -E '^[0-9]+$' | sort -n | tail -1 || true
+}
+
+source_model_complete() {
+  local model="$1" shard_count state observed
+  local -a states=(
+    unpruned n1_mechanism n2_selective random_n1
+    random_n2 weak_prompt strong_prompt prompt_only_meandiff
+  )
+  shard_count="$(wc -l < "$RESULT_ROOT/evaluations/inputs/$model/source_attribution/index.jsonl" | tr -d ' ')"
+  for state in "${states[@]}"; do
+    observed="$(find "$RESULT_ROOT/evaluations/results/$model/$state/source_attribution" \
+      -type f -name COMPLETE 2>/dev/null | wc -l | tr -d ' ')"
+    (( observed >= shard_count )) || return 1
+  done
+}
+
+primary_gpu_tail_complete() {
+  local gemma_pipeline_id
+  source_model_complete qwen25_7b || return 1
+  source_model_complete llama31_8b || return 1
+  gemma_pipeline_id="$(latest_job_id_by_name bonh_gemma_pipeline)"
+  [[ -n "$gemma_pipeline_id" && "$(job_state "$gemma_pipeline_id")" == COMPLETED* ]]
+}
+
 submit_fallback() {
   local model_key="$1" short="$2" raw job_id
   raw="$(sbatch --parsable \
@@ -96,6 +123,7 @@ maybe_submit_model() {
   [[ -z "$fallback_id" ]] || return 1
   (( $(score_count "$model_key") < 7 )) || return 1
   (( $(active_array_tasks "$array_job_id") == 0 )) || return 1
+  primary_gpu_tail_complete || return 1
   gpu_test_has_slot || return 1
   scancel "$array_job_id" 2>/dev/null || true
   fallback_id="$(submit_fallback "$model_key" "$short")"

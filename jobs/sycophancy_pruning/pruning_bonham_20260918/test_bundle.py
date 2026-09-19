@@ -536,6 +536,9 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn('GPUS_PER_LANE=2', watcher)
         self.assertIn('--gres="$GPU_GRES:4"', watcher)
         self.assertIn("n1_seed17_prune:source_all_prune:n1_seed29_prune:source_false_prune", watcher)
+        self.assertIn("primary_gpu_tail_complete", watcher)
+        self.assertIn("source_model_complete qwen25_7b", watcher)
+        self.assertIn("bonh_gemma_pipeline", watcher)
 
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
         submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
