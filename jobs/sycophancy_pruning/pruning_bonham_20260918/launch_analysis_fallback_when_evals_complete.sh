@@ -20,44 +20,14 @@ job_state() {
   sacct -X -j "$1" -n -P -o State 2>/dev/null | head -1
 }
 
-wait_for_pipelines() {
-  local llama_state qwen_state combined
-  while true; do
-    llama_state="$(job_state "$LLAMA_PIPELINE_JOB_ID")"
-    qwen_state="$(job_state "$QWEN_PIPELINE_JOB_ID")"
-    printf 'time=%s llama_pipeline=%s qwen_pipeline=%s\n' \
-      "$(date -Is)" "$llama_state" "$qwen_state"
-    if [[ "$llama_state" == COMPLETED* && "$qwen_state" == COMPLETED* ]]; then
-      return 0
-    fi
-    combined="$llama_state:$qwen_state"
-    case "$combined" in
-      *FAILED*|*CANCELLED*|*OUT_OF_MEMORY*|*TIMEOUT*|*NODE_FAIL*)
-        printf 'pipeline_failure=%s\n' "$combined" >&2
-        return 1
-        ;;
-    esac
-    sleep "$POLL_SECONDS"
-  done
-}
-
 score_count() {
   find "$RESULT_ROOT/scores/$1" -mindepth 2 -maxdepth 2 \
     -type f -name COMPLETE.json 2>/dev/null | wc -l | tr -d ' '
 }
 
-wait_for_active_array_tasks() {
-  local job_id="$1" active
-  while true; do
-    active="$(
-      { squeue -h -j "$job_id" -t R,CG 2>/dev/null || true; } \
-        | wc -l | tr -d ' '
-    )"
-    if (( active == 0 )); then return 0; fi
-    printf 'time=%s waiting_for_active_analysis_tasks job=%s active=%s\n' \
-      "$(date -Is)" "$job_id" "$active"
-    sleep "$POLL_SECONDS"
-  done
+active_array_tasks() {
+  { squeue -h -j "$1" -t R,CG 2>/dev/null || true; } \
+    | wc -l | tr -d ' '
 }
 
 gpu_test_has_slot() {
@@ -85,38 +55,51 @@ submit_fallback() {
   printf '%s\n' "$job_id"
 }
 
-wait_for_pipelines
+llama_fallback=''
+qwen_fallback=''
+while [[ -z "$llama_fallback" || -z "$qwen_fallback" ]]; do
+  llama_state="$(job_state "$LLAMA_PIPELINE_JOB_ID")"
+  qwen_state="$(job_state "$QWEN_PIPELINE_JOB_ID")"
+  combined="$llama_state:$qwen_state"
+  printf 'time=%s llama_pipeline=%s qwen_pipeline=%s llama_analysis=%s qwen_analysis=%s\n' \
+    "$(date -Is)" "$llama_state" "$qwen_state" \
+    "${llama_fallback:-waiting}" "${qwen_fallback:-waiting}"
+  case "$combined" in
+    *FAILED*|*CANCELLED*|*OUT_OF_MEMORY*|*TIMEOUT*|*NODE_FAIL*)
+      printf 'pipeline_failure=%s\n' "$combined" >&2
+      exit 1
+      ;;
+  esac
 
-llama_missing=0
-qwen_missing=0
-(( $(score_count llama31_8b) == 7 )) || llama_missing=1
-(( $(score_count qwen25_7b) == 7 )) || qwen_missing=1
-
-if (( llama_missing == 1 )); then
-  wait_for_active_array_tasks "$LLAMA_ANALYSIS_ARRAY_JOB_ID"
-  scancel "$LLAMA_ANALYSIS_ARRAY_JOB_ID" 2>/dev/null || true
-fi
-if (( qwen_missing == 1 )); then
-  wait_for_active_array_tasks "$QWEN_ANALYSIS_ARRAY_JOB_ID"
-  scancel "$QWEN_ANALYSIS_ARRAY_JOB_ID" 2>/dev/null || true
-fi
-
-llama_fallback='complete'
-qwen_fallback='complete'
-while (( llama_missing == 1 || qwen_missing == 1 )); do
-  if (( qwen_missing == 1 )) && gpu_test_has_slot; then
-    qwen_fallback="$(submit_fallback qwen25_7b qwen)"
-    qwen_missing=0
-    printf 'time=%s submitted_model=qwen25_7b fallback=%s\n' \
-      "$(date -Is)" "$qwen_fallback"
+  if [[ -z "$qwen_fallback" && "$qwen_state" == COMPLETED* ]]; then
+    if (( $(score_count qwen25_7b) == 7 )); then
+      qwen_fallback='complete'
+    elif (( $(active_array_tasks "$QWEN_ANALYSIS_ARRAY_JOB_ID") == 0 )) && \
+        gpu_test_has_slot; then
+      scancel "$QWEN_ANALYSIS_ARRAY_JOB_ID" 2>/dev/null || true
+      qwen_fallback="$(submit_fallback qwen25_7b qwen)"
+      printf 'time=%s submitted_model=qwen25_7b fallback=%s\n' \
+        "$(date -Is)" "$qwen_fallback"
+    else
+      printf 'time=%s waiting_model=qwen25_7b reason=active_analysis_or_gpu_slot\n' \
+        "$(date -Is)"
+    fi
   fi
-  if (( llama_missing == 1 )) && gpu_test_has_slot; then
-    llama_fallback="$(submit_fallback llama31_8b llama)"
-    llama_missing=0
-    printf 'time=%s submitted_model=llama31_8b fallback=%s\n' \
-      "$(date -Is)" "$llama_fallback"
+  if [[ -z "$llama_fallback" && "$llama_state" == COMPLETED* ]]; then
+    if (( $(score_count llama31_8b) == 7 )); then
+      llama_fallback='complete'
+    elif (( $(active_array_tasks "$LLAMA_ANALYSIS_ARRAY_JOB_ID") == 0 )) && \
+        gpu_test_has_slot; then
+      scancel "$LLAMA_ANALYSIS_ARRAY_JOB_ID" 2>/dev/null || true
+      llama_fallback="$(submit_fallback llama31_8b llama)"
+      printf 'time=%s submitted_model=llama31_8b fallback=%s\n' \
+        "$(date -Is)" "$llama_fallback"
+    else
+      printf 'time=%s waiting_model=llama31_8b reason=active_analysis_or_gpu_slot\n' \
+        "$(date -Is)"
+    fi
   fi
-  (( llama_missing == 0 && qwen_missing == 0 )) || sleep "$POLL_SECONDS"
+  [[ -n "$llama_fallback" && -n "$qwen_fallback" ]] || sleep "$POLL_SECONDS"
 done
 printf 'time=%s llama_analysis=%s qwen_analysis=%s\n' \
   "$(date -Is)" "$llama_fallback" "$qwen_fallback"

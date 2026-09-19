@@ -504,8 +504,10 @@ class RuntimeIsolationTests(unittest.TestCase):
             "QWEN_ANALYSIS_ARRAY_JOB_ID",
         ):
             self.assertIn(variable, watcher)
-        self.assertIn("wait_for_pipelines", watcher)
-        self.assertIn("waiting_for_active_analysis_tasks", watcher)
+        self.assertIn("active_array_tasks", watcher)
+        self.assertIn('qwen_state" == COMPLETED', watcher)
+        self.assertIn('llama_state" == COMPLETED', watcher)
+        self.assertIn("active_analysis_or_gpu_slot", watcher)
         self.assertIn('BLOCKS_PER_PASS=2', watcher)
         self.assertIn('LANES=2', watcher)
         self.assertIn('GPUS_PER_LANE=2', watcher)
