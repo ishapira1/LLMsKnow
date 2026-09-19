@@ -638,6 +638,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         priority_marker = "PRIORITIZE_QWEN_LLAMA_CAPABILITIES"
         self.assertIn(marker, lane_source)
         self.assertIn('"$family_set" == capabilities', lane_source)
+        self.assertIn('BONHAM_ALLOW_CAPABILITIES_DURING_SOURCE', lane_source)
         self.assertIn("capabilities_deferred_until_source", lane_source)
         self.assertIn(marker, supervisor_source)
         self.assertIn(priority_marker, supervisor_source)
