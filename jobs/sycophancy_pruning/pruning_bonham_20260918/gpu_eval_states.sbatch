@@ -36,7 +36,8 @@ if (( GPUS_PER_STATE > 1 )); then
   export LLMSSYCOPH_DEVICE_MAP_AUTO=1
 fi
 PYTHON_BIN="$(python_for_model "$MODEL_KEY")"; export PYTHON_BIN
-IFS=',' read -r -a evaluation_families <<< "${EVALUATION_FAMILIES_CSV:-generalization,useful_assertions,capabilities}"
+# Keep these positional: Slurm uses commas to delimit --export entries.
+evaluation_families=(generalization useful_assertions capabilities)
 states=(
   unpruned
   n1_mechanism
@@ -51,7 +52,7 @@ states=(
 cd "$REPO_DIR"
 start_epoch="$(date +%s)"
 printf 'experiment=pruning_bonham_20260918\nstage=evaluation_state_sequence\nmodel=%s\nstate_offset=%s\nstate_count=%s\ngpus_per_state=%s\nmem_per_state=%s\nfamilies=%s\n' \
-  "$MODEL_KEY" "$STATE_OFFSET" "$STATE_COUNT" "$GPUS_PER_STATE" "$MEM_PER_STATE" "${EVALUATION_FAMILIES_CSV:-generalization,useful_assertions,capabilities}"
+  "$MODEL_KEY" "$STATE_OFFSET" "$STATE_COUNT" "$GPUS_PER_STATE" "$MEM_PER_STATE" "${evaluation_families[*]}"
 printf 'slurm_job_id=%s\nhostname=%s\nworking_directory=%s\npython=%s\nstart_time=%s\n' \
   "${SLURM_JOB_ID:-unset}" "$(hostname)" "$PWD" "$PYTHON_BIN" "$(date -Is)"
 nvidia-smi || true

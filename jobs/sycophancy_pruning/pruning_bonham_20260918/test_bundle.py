@@ -275,7 +275,10 @@ class RuntimeIsolationTests(unittest.TestCase):
         for state_id in campaign.PRIMARY_STATE_IDS:
             self.assertIn(state_id, runner)
         self.assertIn("run-state-sequence", runner)
-        self.assertIn("generalization,useful_assertions,capabilities", runner)
+        self.assertIn(
+            "evaluation_families=(generalization useful_assertions capabilities)", runner
+        )
+        self.assertNotIn("EVALUATION_FAMILIES_CSV", runner)
         self.assertIn('--gpus-per-task="$GPUS_PER_STATE"', runner)
         self.assertIn('--mem="$MEM_PER_STATE"', runner)
         self.assertIn("#SBATCH --mail-type=END,FAIL", runner)
