@@ -786,6 +786,7 @@ def _biased_task(
     turn_format: str,
     bias_type: str,
     template_index: int,
+    eligible_model_keys: Sequence[str] | None = None,
 ) -> EvaluationTask:
     wrong = designated_wrong(question)
     sentence = construction_bias(config, question, bias_type, template_index, wrong)
@@ -824,6 +825,9 @@ def _biased_task(
             "wrong_label": wrong,
             "gold_label": question.gold,
             "retry_on_invalid": False,
+            "eligible_model_keys": (
+                list(eligible_model_keys) if eligible_model_keys is not None else None
+            ),
         },
     )
 
@@ -1018,6 +1022,136 @@ def prepare_screens(args: argparse.Namespace) -> None:
     print(json.dumps(complete, indent=2, sort_keys=True))
 
 
+def extend_n1_screens(args: argparse.Namespace) -> None:
+    """Append model-specific neutral-correct ARC candidates without changing frozen shards.
+
+    The primary screen deliberately starts from the all-model neutral-correct pool.  If
+    that preferred pool cannot fill all behavior-qualified cells, the preregistered
+    fallback is model-specific eligibility.  This command materializes the missing
+    fallback pool as append-only shards while preserving every completed primary shard.
+    """
+
+    config = load_config(args.config)
+    root = Path(args.result_root)
+    input_dir = root / "inputs" / "n1_screen_shards"
+    existing_paths = sorted(input_dir.glob("shard_*.jsonl"))
+    if not existing_paths:
+        raise CampaignError("Cannot extend N1 screening before primary shards exist")
+
+    existing_indices = [int(path.stem.split("_")[-1]) for path in existing_paths]
+    if existing_indices != list(range(len(existing_indices))):
+        raise CampaignError("Primary N1 shard indices are not contiguous")
+    old_index_path = input_dir / "index.jsonl"
+    old_index_sha256 = sha256_file(old_index_path)
+
+    existing_question_keys: set[str] = set()
+    for path in existing_paths:
+        for row in read_jsonl(path):
+            key = str(dict(row.get("metadata", {})).get("question_key", ""))
+            if not key:
+                raise CampaignError(f"N1 task lacks a question key: {path}")
+            existing_question_keys.add(key)
+
+    reserve_keys = {
+        _question_key(_question_from_row(row))
+        for row in read_jsonl(root / "inputs" / "factual_preservation_questions.jsonl")
+    }
+    questions = [
+        _question_from_row(row)
+        for row in read_jsonl(root / "inputs" / "construction_pool.jsonl")
+    ]
+    neutral = {
+        model_key: _record_by_question(_collect_records(root, "neutral_screen", model_key))
+        for model_key in MODEL_KEYS
+    }
+
+    candidates: list[tuple[Question, tuple[str, ...]]] = []
+    eligible_counts = Counter()
+    for question in questions:
+        key = _question_key(question)
+        if (
+            question.dataset_id != "arc_challenge"
+            or key in reserve_keys
+            or key in existing_question_keys
+        ):
+            continue
+        eligible = tuple(
+            model_key
+            for model_key in MODEL_KEYS
+            if (record := neutral[model_key].get(key)) is not None
+            and screen_choice(record) == question.gold
+        )
+        if not eligible:
+            continue
+        candidates.append((question, eligible))
+        eligible_counts.update(eligible)
+
+    candidates.sort(
+        key=lambda item: stable_hash(
+            EXPERIMENT, "n1-model-specific-extension", item[0].source_example_id
+        )
+    )
+    tasks = [
+        _biased_task(
+            config,
+            question,
+            turn_format=turn_format,
+            bias_type=bias_type,
+            template_index=template_index,
+            eligible_model_keys=eligible,
+        )
+        for question, eligible in candidates
+        for turn_format in TURN_FORMATS
+        for bias_type in BIAS_TYPES
+        for template_index in range(4)
+    ]
+    if not tasks:
+        raise CampaignError("No model-specific ARC candidates remain for N1 extension")
+
+    shard_size = int(args.shard_size)
+    if shard_size <= 0:
+        raise CampaignError("N1 extension shard size must be positive")
+    entries = list(read_jsonl(old_index_path))
+    start_index = len(existing_paths)
+    extension_entries = []
+    for offset, start in enumerate(range(0, len(tasks), shard_size)):
+        shard_index = start_index + offset
+        path = input_dir / f"shard_{shard_index:04d}.jsonl"
+        if path.exists():
+            raise CampaignError(f"Refusing to replace existing N1 shard: {path}")
+        subset = tasks[start : start + shard_size]
+        _write_tasks(path, subset)
+        entry = {
+            "shard_index": shard_index,
+            "task_count": len(subset),
+            "path": str(path.resolve()),
+            "sha256": sha256_file(path),
+        }
+        extension_entries.append(entry)
+        entries.append(entry)
+
+    audit = {"task_count": len(tasks), "shard_count": len(entries)}
+    _require_screen_shard_capacity("n1_screen", audit)
+    atomic_jsonl(old_index_path, entries)
+    complete = {
+        "status": "complete",
+        "append_only": True,
+        "dataset_id": "arc_challenge",
+        "primary_shard_count": start_index,
+        "extension_shard_count": len(extension_entries),
+        "total_shard_count": len(entries),
+        "extension_question_count": len(candidates),
+        "extension_task_count": len(tasks),
+        "eligible_question_counts": dict(sorted(eligible_counts.items())),
+        "primary_index_sha256": old_index_sha256,
+        "extended_index_sha256": sha256_file(old_index_path),
+        "first_extension_shard": start_index,
+        "last_extension_shard": len(entries) - 1,
+    }
+    atomic_json(root / "inputs" / "N1_SCREEN_EXTENSION_COMPLETE.json", complete)
+    print(json.dumps(complete, indent=2, sort_keys=True))
+
+
 def _index_records(
     rows: Sequence[Mapping[str, Any]],
 ) -> Mapping[tuple[str, str], Mapping[str, Any]]:
@@ -1053,6 +1187,11 @@ def _allocate_n1(
     primary_index = records_by_model[model_keys[0]]
     for key, record in primary_index.items():
         metadata = dict(record.get("task_metadata", {}))
+        eligible_model_keys = metadata.get("eligible_model_keys")
+        if eligible_model_keys is not None and not all(
+            model_key in set(eligible_model_keys) for model_key in model_keys
+        ):
+            continue
         if not all(
             _record_qualifies_n1(records_by_model[model_key].get(key, {}))
             for model_key in model_keys
@@ -2053,6 +2192,11 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--result-root", type=Path, required=True)
     command.add_argument("--shard-size", type=int, default=200)
     command.set_defaults(func=prepare_screens)
+
+    command = subparsers.add_parser("extend-n1-screens")
+    command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument("--shard-size", type=int, default=200)
+    command.set_defaults(func=extend_n1_screens)
 
     command = subparsers.add_parser("allocate-manifests")
     command.add_argument("--result-root", type=Path, required=True)
