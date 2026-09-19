@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
 import torch
@@ -582,6 +583,33 @@ class RuntimeIsolationTests(unittest.TestCase):
             self.assertIn("final audit", body)
             self.assertIn("123", body)
             self.assertIn(core.sha256_file(audit_path), body)
+
+    def test_completion_email_prefers_authenticated_slurm_notification(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch.object(
+                completion_email.subprocess,
+                "run",
+                return_value=mock.Mock(stdout="47299999\n"),
+            ) as run:
+                delivery = completion_email._send_slurm_notification(
+                    root=root,
+                    recipient="itaishapira@g.harvard.edu",
+                    body="Bonham passed.\n",
+                    sbatch_binary="/usr/bin/sbatch",
+                )
+            command = run.call_args.args[0]
+            self.assertIn("--wait", command)
+            self.assertIn("--mail-type=END,FAIL", command)
+            self.assertIn("--mail-user=itaishapira@g.harvard.edu", command)
+            self.assertEqual("slurm_end_notification", delivery["delivery"])
+            self.assertEqual("47299999", delivery["slurm_notification_job_id"])
+            self.assertEqual(
+                "Bonham passed.\n",
+                (root / "notifications" / "FINAL_EMAIL_BODY.txt").read_text(
+                    encoding="utf-8"
+                ),
+            )
 
     def test_bonham_triviaqa_uses_registered_exact_match_parser(self) -> None:
         task = RuntimeEvaluationTask(

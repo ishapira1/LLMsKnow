@@ -8,11 +8,12 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 from typing import Any, Mapping
 
-from core import atomic_json, read_json, sha256_file
+from core import atomic_json, atomic_text, read_json, sha256_file
 
 
 class CompletionEmailError(RuntimeError):
@@ -55,6 +56,63 @@ def build_body(root: Path, identity: Mapping[str, Any]) -> str:
     ) + "\n"
 
 
+def _send_slurm_notification(
+    *, root: Path, recipient: str, body: str, sbatch_binary: str
+) -> Mapping[str, Any]:
+    """Request and await a dedicated Slurm END notification.
+
+    Cannon's interactive ``mail`` command can exist without an SMTP
+    configuration.  Slurm mail is the authenticated notification path that is
+    already used by every Bonham batch stage, so prefer it whenever ``sbatch``
+    is available.  ``--wait`` means the receipt is written only after the
+    notification job has completed and Slurm has emitted its END event.
+    """
+
+    notification_dir = root / "notifications"
+    body_path = notification_dir / "FINAL_EMAIL_BODY.txt"
+    atomic_text(body_path, body)
+    output_pattern = notification_dir / "final_email_slurm_%j.out"
+    command = [
+        sbatch_binary,
+        "--parsable",
+        "--wait",
+        "--account=barak_lab",
+        "--partition=test",
+        "--time=00:02:00",
+        "--mem=256M",
+        "--job-name=bonh_final_pass",
+        "--mail-type=END,FAIL",
+        f"--mail-user={recipient}",
+        f"--output={output_pattern}",
+        f"--error={output_pattern}",
+        f"--wrap=/bin/cat {shlex.quote(str(body_path))}",
+    ]
+    completed = subprocess.run(command, text=True, capture_output=True, check=True)
+    job_id = completed.stdout.strip().split(";", 1)[0]
+    if not job_id.isdigit():
+        raise CompletionEmailError(
+            f"Slurm notification returned an invalid job id: {completed.stdout!r}"
+        )
+    return {
+        "delivery": "slurm_end_notification",
+        "mailer": sbatch_binary,
+        "slurm_notification_job_id": job_id,
+        "notification_body_path": str(body_path.resolve()),
+    }
+
+
+def _send_direct_mail(
+    *, recipient: str, subject: str, body: str, mail_binary: str
+) -> Mapping[str, Any]:
+    subprocess.run(
+        [mail_binary, "-s", subject, recipient],
+        input=body,
+        text=True,
+        check=True,
+    )
+    return {"delivery": "direct_mail", "mailer": mail_binary}
+
+
 def send_completion_email(args: argparse.Namespace) -> None:
     root = Path(args.result_root).resolve()
     identity = _identity(root, str(args.recipient))
@@ -65,31 +123,54 @@ def send_completion_email(args: argparse.Namespace) -> None:
         if existing.get("status") == "sent" and existing_identity == dict(identity):
             print(json.dumps(existing, indent=2, sort_keys=True))
             return
-        raise CompletionEmailError(
-            "Completion-email ledger exists without an identical authenticated sent receipt"
-        )
+        if existing_identity != dict(identity):
+            raise CompletionEmailError(
+                "Completion-email ledger belongs to a different authenticated audit"
+            )
 
     subject = str(args.subject)
     body = build_body(root, identity)
+    sbatch_binary = shutil.which("sbatch")
     mail_binary = shutil.which("mail") or shutil.which("mailx")
-    if mail_binary is None:
-        raise CompletionEmailError("Neither mail nor mailx is available")
+    if sbatch_binary is None and mail_binary is None:
+        raise CompletionEmailError("Neither sbatch nor mail/mailx is available")
     pending = {
         "status": "sending",
         "identity": dict(identity),
         "subject": subject,
-        "mailer": str(mail_binary),
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
     atomic_json(ledger, pending)
-    subprocess.run(
-        [str(mail_binary), "-s", subject, str(args.recipient)],
-        input=body,
-        text=True,
-        check=True,
-    )
+    try:
+        if sbatch_binary is not None:
+            delivery = _send_slurm_notification(
+                root=root,
+                recipient=str(args.recipient),
+                body=body,
+                sbatch_binary=str(sbatch_binary),
+            )
+        else:
+            assert mail_binary is not None
+            delivery = _send_direct_mail(
+                recipient=str(args.recipient),
+                subject=subject,
+                body=body,
+                mail_binary=str(mail_binary),
+            )
+    except Exception as error:
+        atomic_json(
+            ledger,
+            {
+                **pending,
+                "status": "failed",
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "error": f"{type(error).__name__}: {error}",
+            },
+        )
+        raise
     complete = {
         **pending,
+        **delivery,
         "status": "sent",
         "sent_at": datetime.now(timezone.utc).isoformat(),
         "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
