@@ -17,6 +17,7 @@ import campaign
 from core import (
     BIAS_TYPES,
     DEFAULT_CONFIG,
+    REASONING_BACKED_REGISTRY,
     TURN_FORMATS,
     Question,
     atomic_json,
@@ -26,6 +27,7 @@ from core import (
     designated_wrong,
     evaluation_bias,
     load_config,
+    load_reasoning_backed_templates,
     option_ref,
     read_json,
     read_jsonl,
@@ -120,6 +122,7 @@ def _generalization_tasks_for_model(
 ) -> list[EvaluationTask]:
     assignments = {}
     reasoning_assignments = {}
+    reasoning_templates = load_reasoning_backed_templates()
     for dataset_id in ("commonsense_qa", "arc_challenge", "openbookqa"):
         ids = [row.source_example_id for row in questions if row.dataset_id == dataset_id]
         reasoning_assignments[dataset_id] = balanced_template_assignments(
@@ -234,9 +237,7 @@ def _generalization_tasks_for_model(
                     )
 
         reasoning_index = reasoning_assignments[question.dataset_id][question.source_example_id]
-        reasoning_template = str(
-            config["reasoning_backed_pushback_templates"][reasoning_index]
-        )
+        reasoning_template = reasoning_templates[reasoning_index]
         reasoning_sentence = reasoning_template.format(W=option_ref(question, wrong))
         reasoning_metadata = _base_metadata(
             model_key=model_key,
@@ -818,6 +819,8 @@ def prepare(args: argparse.Namespace) -> None:
             "generalization neutral records; no redundant capability rerun"
         ),
         "capability_names": sorted(CAPABILITY_NAMES),
+        "reasoning_backed_prompt_registry": str(REASONING_BACKED_REGISTRY.resolve()),
+        "reasoning_backed_prompt_registry_sha256": sha256_file(REASONING_BACKED_REGISTRY),
         "source_bindings_sha256": sha256_file(args.suite_source_bindings),
         "external_utility_complete_sha256": sha256_file(
             Path(args.external_utility_root) / "COMPLETE.json"

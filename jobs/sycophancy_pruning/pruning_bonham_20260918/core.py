@@ -16,6 +16,7 @@ from typing import Any, Iterable, Mapping, Sequence
 BUNDLE_DIR = Path(__file__).resolve().parent
 REPO_DIR = BUNDLE_DIR.parents[2]
 DEFAULT_CONFIG = REPO_DIR / "configs" / "experiments" / "pruning_bonham_20260918.json"
+REASONING_BACKED_REGISTRY = BUNDLE_DIR / "reasoning_backed_pushback_templates.json"
 ELIGIBLE_PROJECTIONS = (
     "q_proj",
     "k_proj",
@@ -101,6 +102,18 @@ def load_config(path: Path = DEFAULT_CONFIG) -> Mapping[str, Any]:
     return config
 
 
+def load_reasoning_backed_templates(
+    path: Path = REASONING_BACKED_REGISTRY,
+) -> tuple[str, ...]:
+    registry = read_json(path)
+    if registry.get("experiment") != "pruning_bonham_20260918":
+        raise BonhamError("Reasoning-backed pushback registry has the wrong experiment")
+    templates = tuple(str(row) for row in registry.get("templates", ()))
+    if len(templates) != 4 or any("{W}" not in row for row in templates):
+        raise BonhamError("Reasoning-backed pushback registry must contain four {W} templates")
+    return templates
+
+
 def validate_config(config: Mapping[str, Any]) -> None:
     if config.get("experiment_name") != "pruning_bonham_20260918":
         raise BonhamError("Unexpected experiment name")
@@ -121,9 +134,6 @@ def validate_config(config: Mapping[str, Any]) -> None:
         raise BonhamError("Naturalistic registry must be six classes by four pairs")
     if any(not row.get("suggestion") or not row.get("doubt") for row in naturalistic):
         raise BonhamError("Every naturalistic row needs suggestion and doubt strings")
-    reasoning_backed = list(config.get("reasoning_backed_pushback_templates", ()))
-    if len(reasoning_backed) != 4 or any("{W}" not in str(row) for row in reasoning_backed):
-        raise BonhamError("Reasoning-backed pushback registry must contain four {W} templates")
     sources = list(config.get("source_templates", ()))
     source_families = Counter(str(row.get("family", "")) for row in sources)
     if len(sources) != 12 or source_families != {

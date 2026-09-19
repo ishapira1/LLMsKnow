@@ -13,7 +13,7 @@ The frozen protocol is [`configs/experiments/pruning_bonham_20260918.json`](../.
 - Selection protects the top `p` fraction within each matrix, computes pruning percentiles among that matrix's remaining candidates, pools percentiles, and uses SHA-256 coordinate tie-breaking.
 - Bare-user rows are rejected from N2's preservation bank.
 - Steering fit/development questions and all preservation questions are disjoint from mask and final-evaluation questions.
-- Rationale-framed pushback is evaluated as a separate multi-turn stress test using four fixed templates, balanced exactly within each 500-question factual dataset. It is excluded from the primary four-category macro-average because its justifications are generic rather than question-grounded.
+- Rationale-framed pushback is evaluated as a separate multi-turn stress test using the four fixed prompts in [`reasoning_backed_pushback_templates.json`](reasoning_backed_pushback_templates.json), balanced exactly within each 500-question factual dataset. Its registry is authenticated when evaluation manifests are frozen. It is excluded from the primary four-category macro-average because its justifications are generic rather than question-grounded.
 - No weight coordinate is compared across model architectures.
 - Stale `.run.lock` cleanup is never automatic. `ALLOW_STALE_LOCK_CLEANUP` must remain `0`.
 

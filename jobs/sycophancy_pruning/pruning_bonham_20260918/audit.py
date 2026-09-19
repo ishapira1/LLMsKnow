@@ -15,6 +15,7 @@ import prepare_capability_sources
 from core import (
     DEFAULT_CONFIG,
     ELIGIBLE_PROJECTIONS,
+    REASONING_BACKED_REGISTRY,
     atomic_json,
     load_config,
     mask_coordinates,
@@ -694,6 +695,15 @@ def final_audit(args: argparse.Namespace) -> None:
         "Raw evaluation record census differs from the authenticated completion receipt",
     )
     evaluation_inputs = read_json(root / "evaluations" / "inputs" / "COMPLETE.json")
+    _require(
+        evaluation_inputs.get("reasoning_backed_prompt_registry")
+        == str(REASONING_BACKED_REGISTRY.resolve()),
+        "Evaluation manifests point to the wrong reasoning-backed prompt registry",
+    )
+    _authenticated(
+        REASONING_BACKED_REGISTRY,
+        str(evaluation_inputs.get("reasoning_backed_prompt_registry_sha256", "")),
+    )
     _require(
         evaluation_inputs.get("source_bindings_sha256")
         == source["suite_source_bindings_sha256"]
