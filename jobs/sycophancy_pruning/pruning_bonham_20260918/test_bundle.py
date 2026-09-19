@@ -316,6 +316,24 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("#SBATCH --mail-type=END,FAIL", runner)
         self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", runner)
 
+    def test_postmask_pack_runs_all_models_and_required_stages(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        launcher = (bundle / "gpu_postmask_all.sbatch").read_text(encoding="utf-8")
+        lane = (bundle / "gpu_postmask_lane.sh").read_text(encoding="utf-8")
+        self.assertIn("#SBATCH --mail-type=END,FAIL", launcher)
+        self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", launcher)
+        self.assertIn("models=(qwen25_7b llama31_8b gemma4_12b)", launcher)
+        self.assertIn("gpu_counts=(1 1 2)", launcher)
+        for stage in (
+            "build-random-mask",
+            "build-mask-states",
+            'steering.py" extract',
+            'steering.py" develop',
+        ):
+            self.assertIn(stage, lane)
+        self.assertIn("RANDOM_MASKS_COMPLETE.json", lane)
+        self.assertIn("MASK_STATES_COMPLETE.json", lane)
+
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
         submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
         self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)
