@@ -1278,11 +1278,15 @@ def _allocate_n1(
     *,
     model_keys: Sequence[str],
     seed: int,
+    excluded_question_keys: set[str] | None = None,
 ) -> list[Mapping[str, Any]]:
+    excluded = excluded_question_keys or set()
     candidates: dict[tuple[str, str, str, int], list[Mapping[str, Any]]] = defaultdict(list)
     primary_index = records_by_model[model_keys[0]]
     for key, record in primary_index.items():
         metadata = dict(record.get("task_metadata", {}))
+        if str(metadata.get("question_key", "")) in excluded:
+            continue
         eligible_model_keys = metadata.get("eligible_model_keys")
         if eligible_model_keys is not None and not all(
             model_key in set(eligible_model_keys) for model_key in model_keys
@@ -1655,43 +1659,99 @@ def _source_manifest_rows(
 def allocate_manifests(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     root = Path(args.result_root)
+    requested_model_key = getattr(args, "model_key", None)
+    selected_model_keys = (requested_model_key,) if requested_model_key else MODEL_KEYS
     factual_questions = [
         _question_from_row(row)
         for row in read_jsonl(root / "inputs" / "factual_preservation_questions.jsonl")
     ]
     n1_indices = {
         model_key: _index_records(_collect_records(root, "n1_screen", model_key))
-        for model_key in MODEL_KEYS
+        for model_key in selected_model_keys
     }
     source_records = {
         model_key: _collect_records(root, "source_screen", model_key)
-        for model_key in MODEL_KEYS
+        for model_key in selected_model_keys
     }
     neutral = {
         model_key: _record_by_question(_collect_records(root, "neutral_screen", model_key))
-        for model_key in MODEL_KEYS
+        for model_key in selected_model_keys
     }
+
+    # Reserve preservation questions before pruning questions, as required by
+    # the frozen protocol.  Besides making the precedence explicit, this lets
+    # independently feasible models publish without being held behind another
+    # model's fail-closed quota check.
+    preservation_keys = {_question_key(question) for question in factual_questions}
+    selected_source_by_model = {}
+    source_question_keys_by_model = {}
+    for model_key in selected_model_keys:
+        candidates = read_jsonl(
+            root / "inputs" / "source_screen_candidates" / f"{model_key}.jsonl"
+        )
+        selected_source = _allocate_source_questions(
+            source_records[model_key],
+            candidates,
+            excluded_question_keys=preservation_keys,
+            model_key=model_key,
+        )
+        selected_source_by_model[model_key] = selected_source
+        source_question_keys_by_model[model_key] = {
+            _question_key(row) for row in selected_source
+        }
 
     allocations: dict[int, dict[str, list[Mapping[str, Any]]]] = {}
     fallback_audit: dict[str, Any] = {}
     for seed in (5, 17, 29):
-        try:
-            common = _allocate_n1(n1_indices, model_keys=MODEL_KEYS, seed=seed)
-            allocations[seed] = {model_key: common for model_key in MODEL_KEYS}
+        if len(selected_model_keys) == 1:
+            model_key = selected_model_keys[0]
+            selected = _allocate_n1(
+                n1_indices,
+                model_keys=(model_key,),
+                seed=seed,
+                excluded_question_keys=source_question_keys_by_model[model_key],
+            )
+            allocations[seed] = {model_key: selected}
             fallback_audit[str(seed)] = {
-                "pool": "common_all_three_models",
+                "pool": "model_specific_fallback",
+                "question_hashes": {
+                    model_key: stable_hash(
+                        *(row["task_metadata"]["question_key"] for row in selected)
+                    )
+                },
+            }
+            continue
+        common_source_keys = set().union(
+            *(source_question_keys_by_model[model_key] for model_key in selected_model_keys)
+        )
+        try:
+            common = _allocate_n1(
+                n1_indices,
+                model_keys=selected_model_keys,
+                seed=seed,
+                excluded_question_keys=common_source_keys,
+            )
+            allocations[seed] = {
+                model_key: common for model_key in selected_model_keys
+            }
+            fallback_audit[str(seed)] = {
+                "pool": "common_selected_models",
+                "model_keys": list(selected_model_keys),
                 "question_hashes": {
                     model_key: stable_hash(
                         *(row["task_metadata"]["question_key"] for row in common)
                     )
-                    for model_key in MODEL_KEYS
+                    for model_key in selected_model_keys
                 },
             }
         except CampaignError as common_error:
             per_model = {}
-            for model_key in MODEL_KEYS:
+            for model_key in selected_model_keys:
                 per_model[model_key] = _allocate_n1(
-                    n1_indices, model_keys=(model_key,), seed=seed
+                    n1_indices,
+                    model_keys=(model_key,),
+                    seed=seed,
+                    excluded_question_keys=source_question_keys_by_model[model_key],
                 )
             allocations[seed] = per_model
             fallback_audit[str(seed)] = {
@@ -1705,29 +1765,8 @@ def allocate_manifests(args: argparse.Namespace) -> None:
                 },
             }
 
-    # Complete all behavior/disjointness feasibility checks before publishing
-    # any immutable manifest.  A later-model source shortfall must not leave a
-    # partially materialized campaign that cannot be safely retried.
-    preservation_keys = {_question_key(question) for question in factual_questions}
-    selected_source_by_model = {}
-    for model_key in MODEL_KEYS:
-        n1_question_keys = {
-            str(row["task_metadata"]["question_key"])
-            for seed in (5, 17, 29)
-            for row in allocations[seed][model_key]
-        }
-        candidates = read_jsonl(
-            root / "inputs" / "source_screen_candidates" / f"{model_key}.jsonl"
-        )
-        selected_source_by_model[model_key] = _allocate_source_questions(
-            source_records[model_key],
-            candidates,
-            excluded_question_keys=n1_question_keys | preservation_keys,
-            model_key=model_key,
-        )
-
     all_receipts = {}
-    for model_key in MODEL_KEYS:
+    for model_key in selected_model_keys:
         specification = model_spec(config, model_key)
         manifest_root = root / "manifests" / model_key
         n1_rows_by_seed = {
@@ -1841,6 +1880,7 @@ def allocate_manifests(args: argparse.Namespace) -> None:
             "status": "complete",
             "model_key": model_key,
             "n1_pool": fallback_audit["5"]["pool"],
+            "n1_allocation_audit": fallback_audit,
             "n1_pruning_count": len(primary_rows),
             "n1_distinct_questions": len({row["question_key"] for row in primary_rows}),
             "n1_cell_counts": {"|".join(map(str, key)): value for key, value in sorted(cell_counts.items())},
@@ -1861,12 +1901,32 @@ def allocate_manifests(args: argparse.Namespace) -> None:
         }
         atomic_json(manifest_root / "MANIFESTS_COMPLETE.json", receipt)
         all_receipts[model_key] = receipt
-    complete = {
-        "status": "complete",
-        "fallback_audit": fallback_audit,
-        "models": all_receipts,
+    receipt_paths = {
+        model_key: root / "manifests" / model_key / "MANIFESTS_COMPLETE.json"
+        for model_key in MODEL_KEYS
     }
-    atomic_json(root / "manifests" / "COMPLETE.json", complete)
+    campaign_complete = all(path.exists() for path in receipt_paths.values())
+    if campaign_complete:
+        complete = {
+            "status": "complete",
+            "fallback_audit": {
+                model_key: read_json(path).get("n1_allocation_audit", {})
+                for model_key, path in receipt_paths.items()
+            },
+            "models": {
+                model_key: read_json(path) for model_key, path in receipt_paths.items()
+            },
+        }
+        atomic_json(root / "manifests" / "COMPLETE.json", complete)
+    else:
+        complete = {
+            "status": "partial",
+            "campaign_complete": False,
+            "completed_models": sorted(
+                model_key for model_key, path in receipt_paths.items() if path.exists()
+            ),
+            "models": all_receipts,
+        }
     print(json.dumps(complete, indent=2, sort_keys=True))
 
 
@@ -2382,6 +2442,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     command = subparsers.add_parser("allocate-manifests")
     command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument("--model-key", choices=MODEL_KEYS)
     command.set_defaults(func=allocate_manifests)
 
     command = subparsers.add_parser("score-component")

@@ -748,6 +748,22 @@ class AllocationTests(unittest.TestCase):
             512, len({row["task_metadata"]["question_key"] for row in selected})
         )
 
+        excluded = {
+            row["task_metadata"]["question_key"] for row in selected[::16]
+        }
+        replacement = campaign._allocate_n1(
+            {"model_a": records, "model_b": records},
+            model_keys=("model_a", "model_b"),
+            seed=5,
+            excluded_question_keys=excluded,
+        )
+        self.assertEqual(512, len(replacement))
+        self.assertTrue(
+            excluded.isdisjoint(
+                row["task_metadata"]["question_key"] for row in replacement
+            )
+        )
+
     def test_source_template_quota_is_exact_after_dataset_split(self) -> None:
         combined = (
             campaign._per_dataset_source_template_quota("commonsense_qa")
