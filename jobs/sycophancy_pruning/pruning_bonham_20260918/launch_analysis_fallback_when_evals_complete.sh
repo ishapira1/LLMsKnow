@@ -57,12 +57,67 @@ submit_fallback() {
 
 llama_fallback=''
 qwen_fallback=''
-while [[ -z "$llama_fallback" || -z "$qwen_fallback" ]]; do
+llama_attempts=0
+qwen_attempts=0
+
+fallback_terminal_incomplete() {
+  local job_id="$1" state
+  [[ -n "$job_id" ]] || return 1
+  state="$(job_state "$job_id")"
+  case "$state" in
+    COMPLETED*|FAILED*|CANCELLED*|OUT_OF_MEMORY*|TIMEOUT*|NODE_FAIL*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+maybe_recover_failed_fallback() {
+  local model_key="$1" fallback_name="$2" attempts_name="$3"
+  local fallback_id="${!fallback_name}" attempts="${!attempts_name}"
+  [[ -n "$fallback_id" ]] || return 0
+  fallback_terminal_incomplete "$fallback_id" || return 0
+  if (( $(score_count "$model_key") == 7 )); then
+    return 0
+  fi
+  attempts=$((attempts + 1))
+  if (( attempts >= 2 )); then
+    printf 'fallback_failure model=%s job=%s attempts=%s\n' \
+      "$model_key" "$fallback_id" "$attempts" >&2
+    exit 1
+  fi
+  printf 'time=%s recovering_incomplete_fallback model=%s job=%s\n' \
+    "$(date -Is)" "$model_key" "$fallback_id"
+  printf -v "$fallback_name" '%s' ''
+  printf -v "$attempts_name" '%s' "$attempts"
+}
+
+maybe_submit_model() {
+  local model_key="$1" short="$2" array_job_id="$3" fallback_name="$4"
+  local fallback_id="${!fallback_name}"
+  [[ -z "$fallback_id" ]] || return 1
+  (( $(score_count "$model_key") < 7 )) || return 1
+  (( $(active_array_tasks "$array_job_id") == 0 )) || return 1
+  gpu_test_has_slot || return 1
+  scancel "$array_job_id" 2>/dev/null || true
+  fallback_id="$(submit_fallback "$model_key" "$short")"
+  printf -v "$fallback_name" '%s' "$fallback_id"
+  printf 'time=%s submitted_model=%s fallback=%s\n' \
+    "$(date -Is)" "$model_key" "$fallback_id"
+  return 0
+}
+
+# Stay alive through score completion, not merely submission.  Once either
+# packed evaluation pipeline releases a gpu_test slot, keep that slot occupied
+# by whichever model still needs analysis.  The second model's scores are
+# independent of its evaluation and can therefore run concurrently with it.
+while :; do
   llama_state="$(job_state "$LLAMA_PIPELINE_JOB_ID")"
   qwen_state="$(job_state "$QWEN_PIPELINE_JOB_ID")"
+  llama_scores="$(score_count llama31_8b)"
+  qwen_scores="$(score_count qwen25_7b)"
   combined="$llama_state:$qwen_state"
-  printf 'time=%s llama_pipeline=%s qwen_pipeline=%s llama_analysis=%s qwen_analysis=%s\n' \
+  printf 'time=%s llama_pipeline=%s qwen_pipeline=%s llama_scores=%s qwen_scores=%s llama_analysis=%s qwen_analysis=%s\n' \
     "$(date -Is)" "$llama_state" "$qwen_state" \
+    "$llama_scores" "$qwen_scores" \
     "${llama_fallback:-waiting}" "${qwen_fallback:-waiting}"
   case "$combined" in
     *FAILED*|*CANCELLED*|*OUT_OF_MEMORY*|*TIMEOUT*|*NODE_FAIL*)
@@ -71,35 +126,29 @@ while [[ -z "$llama_fallback" || -z "$qwen_fallback" ]]; do
       ;;
   esac
 
-  if [[ -z "$qwen_fallback" && "$qwen_state" == COMPLETED* ]]; then
-    if (( $(score_count qwen25_7b) == 7 )); then
-      qwen_fallback='complete'
-    elif (( $(active_array_tasks "$QWEN_ANALYSIS_ARRAY_JOB_ID") == 0 )) && \
-        gpu_test_has_slot; then
-      scancel "$QWEN_ANALYSIS_ARRAY_JOB_ID" 2>/dev/null || true
-      qwen_fallback="$(submit_fallback qwen25_7b qwen)"
-      printf 'time=%s submitted_model=qwen25_7b fallback=%s\n' \
-        "$(date -Is)" "$qwen_fallback"
-    else
-      printf 'time=%s waiting_model=qwen25_7b reason=active_analysis_or_gpu_slot\n' \
-        "$(date -Is)"
-    fi
+  (( llama_scores == 7 && qwen_scores == 7 )) && break
+
+  maybe_recover_failed_fallback qwen25_7b qwen_fallback qwen_attempts
+  maybe_recover_failed_fallback llama31_8b llama_fallback llama_attempts
+
+  # Prefer the model whose paper pipeline has already finished.  If its
+  # regular analysis array is running, immediately offer the free slot to the
+  # other model rather than leaving expensive capacity idle.
+  submitted=0
+  if [[ "$qwen_state" == COMPLETED* ]]; then
+    maybe_submit_model qwen25_7b qwen "$QWEN_ANALYSIS_ARRAY_JOB_ID" qwen_fallback && submitted=1 || true
   fi
-  if [[ -z "$llama_fallback" && "$llama_state" == COMPLETED* ]]; then
-    if (( $(score_count llama31_8b) == 7 )); then
-      llama_fallback='complete'
-    elif (( $(active_array_tasks "$LLAMA_ANALYSIS_ARRAY_JOB_ID") == 0 )) && \
-        gpu_test_has_slot; then
-      scancel "$LLAMA_ANALYSIS_ARRAY_JOB_ID" 2>/dev/null || true
-      llama_fallback="$(submit_fallback llama31_8b llama)"
-      printf 'time=%s submitted_model=llama31_8b fallback=%s\n' \
-        "$(date -Is)" "$llama_fallback"
-    else
-      printf 'time=%s waiting_model=llama31_8b reason=active_analysis_or_gpu_slot\n' \
-        "$(date -Is)"
-    fi
+  if (( submitted == 0 )) && [[ "$llama_state" == COMPLETED* ]]; then
+    maybe_submit_model llama31_8b llama "$LLAMA_ANALYSIS_ARRAY_JOB_ID" llama_fallback && submitted=1 || true
   fi
-  [[ -n "$llama_fallback" && -n "$qwen_fallback" ]] || sleep "$POLL_SECONDS"
+  if (( submitted == 0 )); then
+    maybe_submit_model qwen25_7b qwen "$QWEN_ANALYSIS_ARRAY_JOB_ID" qwen_fallback && submitted=1 || true
+  fi
+  if (( submitted == 0 )); then
+    maybe_submit_model llama31_8b llama "$LLAMA_ANALYSIS_ARRAY_JOB_ID" llama_fallback && submitted=1 || true
+  fi
+
+  sleep "$POLL_SECONDS"
 done
-printf 'time=%s llama_analysis=%s qwen_analysis=%s\n' \
-  "$(date -Is)" "$llama_fallback" "$qwen_fallback"
+printf 'time=%s llama_scores=7 qwen_scores=7 llama_analysis=%s qwen_analysis=%s\n' \
+  "$(date -Is)" "${llama_fallback:-regular_array}" "${qwen_fallback:-regular_array}"
