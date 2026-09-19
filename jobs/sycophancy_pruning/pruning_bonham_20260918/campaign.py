@@ -550,7 +550,11 @@ def run_screen_pack(args: argparse.Namespace) -> None:
         )
 
     result_root = Path(args.result_root)
-    input_dir = _screen_input_dir(result_root, args.stage, args.model_key)
+    input_dir = (
+        Path(args.input_dir)
+        if getattr(args, "input_dir", None) is not None
+        else _screen_input_dir(result_root, args.stage, args.model_key)
+    )
     materialized = [
         index
         for index in indices
@@ -1168,6 +1172,79 @@ def extend_n1_screens(args: argparse.Namespace) -> None:
         "last_extension_shard": total_shard_count - 1,
     }
     atomic_json(complete_path, complete)
+    print(json.dumps(complete, indent=2, sort_keys=True))
+
+
+def prepare_model_n1_extension(args: argparse.Namespace) -> None:
+    """Freeze a compact per-model view of the append-only N1 extension."""
+
+    root = Path(args.result_root)
+    model_key = str(args.model_key)
+    extension_complete = read_json(root / "inputs" / "N1_SCREEN_EXTENSION_COMPLETE.json")
+    first = int(extension_complete["first_extension_shard"])
+    extension_index = read_jsonl(
+        root / "inputs" / "n1_screen_shards" / "extension_index.jsonl"
+    )
+    rows = []
+    for entry in extension_index:
+        path = Path(str(entry["path"]))
+        if sha256_file(path) != str(entry["sha256"]):
+            raise CampaignError(f"Changed N1 extension input: {path}")
+        for row in read_jsonl(path):
+            eligible = set(dict(row.get("metadata", {})).get("eligible_model_keys") or ())
+            if model_key in eligible:
+                rows.append(row)
+    if not rows:
+        raise CampaignError(f"N1 extension has no eligible tasks for {model_key}")
+
+    destination = root / "inputs" / "n1_screen_model_extension_shards" / model_key
+    entries = []
+    shard_size = int(args.shard_size)
+    for offset, start in enumerate(range(0, len(rows), shard_size)):
+        shard_index = first + offset
+        path = destination / f"shard_{shard_index:04d}.jsonl"
+        subset = rows[start : start + shard_size]
+        if path.is_file():
+            expected = hashlib.sha256(
+                "".join(canonical_json(dict(row)) + "\n" for row in subset).encode("utf-8")
+            ).hexdigest()
+            if sha256_file(path) != expected:
+                raise CampaignError(f"Changed model-filtered N1 shard: {path}")
+        else:
+            atomic_jsonl(path, subset)
+        entries.append(
+            {
+                "shard_index": shard_index,
+                "task_count": len(subset),
+                "path": str(path.resolve()),
+                "sha256": sha256_file(path),
+            }
+        )
+    index_path = destination / "index.jsonl"
+    if index_path.is_file():
+        if list(read_jsonl(index_path)) != entries:
+            raise CampaignError("Changed model-filtered N1 extension index")
+    else:
+        atomic_jsonl(index_path, entries)
+    complete = {
+        "status": "complete",
+        "model_key": model_key,
+        "source_extension_index_sha256": str(extension_complete["extension_index_sha256"]),
+        "task_count": len(rows),
+        "question_count": len(
+            {str(dict(row.get("metadata", {}))["question_key"]) for row in rows}
+        ),
+        "shard_count": len(entries),
+        "first_shard": first,
+        "last_shard": first + len(entries) - 1,
+        "index_sha256": sha256_file(index_path),
+    }
+    complete_path = destination / "COMPLETE"
+    if complete_path.is_file():
+        if read_json(complete_path) != complete:
+            raise CampaignError("Changed model-filtered N1 extension receipt")
+    else:
+        atomic_json(complete_path, complete)
     print(json.dumps(complete, indent=2, sort_keys=True))
 
 
@@ -2190,6 +2267,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--shard-end", type=int, required=True)
     command.add_argument("--shard-step", type=int, default=1)
     command.add_argument("--batch-size", type=int, default=4)
+    command.add_argument("--input-dir", type=Path)
     command.set_defaults(func=run_screen_pack)
 
     command = subparsers.add_parser("run-screen-sequence")
@@ -2216,6 +2294,12 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--result-root", type=Path, required=True)
     command.add_argument("--shard-size", type=int, default=200)
     command.set_defaults(func=extend_n1_screens)
+
+    command = subparsers.add_parser("prepare-model-n1-extension")
+    command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument("--model-key", choices=MODEL_KEYS, required=True)
+    command.add_argument("--shard-size", type=int, default=200)
+    command.set_defaults(func=prepare_model_n1_extension)
 
     command = subparsers.add_parser("allocate-manifests")
     command.add_argument("--result-root", type=Path, required=True)

@@ -96,6 +96,9 @@ for ((lane = 0; lane < LANES; lane++)); do
       --shard-step "$LANES"
       --batch-size "${SCREEN_BATCH_SIZE:-4}"
     )
+    if [[ -n "${SCREEN_INPUT_DIR:-}" ]]; then
+      command+=(--input-dir "$SCREEN_INPUT_DIR")
+    fi
   fi
   printf 'lane=%s\n' "$lane"
   print_command "${command[@]}"

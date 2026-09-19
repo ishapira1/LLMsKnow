@@ -41,6 +41,9 @@ case "$STAGE" in
   extend_n1_screens)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" extend-n1-screens --result-root "$RESULT_ROOT" --shard-size 200)
     ;;
+  prepare_model_n1_extension)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" prepare-model-n1-extension --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY" --shard-size 200)
+    ;;
   allocate_manifests)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" allocate-manifests --result-root "$RESULT_ROOT")
     ;;
