@@ -52,6 +52,7 @@ from bonham_runtime.evaluation.schemas import StateSpec
 
 EXPERIMENT = "pruning_bonham_20260918"
 CALIBRATION_SEED = 5
+GEMMA_BALANCED_AMENDMENT_ID = "gemma4_balanced_marginals_v1"
 MODEL_KEYS = ("llama31_8b", "qwen25_7b", "gemma4_12b")
 PRIMARY_STATE_IDS = (
     "unpruned",
@@ -1381,6 +1382,219 @@ def _allocate_n1(
     )
 
 
+def _allocate_n1_balanced_marginals(
+    records_by_model: Mapping[str, Mapping[tuple[str, str], Mapping[str, Any]]],
+    *,
+    model_keys: Sequence[str],
+    seed: int,
+    excluded_question_keys: set[str] | None = None,
+) -> list[Mapping[str, Any]]:
+    """Allocate the opt-in Gemma fallback with exact preregistered marginals.
+
+    This path is deliberately separate from the exact 32-cell allocator.  It is
+    callable only for Gemma and is never selected without the explicit CLI
+    amendment flag.  The MILP keeps 512 distinct behavior-qualified questions,
+    exact dataset/turn/bias totals, and 64 examples for each bias-template pair,
+    while minimizing the maximum deviation of the eight dataset/turn/bias cells
+    from 64.  A stable hash objective resolves equally balanced solutions.
+    """
+
+    if tuple(model_keys) != ("gemma4_12b",):
+        raise CampaignError("The balanced-marginal amendment is Gemma-only")
+    try:
+        import numpy as np
+        from scipy.optimize import Bounds, LinearConstraint, milp
+        from scipy.sparse import coo_matrix
+    except ImportError as error:  # pragma: no cover - production dependency guard
+        raise CampaignError("SciPy MILP support is required for the Gemma amendment") from error
+
+    excluded = excluded_question_keys or set()
+    primary_index = records_by_model[model_keys[0]]
+    candidates = []
+    for key, record in primary_index.items():
+        metadata = dict(record.get("task_metadata", {}))
+        question_key = str(metadata.get("question_key", ""))
+        if not question_key or question_key in excluded:
+            continue
+        eligible_model_keys = metadata.get("eligible_model_keys")
+        if eligible_model_keys is not None and not all(
+            model_key in set(eligible_model_keys) for model_key in model_keys
+        ):
+            continue
+        if not all(
+            _record_qualifies_n1(records_by_model[model_key].get(key, {}))
+            for model_key in model_keys
+        ):
+            continue
+        if (
+            str(record.get("dataset_id", "")) not in {"commonsense_qa", "arc_challenge"}
+            or str(metadata.get("turn_format", "")) not in set(TURN_FORMATS)
+            or str(metadata.get("bias_type", "")) not in set(BIAS_TYPES)
+            or int(metadata.get("template_index", -1)) not in range(4)
+        ):
+            raise CampaignError("Malformed N1 candidate entered the Gemma amendment pool")
+        candidates.append(record)
+    candidates.sort(
+        key=lambda row: (
+            str(row["task_metadata"]["question_key"]),
+            str(row["condition_id"]),
+        )
+    )
+    if len(candidates) < 512:
+        raise CampaignError(
+            f"Gemma balanced-marginal pool has only {len(candidates)} candidates"
+        )
+
+    candidate_count = len(candidates)
+    z_index = candidate_count
+    variable_count = candidate_count + 1
+    row_indices: list[int] = []
+    column_indices: list[int] = []
+    coefficients: list[float] = []
+    lower: list[float] = []
+    upper: list[float] = []
+
+    def add_constraint(
+        terms: Iterable[tuple[int, float]], minimum: float, maximum: float
+    ) -> None:
+        row_index = len(lower)
+        for column_index, coefficient in terms:
+            row_indices.append(row_index)
+            column_indices.append(column_index)
+            coefficients.append(float(coefficient))
+        lower.append(float(minimum))
+        upper.append(float(maximum))
+
+    def matching_indices(**wanted: Any) -> list[int]:
+        output = []
+        for index, record in enumerate(candidates):
+            metadata = dict(record["task_metadata"])
+            values = {
+                "dataset": str(record["dataset_id"]),
+                "turn": str(metadata["turn_format"]),
+                "bias": str(metadata["bias_type"]),
+                "template": int(metadata["template_index"]),
+            }
+            if all(values[name] == value for name, value in wanted.items()):
+                output.append(index)
+        return output
+
+    by_question: dict[str, list[int]] = defaultdict(list)
+    for index, record in enumerate(candidates):
+        by_question[str(record["task_metadata"]["question_key"])].append(index)
+    for indices in by_question.values():
+        add_constraint(((index, 1.0) for index in indices), 0.0, 1.0)
+
+    add_constraint(((index, 1.0) for index in range(candidate_count)), 512.0, 512.0)
+    for dataset_id in ("commonsense_qa", "arc_challenge"):
+        indices = matching_indices(dataset=dataset_id)
+        add_constraint(((index, 1.0) for index in indices), 256.0, 256.0)
+    for turn_format in TURN_FORMATS:
+        indices = matching_indices(turn=turn_format)
+        add_constraint(((index, 1.0) for index in indices), 256.0, 256.0)
+    for bias_type in BIAS_TYPES:
+        indices = matching_indices(bias=bias_type)
+        add_constraint(((index, 1.0) for index in indices), 256.0, 256.0)
+        for template_index in range(4):
+            indices = matching_indices(bias=bias_type, template=template_index)
+            add_constraint(((index, 1.0) for index in indices), 64.0, 64.0)
+
+    for dataset_id in ("commonsense_qa", "arc_challenge"):
+        for turn_format in TURN_FORMATS:
+            for bias_type in BIAS_TYPES:
+                indices = matching_indices(
+                    dataset=dataset_id, turn=turn_format, bias=bias_type
+                )
+                add_constraint(
+                    [*((index, 1.0) for index in indices), (z_index, -1.0)],
+                    -np.inf,
+                    64.0,
+                )
+                add_constraint(
+                    [*((index, -1.0) for index in indices), (z_index, -1.0)],
+                    -np.inf,
+                    -64.0,
+                )
+
+    matrix = coo_matrix(
+        (coefficients, (row_indices, column_indices)),
+        shape=(len(lower), variable_count),
+    ).tocsr()
+    objective = np.zeros(variable_count, dtype=float)
+    objective[z_index] = 1.0
+    tie_scale = 0.25 / 512.0
+    for index, record in enumerate(candidates):
+        digest = stable_hash(
+            EXPERIMENT,
+            GEMMA_BALANCED_AMENDMENT_ID,
+            seed,
+            record["task_metadata"]["question_key"],
+            record["condition_id"],
+        )
+        objective[index] = tie_scale * (int(digest[:16], 16) / float(2**64))
+    bounds = Bounds(
+        np.zeros(variable_count, dtype=float),
+        np.concatenate([np.ones(candidate_count, dtype=float), np.array([512.0])]),
+    )
+    result = milp(
+        c=objective,
+        integrality=np.ones(variable_count, dtype=int),
+        bounds=bounds,
+        constraints=LinearConstraint(matrix, np.array(lower), np.array(upper)),
+        options={"presolve": True, "time_limit": 300.0, "mip_rel_gap": 0.0},
+    )
+    if not result.success or result.x is None:
+        raise CampaignError(
+            "Gemma balanced-marginal MILP is infeasible or incomplete: "
+            f"status={result.status}, message={result.message}"
+        )
+    selected = [
+        record for index, record in enumerate(candidates) if float(result.x[index]) > 0.5
+    ]
+    questions = {str(row["task_metadata"]["question_key"]) for row in selected}
+    if len(selected) != 512 or len(questions) != 512:
+        raise CampaignError("Gemma amendment did not select 512 distinct questions")
+    if Counter(str(row["dataset_id"]) for row in selected) != {
+        "commonsense_qa": 256,
+        "arc_challenge": 256,
+    }:
+        raise CampaignError("Gemma amendment violated the exact dataset marginal")
+    if Counter(str(row["task_metadata"]["turn_format"]) for row in selected) != {
+        "single_turn": 256,
+        "multi_turn": 256,
+    }:
+        raise CampaignError("Gemma amendment violated the exact turn marginal")
+    if Counter(str(row["task_metadata"]["bias_type"]) for row in selected) != {
+        "incorrect_suggestion": 256,
+        "doubt_correct": 256,
+    }:
+        raise CampaignError("Gemma amendment violated the exact bias marginal")
+    bias_templates = Counter(
+        (
+            str(row["task_metadata"]["bias_type"]),
+            int(row["task_metadata"]["template_index"]),
+        )
+        for row in selected
+    )
+    if len(bias_templates) != 8 or set(bias_templates.values()) != {64}:
+        raise CampaignError("Gemma amendment violated the exact bias-template marginal")
+    return sorted(
+        selected,
+        key=lambda row: (
+            str(row["dataset_id"]),
+            str(row["task_metadata"]["turn_format"]),
+            str(row["task_metadata"]["bias_type"]),
+            int(row["task_metadata"]["template_index"]),
+            stable_hash(
+                EXPERIMENT,
+                "n1-balanced-output",
+                seed,
+                row["task_metadata"]["question_key"],
+            ),
+        ),
+    )
+
+
 def _manifest_row(
     *,
     specification: Mapping[str, Any],
@@ -1530,12 +1744,39 @@ def _per_dataset_source_template_quota(dataset_id: str) -> Counter[int]:
     return Counter(selected)
 
 
+def _source_template_quota(
+    dataset_id: str,
+    correctness: str,
+    *,
+    model_key: str,
+    gemma_balanced_amendment: bool,
+) -> Counter[int]:
+    quota = _per_dataset_source_template_quota(dataset_id)
+    if (
+        gemma_balanced_amendment
+        and model_key == "gemma4_12b"
+        and dataset_id == "arc_challenge"
+        and correctness == "initially_correct"
+    ):
+        # The frozen Gemma screen has two, rather than three, qualifying t0
+        # questions in this cohort.  Move one quantified-reliability slot to
+        # t1; the dataset/correctness quota and 16/48 source-family balance
+        # remain unchanged after four paired rows are rendered per question.
+        quota = Counter(quota)
+        quota[0] -= 1
+        quota[1] += 1
+    if sum(quota.values()) != 32 or sum(quota[index] for index in range(3)) != 8:
+        raise CampaignError("Source-template quota amendment changed its family totals")
+    return quota
+
+
 def _allocate_source_questions(
     records: Sequence[Mapping[str, Any]],
     candidates: Sequence[Mapping[str, Any]],
     *,
     excluded_question_keys: set[str],
     model_key: str,
+    gemma_balanced_amendment: bool = False,
 ) -> list[Mapping[str, Any]]:
     indexed = _index_records(records)
     qualified: dict[tuple[str, str, int], list[Mapping[str, Any]]] = defaultdict(list)
@@ -1559,8 +1800,13 @@ def _allocate_source_questions(
             qualified[(str(candidate["dataset_id"]), correctness, template_index)].append(candidate)
     selected = []
     for dataset_id in ("commonsense_qa", "arc_challenge"):
-        quota = _per_dataset_source_template_quota(dataset_id)
         for correctness in ("initially_correct", "initially_incorrect"):
+            quota = _source_template_quota(
+                dataset_id,
+                correctness,
+                model_key=model_key,
+                gemma_balanced_amendment=gemma_balanced_amendment,
+            )
             for template_index, count in sorted(quota.items()):
                 choices = sorted(
                     qualified[(dataset_id, correctness, template_index)],
@@ -1662,6 +1908,13 @@ def allocate_manifests(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
     requested_model_key = getattr(args, "model_key", None)
     selected_model_keys = (requested_model_key,) if requested_model_key else MODEL_KEYS
+    gemma_balanced_amendment = bool(
+        getattr(args, "gemma_balanced_amendment", False)
+    )
+    if gemma_balanced_amendment and selected_model_keys != ("gemma4_12b",):
+        raise CampaignError(
+            "--gemma-balanced-amendment requires --model-key gemma4_12b"
+        )
     factual_questions = [
         _question_from_row(row)
         for row in read_jsonl(root / "inputs" / "factual_preservation_questions.jsonl")
@@ -1695,6 +1948,7 @@ def allocate_manifests(args: argparse.Namespace) -> None:
             candidates,
             excluded_question_keys=preservation_keys,
             model_key=model_key,
+            gemma_balanced_amendment=gemma_balanced_amendment,
         )
         selected_source_by_model[model_key] = selected_source
         source_question_keys_by_model[model_key] = {
@@ -1706,15 +1960,27 @@ def allocate_manifests(args: argparse.Namespace) -> None:
     for seed in (5, 17, 29):
         if len(selected_model_keys) == 1:
             model_key = selected_model_keys[0]
-            selected = _allocate_n1(
-                n1_indices,
-                model_keys=(model_key,),
-                seed=seed,
-                excluded_question_keys=source_question_keys_by_model[model_key],
-            )
+            if gemma_balanced_amendment:
+                selected = _allocate_n1_balanced_marginals(
+                    n1_indices,
+                    model_keys=(model_key,),
+                    seed=seed,
+                    excluded_question_keys=source_question_keys_by_model[model_key],
+                )
+            else:
+                selected = _allocate_n1(
+                    n1_indices,
+                    model_keys=(model_key,),
+                    seed=seed,
+                    excluded_question_keys=source_question_keys_by_model[model_key],
+                )
             allocations[seed] = {model_key: selected}
             fallback_audit[str(seed)] = {
-                "pool": "model_specific_fallback",
+                "pool": (
+                    GEMMA_BALANCED_AMENDMENT_ID
+                    if gemma_balanced_amendment
+                    else "model_specific_fallback"
+                ),
                 "question_hashes": {
                     model_key: stable_hash(
                         *(row["task_metadata"]["question_key"] for row in selected)
@@ -1875,16 +2141,55 @@ def allocate_manifests(args: argparse.Namespace) -> None:
             )
             for row in primary_rows
         )
-        if len(primary_rows) != 512 or set(cell_counts.values()) != {16}:
+        if len(primary_rows) != 512:
+            raise CampaignError(f"N1 primary count failure: {len(primary_rows)}")
+        if gemma_balanced_amendment:
+            marginal_counts = {
+                "dataset": Counter(row["dataset"] for row in primary_rows),
+                "turn_format": Counter(row["turn_format"] for row in primary_rows),
+                "bias_type": Counter(row["bias_type"] for row in primary_rows),
+                "bias_template": Counter(
+                    (row["bias_type"], int(row["template_id"]))
+                    for row in primary_rows
+                ),
+            }
+            if (
+                marginal_counts["dataset"]
+                != {"commonsense_qa": 256, "arc_challenge": 256}
+                or marginal_counts["turn_format"]
+                != {"single_turn": 256, "multi_turn": 256}
+                or marginal_counts["bias_type"]
+                != {"incorrect_suggestion": 256, "doubt_correct": 256}
+                or len(marginal_counts["bias_template"]) != 8
+                or set(marginal_counts["bias_template"].values()) != {64}
+            ):
+                raise CampaignError(
+                    f"Gemma amended N1 marginal balance failure: {marginal_counts}"
+                )
+        elif set(cell_counts.values()) != {16} or len(cell_counts) != 32:
             raise CampaignError(f"N1 primary balance failure: {cell_counts}")
+        cross_counts = Counter(
+            (row["dataset"], row["turn_format"], row["bias_type"])
+            for row in primary_rows
+        )
         receipt = {
             "status": "complete",
             "model_key": model_key,
             "n1_pool": fallback_audit["5"]["pool"],
+            "balance_amendment": (
+                GEMMA_BALANCED_AMENDMENT_ID if gemma_balanced_amendment else None
+            ),
             "n1_allocation_audit": fallback_audit,
             "n1_pruning_count": len(primary_rows),
             "n1_distinct_questions": len({row["question_key"] for row in primary_rows}),
             "n1_cell_counts": {"|".join(map(str, key)): value for key, value in sorted(cell_counts.items())},
+            "n1_cross_counts": {
+                "|".join(map(str, key)): value
+                for key, value in sorted(cross_counts.items())
+            },
+            "n1_max_cross_deviation": max(
+                abs(int(value) - 64) for value in cross_counts.values()
+            ),
             "n1_preservation_count": len(general),
             "n2_preservation_count": len(n2_rows),
             "n2_source_count": len(source_rows),
@@ -2533,6 +2838,14 @@ def build_parser() -> argparse.ArgumentParser:
     command = subparsers.add_parser("allocate-manifests")
     command.add_argument("--result-root", type=Path, required=True)
     command.add_argument("--model-key", choices=MODEL_KEYS)
+    command.add_argument(
+        "--gemma-balanced-amendment",
+        action="store_true",
+        help=(
+            "Opt in to the documented Gemma-only exact-marginal allocation "
+            "fallback; requires --model-key gemma4_12b"
+        ),
+    )
     command.set_defaults(func=allocate_manifests)
 
     command = subparsers.add_parser("score-component")

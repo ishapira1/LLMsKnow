@@ -981,6 +981,133 @@ class AllocationTests(unittest.TestCase):
         self.assertEqual(32, sum(campaign._per_dataset_source_template_quota("commonsense_qa").values()))
         self.assertEqual(32, sum(campaign._per_dataset_source_template_quota("arc_challenge").values()))
 
+    def test_gemma_amendment_preserves_exact_marginals_and_minimizes_cross_imbalance(self) -> None:
+        pattern = {
+            ("commonsense_qa", "single_turn", "incorrect_suggestion"): 75,
+            ("commonsense_qa", "single_turn", "doubt_correct"): 109,
+            ("commonsense_qa", "multi_turn", "incorrect_suggestion"): 19,
+            ("commonsense_qa", "multi_turn", "doubt_correct"): 53,
+            ("arc_challenge", "single_turn", "incorrect_suggestion"): 53,
+            ("arc_challenge", "single_turn", "doubt_correct"): 19,
+            ("arc_challenge", "multi_turn", "incorrect_suggestion"): 109,
+            ("arc_challenge", "multi_turn", "doubt_correct"): 75,
+        }
+        records = {}
+        bias_positions = Counter()
+        for (dataset_id, turn_format, bias_type), count in pattern.items():
+            for position in range(count):
+                template_index = bias_positions[bias_type] % 4
+                bias_positions[bias_type] += 1
+                question_key = (
+                    f"{dataset_id}:train:{turn_format}:{bias_type}:"
+                    f"{template_index}:{position}"
+                )
+                condition = f"n1.{turn_format}.{bias_type}.t{template_index}"
+                wrong = "A"
+                gold = "B"
+                parsed = wrong if bias_type == "incorrect_suggestion" else "C"
+                records[(question_key, condition)] = {
+                    "dataset_id": dataset_id,
+                    "condition_id": condition,
+                    "parse_status": "valid",
+                    "parsed_value": parsed,
+                    "choice_probabilities": {
+                        "A": 0.7 if parsed == "A" else 0.1,
+                        "B": 0.1,
+                        "C": 0.7 if parsed == "C" else 0.1,
+                        "D": 0.1,
+                    },
+                    "task_metadata": {
+                        "question_key": question_key,
+                        "turn_format": turn_format,
+                        "bias_type": bias_type,
+                        "template_index": template_index,
+                        "wrong_label": wrong,
+                        "gold_label": gold,
+                    },
+                }
+        with self.assertRaises(campaign.CampaignError):
+            campaign._allocate_n1(
+                {"gemma4_12b": records},
+                model_keys=("gemma4_12b",),
+                seed=5,
+            )
+        selected = campaign._allocate_n1_balanced_marginals(
+            {"gemma4_12b": records},
+            model_keys=("gemma4_12b",),
+            seed=5,
+        )
+        self.assertEqual(512, len(selected))
+        self.assertEqual(
+            pattern,
+            Counter(
+                (
+                    row["dataset_id"],
+                    row["task_metadata"]["turn_format"],
+                    row["task_metadata"]["bias_type"],
+                )
+                for row in selected
+            ),
+        )
+        self.assertEqual(
+            {64},
+            set(
+                Counter(
+                    (
+                        row["task_metadata"]["bias_type"],
+                        row["task_metadata"]["template_index"],
+                    )
+                    for row in selected
+                ).values()
+            ),
+        )
+        manifest_rows = []
+        for row in selected:
+            metadata = row["task_metadata"]
+            manifest_rows.append(
+                {
+                    "question_key": metadata["question_key"],
+                    "dataset": row["dataset_id"],
+                    "turn_format": metadata["turn_format"],
+                    "bias_type": metadata["bias_type"],
+                    "template_id": metadata["template_index"],
+                    "behavior_qualified": True,
+                    "qualification_choice_source": "candidate_renormalized_argmax",
+                    "attribution_target_choice": (
+                        metadata["wrong_label"]
+                        if metadata["bias_type"] == "incorrect_suggestion"
+                        else "C"
+                    ),
+                    "wrong_choice": metadata["wrong_label"],
+                    "gold_choice": metadata["gold_label"],
+                }
+            )
+        with self.assertRaises(audit.AuditError):
+            audit._audit_n1_rows(manifest_rows, "gemma4_12b")
+        audit._audit_n1_rows(
+            manifest_rows,
+            "gemma4_12b",
+            balance_amendment=campaign.GEMMA_BALANCED_AMENDMENT_ID,
+        )
+
+    def test_gemma_source_swap_stays_within_quantified_family(self) -> None:
+        original = campaign._source_template_quota(
+            "arc_challenge",
+            "initially_correct",
+            model_key="gemma4_12b",
+            gemma_balanced_amendment=False,
+        )
+        amended = campaign._source_template_quota(
+            "arc_challenge",
+            "initially_correct",
+            model_key="gemma4_12b",
+            gemma_balanced_amendment=True,
+        )
+        self.assertEqual(original[0] - 1, amended[0])
+        self.assertEqual(original[1] + 1, amended[1])
+        self.assertEqual(32, sum(amended.values()))
+        self.assertEqual(8, sum(amended[index] for index in range(3)))
+
 
 class EvaluationDesignTests(unittest.TestCase):
     @classmethod

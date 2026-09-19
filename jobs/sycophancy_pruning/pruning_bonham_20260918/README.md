@@ -104,6 +104,26 @@ $PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/evaluations.py run-s
   --family generalization --shard 0 --hf-cache "$HF_CACHE_DIR"
 ```
 
+The exact 32-cell allocator remains the default and fails closed. The documented
+Gemma-only balanced-marginal fallback is present as an explicit, inert opt-in so
+that it cannot alter Llama or Qwen artifacts accidentally. It may be invoked only
+after protocol approval:
+
+```bash
+$CPU_PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/campaign.py \
+  allocate-manifests --result-root "$RESULT_ROOT" --model-key gemma4_12b \
+  --gemma-balanced-amendment
+```
+
+That path still requires 512 distinct behavior-qualified questions, exact 256/256
+dataset, turn-format, and bias-type marginals, and 64 examples for each
+bias-type/template pair. It minimizes the maximum deviation of the eight
+dataset-by-turn-by-bias cells from 64 and records the amendment identifier and
+realized cell counts in the authenticated manifest receipt. The accompanying
+source-bank fallback moves one ARC initially-correct quantified-reliability slot
+from source template 0 to source template 1 without changing any source-family
+total.
+
 For accelerated state-sequence execution, `gpu_eval_states.sbatch` accepts
 `EVALUATION_FAMILY_SET=paper_core` (generalization and useful assertions) or
 `EVALUATION_FAMILY_SET=capabilities`.  The default `all` runs all three

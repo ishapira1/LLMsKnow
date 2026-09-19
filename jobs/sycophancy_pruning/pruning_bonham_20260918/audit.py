@@ -283,7 +283,12 @@ def _audit_mask(
     return coordinates, metadata
 
 
-def _audit_n1_rows(rows: list[Mapping[str, Any]], model_key: str) -> None:
+def _audit_n1_rows(
+    rows: list[Mapping[str, Any]],
+    model_key: str,
+    *,
+    balance_amendment: str | None = None,
+) -> None:
     _require(len(rows) == 512, f"N1 pruning count is not 512 for {model_key}")
     _require(
         len({str(row["question_key"]) for row in rows}) == 512,
@@ -293,7 +298,21 @@ def _audit_n1_rows(rows: list[Mapping[str, Any]], model_key: str) -> None:
         (row["dataset"], row["turn_format"], row["bias_type"], row["template_id"])
         for row in rows
     )
-    _require(len(cells) == 32 and set(cells.values()) == {16}, f"N1 is unbalanced for {model_key}")
+    if balance_amendment == campaign.GEMMA_BALANCED_AMENDMENT_ID:
+        _require(model_key == "gemma4_12b", "Gemma balance amendment used by another model")
+        bias_templates = Counter(
+            (row["bias_type"], int(row["template_id"])) for row in rows
+        )
+        _require(
+            len(bias_templates) == 8 and set(bias_templates.values()) == {64},
+            "Gemma amended N1 bias-template marginals are not exact",
+        )
+    else:
+        _require(balance_amendment is None, f"Unknown N1 balance amendment: {balance_amendment}")
+        _require(
+            len(cells) == 32 and set(cells.values()) == {16},
+            f"N1 is unbalanced for {model_key}",
+        )
     _require(
         Counter(row["dataset"] for row in rows)
         == {"commonsense_qa": 256, "arc_challenge": 256}
@@ -511,11 +530,16 @@ def final_audit(args: argparse.Namespace) -> None:
         _require(smoke["model_id"] == specification["model_id"], "Model ID mismatch")
         _require(smoke["revision"] == specification["revision"], "Model revision mismatch")
         manifest_root = root / "manifests" / model_key
+        manifest_receipt = read_json(manifest_root / "MANIFESTS_COMPLETE.json")
         n1_prune = read_jsonl(manifest_root / "n1_mechanism" / "prune.jsonl")
         n2_prune_path = manifest_root / "n2_selective" / "prune.jsonl"
         n1_preserve = read_jsonl(manifest_root / "n1_general" / "preserve.jsonl")
         n2_preserve = read_jsonl(manifest_root / "n2_selective" / "preserve.jsonl")
-        _audit_n1_rows(n1_prune, model_key)
+        _audit_n1_rows(
+            n1_prune,
+            model_key,
+            balance_amendment=manifest_receipt.get("balance_amendment"),
+        )
         _require(
             (manifest_root / "n1_mechanism" / "prune.jsonl").read_bytes()
             == n2_prune_path.read_bytes(),
