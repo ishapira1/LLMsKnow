@@ -48,7 +48,9 @@ def _read_json(path: Path) -> Any:
 def _read_jsonl(path: Path) -> list[Mapping[str, Any]]:
     return [
         json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
+        # JSONL is delimited by ASCII LF.  str.splitlines() also splits Unicode
+        # separators that may legally occur inside a JSON string.
+        for line in path.read_text(encoding="utf-8").split("\n")
         if line.strip()
     ]
 
@@ -59,8 +61,9 @@ def _authenticated_value(path: Path, expected: str, serialization: str | None = 
     for attempt in range(5):
         try:
             # Hash and parse one byte snapshot.  On a congested shared
-            # filesystem, two independent reads can otherwise observe a good
-            # hash followed by a transiently truncated parse read.
+            # filesystem, two independent reads could otherwise disagree.
+            # Split only on JSONL's ASCII LF delimiter below; Unicode line
+            # separators are legal inside JSON strings.
             payload = path.read_bytes()
             observed = hashlib.sha256(payload).hexdigest()
             if observed != str(expected):
@@ -71,7 +74,7 @@ def _authenticated_value(path: Path, expected: str, serialization: str | None = 
             if serialization == "jsonl" or path.suffix == ".jsonl":
                 return [
                     json.loads(line)
-                    for line in text.splitlines()
+                    for line in text.split("\n")
                     if line.strip()
                 ]
             return json.loads(text)

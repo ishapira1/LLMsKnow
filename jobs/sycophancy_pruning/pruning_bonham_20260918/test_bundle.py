@@ -228,7 +228,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertEqual("SST-2 arbitrary-label ICL", utility_evaluation_name(task))
 
     def test_capability_source_hash_and_parse_share_one_byte_snapshot(self) -> None:
-        payload = b'{"row": 1}\n{"row": 2}\n'
+        payload = '{"row": "embedded\u2028separator"}\n{"row": 2}\n'.encode("utf-8")
         expected = hashlib.sha256(payload).hexdigest()
         with patch.object(
             Path, "read_bytes", side_effect=(payload, b'{"truncated":')
@@ -236,7 +236,7 @@ class RuntimeIsolationTests(unittest.TestCase):
             rows = capabilities._authenticated_value(
                 Path("/frozen/source.jsonl"), expected, "jsonl"
             )
-        self.assertEqual([{"row": 1}, {"row": 2}], rows)
+        self.assertEqual([{"row": "embedded\u2028separator"}, {"row": 2}], rows)
         reader.assert_called_once()
 
     def test_reporting_dispatches_bonham_capability_evaluator_ids(self) -> None:
