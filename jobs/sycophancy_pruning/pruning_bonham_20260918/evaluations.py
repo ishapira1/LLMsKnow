@@ -119,8 +119,14 @@ def _generalization_tasks_for_model(
     config: Mapping[str, Any], model_key: str, questions: Sequence[Question]
 ) -> list[EvaluationTask]:
     assignments = {}
+    reasoning_assignments = {}
     for dataset_id in ("commonsense_qa", "arc_challenge", "openbookqa"):
         ids = [row.source_example_id for row in questions if row.dataset_id == dataset_id]
+        reasoning_assignments[dataset_id] = balanced_template_assignments(
+            ids,
+            4,
+            f"{campaign.EXPERIMENT}:generalization:{dataset_id}:reasoning_backed_pushback",
+        )
         for bias_type in BIAS_TYPES:
             for regime, count in (("seen", 4), ("close_paraphrase", 8), ("naturalistic", 24)):
                 assignments[(dataset_id, bias_type, regime)] = (
@@ -226,6 +232,54 @@ def _generalization_tasks_for_model(
                             metadata=metadata,
                         )
                     )
+
+        reasoning_index = reasoning_assignments[question.dataset_id][question.source_example_id]
+        reasoning_template = str(
+            config["reasoning_backed_pushback_templates"][reasoning_index]
+        )
+        reasoning_sentence = reasoning_template.format(W=option_ref(question, wrong))
+        reasoning_metadata = _base_metadata(
+            model_key=model_key,
+            question=question,
+            question_axis=question_axis,
+            prompt_regime="reasoning_backed_pushback",
+            bias_type="incorrect_suggestion",
+            turn_format="multi_turn",
+            template_family="generic_justification_pressure",
+            template_id=f"reasoning_backed_pushback.{reasoning_index}",
+            wrong=wrong,
+        )
+        reasoning_metadata = {
+            **reasoning_metadata,
+            "bias_sentence": reasoning_sentence,
+            "primary_macro_eligible": False,
+            "stress_test": True,
+            "reasoning_scope": "generic_justification_pressure",
+        }
+        tasks.append(
+            EvaluationTask(
+                example_id=f"stress:reasoning_backed_pushback:{_question_key(question)}",
+                evaluator_id="bonham_generalization_v1",
+                display_name="Bonham rationale-framed pushback stress test",
+                dataset_id=question.dataset_id,
+                dataset_revision=str(config["datasets"][question.dataset_id]["revision"]),
+                split=question.source_split,
+                condition_id="stress.reasoning_backed_pushback.multi_turn",
+                messages=render_messages(
+                    question,
+                    bias_sentence=reasoning_sentence,
+                    turn_format="multi_turn",
+                    assistant_answer=question.gold,
+                    answer_instruction=str(config["answer_instruction"]),
+                ),
+                output_mode="mcq",
+                max_new_tokens=8,
+                choices=question.labels,
+                gold_choice=question.gold,
+                target_choice=wrong,
+                metadata=reasoning_metadata,
+            )
+        )
 
         stress_index = int(
             stable_hash(campaign.EXPERIMENT, "stress", question.dataset_id, question.source_example_id),
@@ -704,6 +758,41 @@ def prepare(args: argparse.Namespace) -> None:
         )
         if len(primary_cells) != 36 or set(primary_cells.values()) != {500}:
             raise EvaluationError(f"Primary generalization factorial is incomplete: {primary_cells}")
+        reasoning_backed = [
+            task
+            for task in generalization
+            if task.metadata.get("prompt_regime") == "reasoning_backed_pushback"
+        ]
+        reasoning_cells = Counter(task.dataset_id for task in reasoning_backed)
+        reasoning_templates = {
+            dataset_id: Counter(
+                task.metadata["template_id"]
+                for task in reasoning_backed
+                if task.dataset_id == dataset_id
+            )
+            for dataset_id in ("commonsense_qa", "arc_challenge", "openbookqa")
+        }
+        if reasoning_cells != {
+            "commonsense_qa": 500,
+            "arc_challenge": 500,
+            "openbookqa": 500,
+        } or any(
+            len(counts) != 4 or set(counts.values()) != {125}
+            for counts in reasoning_templates.values()
+        ):
+            raise EvaluationError(
+                "Reasoning-backed pushback stress test is incomplete or unbalanced: "
+                f"cells={reasoning_cells}, templates={reasoning_templates}"
+            )
+        if any(
+            task.metadata.get("turn_format") != "multi_turn"
+            or task.metadata.get("bias_type") != "incorrect_suggestion"
+            or task.metadata.get("reasoning_scope") != "generic_justification_pressure"
+            or task.metadata.get("primary_macro_eligible") is not False
+            or [message["role"] for message in task.messages] != ["user", "assistant", "user"]
+            for task in reasoning_backed
+        ):
+            raise EvaluationError("Reasoning-backed pushback rendering violates its frozen design")
         useful_primary = [
             task
             for task in useful

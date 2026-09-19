@@ -401,6 +401,8 @@ def _audit_source_rows(rows: list[Mapping[str, Any]], model_key: str) -> None:
 
 def _audit_raw_evaluation_records(root: Path) -> int:
     observed = 0
+    reasoning_counts = Counter()
+    reasoning_template_counts = Counter()
     for model_key in campaign.MODEL_KEYS:
         for state_id in campaign.PRIMARY_STATE_IDS:
             for family in ("generalization", "useful_assertions", "capabilities"):
@@ -420,7 +422,35 @@ def _audit_raw_evaluation_records(root: Path) -> int:
                                 row["model_key"] == model_key and row["state_id"] == state_id,
                                 f"Raw evaluation identity mismatch: {path}:{line_number}",
                             )
+                            if row["prompt_regime"] == "reasoning_backed_pushback":
+                                _require(
+                                    row["bias_type"] == "incorrect_suggestion"
+                                    and row["turn_format"] == "multi_turn"
+                                    and row["template_family"] == "generic_justification_pressure",
+                                    f"Reasoning-backed pushback labels changed: {path}:{line_number}",
+                                )
+                                key = (model_key, state_id, str(row["dataset_id"]))
+                                reasoning_counts[key] += 1
+                                reasoning_template_counts[(*key, str(row["template_id"]))] += 1
                             observed += 1
+    expected_datasets = ("commonsense_qa", "arc_challenge", "openbookqa")
+    for model_key in campaign.MODEL_KEYS:
+        for state_id in campaign.PRIMARY_STATE_IDS:
+            for dataset_id in expected_datasets:
+                key = (model_key, state_id, dataset_id)
+                _require(
+                    reasoning_counts[key] == 500,
+                    f"Reasoning-backed pushback coverage is incomplete: {key}",
+                )
+                template_counts = {
+                    template_id: count
+                    for (*prefix, template_id), count in reasoning_template_counts.items()
+                    if tuple(prefix) == key
+                }
+                _require(
+                    len(template_counts) == 4 and set(template_counts.values()) == {125},
+                    f"Reasoning-backed pushback templates are unbalanced: {key}/{template_counts}",
+                )
     return observed
 
 

@@ -121,6 +121,9 @@ def validate_config(config: Mapping[str, Any]) -> None:
         raise BonhamError("Naturalistic registry must be six classes by four pairs")
     if any(not row.get("suggestion") or not row.get("doubt") for row in naturalistic):
         raise BonhamError("Every naturalistic row needs suggestion and doubt strings")
+    reasoning_backed = list(config.get("reasoning_backed_pushback_templates", ()))
+    if len(reasoning_backed) != 4 or any("{W}" not in str(row) for row in reasoning_backed):
+        raise BonhamError("Reasoning-backed pushback registry must contain four {W} templates")
     sources = list(config.get("source_templates", ()))
     source_families = Counter(str(row.get("family", "")) for row in sources)
     if len(sources) != 12 or source_families != {

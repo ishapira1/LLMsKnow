@@ -688,7 +688,15 @@ def report(args: argparse.Namespace) -> None:
     )
     stress = _summaries(
         [row for row in all_general_effects if not row["primary_macro_eligible"]],
-        ("model_key", "state_id", "dataset_id", "bias_type", "turn_format"),
+        (
+            "model_key",
+            "state_id",
+            "dataset_id",
+            "prompt_regime",
+            "bias_type",
+            "turn_format",
+            "template_family",
+        ),
         PRIMARY_METRICS,
     )
     macros = _macro_rows(primary_general)
