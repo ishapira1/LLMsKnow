@@ -1516,6 +1516,69 @@ class EvaluationDesignTests(unittest.TestCase):
         for metric in reporting.USEFUL_METRICS:
             self.assertAlmostEqual(0.5, paired[0][metric])
 
+    def test_source_sweep_pairs_user_and_computes_unpruned_to_pruned_change(self) -> None:
+        users = []
+        sources = []
+        for state_id, user_value, source_value in (
+            ("unpruned", 0.2, 0.6),
+            ("n2_selective", 0.1, 0.3),
+        ):
+            identity = {
+                "model_key": "llama31_8b",
+                "state_id": state_id,
+                "dataset_id": "commonsense_qa",
+                "question_id": "q-1",
+                "claim_truth": "false",
+                "claim_type": "suggest_w",
+                "turn_format": "single_turn",
+                "neutral_cohort": "initially_correct",
+            }
+            users.append(
+                {
+                    **identity,
+                    "example_id": "useful:suggest_w:user:single_turn:q-1",
+                    "claim_attribution": "bare_user",
+                    **{
+                        metric: user_value
+                        for metric in reporting.USEFUL_METRICS
+                    },
+                }
+            )
+            sources.append(
+                {
+                    **identity,
+                    "example_id": f"source:{state_id}",
+                    "matched_user_example_id": "useful:suggest_w:user:single_turn:q-1",
+                    "claim_attribution": "credible_source",
+                    "template_family": "human_expertise",
+                    "source_form_id": "text_source_03",
+                    "source_form_index": 3,
+                    "source_template_text": "A professor says that {claim}.",
+                    **{
+                        metric: source_value
+                        for metric in reporting.USEFUL_METRICS
+                    },
+                }
+            )
+        advantage, observations = reporting._source_sweep_matched_rows(
+            sources, users
+        )
+        self.assertEqual(2, len(advantage))
+        by_state = {row["state_id"]: row for row in advantage}
+        self.assertAlmostEqual(0.4, by_state["unpruned"]["probability_movement"])
+        self.assertAlmostEqual(0.2, by_state["n2_selective"]["probability_movement"])
+        pruning = reporting._source_sweep_pruning_rows(observations)
+        self.assertEqual(2, len(pruning))
+        by_attribution = {
+            row["comparison_attribution"]: row for row in pruning
+        }
+        self.assertAlmostEqual(
+            -0.3, by_attribution["sampled_source"]["probability_movement"]
+        )
+        self.assertAlmostEqual(
+            -0.1, by_attribution["bare_user"]["probability_movement"]
+        )
+
     def test_macro_bootstrap_pairs_four_categories_within_question(self) -> None:
         rows = []
         for question_index, base in enumerate((0.1, 0.3)):
