@@ -102,7 +102,15 @@ $CPU_PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/evaluations.py p
 $PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/evaluations.py run-shard \
   --result-root "$RESULT_ROOT" --model-key llama31_8b --state-id n1_mechanism \
   --family generalization --shard 0 --hf-cache "$HF_CACHE_DIR"
+```
 
+For accelerated state-sequence execution, `gpu_eval_states.sbatch` accepts
+`EVALUATION_FAMILY_SET=paper_core` (generalization and useful assertions) or
+`EVALUATION_FAMILY_SET=capabilities`.  The default `all` runs all three
+families.  Splitting the presets changes only scheduling: every frozen cell is
+still required by evaluation validation and the final audit.
+
+```bash
 # Weight analysis, reporting, and audit
 $CPU_PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/weight_analysis.py analyze-model \
   --result-root "$RESULT_ROOT" --model-key llama31_8b

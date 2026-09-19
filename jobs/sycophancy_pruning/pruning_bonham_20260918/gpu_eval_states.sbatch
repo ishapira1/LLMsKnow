@@ -36,8 +36,19 @@ if (( GPUS_PER_STATE > 1 )); then
   export LLMSSYCOPH_DEVICE_MAP_AUTO=1
 fi
 PYTHON_BIN="$(python_for_model "$MODEL_KEY")"; export PYTHON_BIN
-# Keep these positional: Slurm uses commas to delimit --export entries.
-evaluation_families=(generalization useful_assertions capabilities)
+# Keep the preset scalar-valued: Slurm uses commas to delimit --export entries.
+# The default preserves the full original runner.  The paper-core preset lets the
+# accelerated campaign finish the Section 4/5 analyses before the capability tail.
+case "${EVALUATION_FAMILY_SET:-all}" in
+  all) evaluation_families=(generalization useful_assertions capabilities) ;;
+  paper_core) evaluation_families=(generalization useful_assertions) ;;
+  capabilities) evaluation_families=(capabilities) ;;
+  *)
+    printf 'EVALUATION_FAMILY_SET must be all, paper_core, or capabilities: %s\n' \
+      "$EVALUATION_FAMILY_SET" >&2
+    exit 2
+    ;;
+esac
 states=(
   unpruned
   n1_mechanism

@@ -308,7 +308,15 @@ class RuntimeIsolationTests(unittest.TestCase):
             self.assertIn(state_id, runner)
         self.assertIn("run-state-sequence", runner)
         self.assertIn(
-            "evaluation_families=(generalization useful_assertions capabilities)", runner
+            "all) evaluation_families=(generalization useful_assertions capabilities)",
+            runner,
+        )
+        self.assertIn(
+            "paper_core) evaluation_families=(generalization useful_assertions)",
+            runner,
+        )
+        self.assertIn(
+            "capabilities) evaluation_families=(capabilities)", runner
         )
         self.assertNotIn("EVALUATION_FAMILIES_CSV", runner)
         self.assertIn('--gpus-per-task="$GPUS_PER_STATE"', runner)
