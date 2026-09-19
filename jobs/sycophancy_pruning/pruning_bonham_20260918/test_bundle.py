@@ -653,6 +653,8 @@ class RuntimeIsolationTests(unittest.TestCase):
             self.assertIn(family, supervisor_source)
         self.assertIn("paper_core_complete", supervisor_source)
         self.assertIn("serial_requeue", supervisor_source)
+        self.assertIn('"source_overall_advantage.csv"', report_source)
+        self.assertIn('"source_overall_pruning_effect.csv"', report_source)
 
     def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

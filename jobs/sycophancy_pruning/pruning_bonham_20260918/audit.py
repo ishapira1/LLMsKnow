@@ -13,6 +13,7 @@ from typing import Any, Mapping
 import campaign
 import evaluations
 import prepare_capability_sources
+import reporting
 from core import (
     DEFAULT_CONFIG,
     ELIGIBLE_PROJECTIONS,
@@ -1011,8 +1012,10 @@ def final_audit(args: argparse.Namespace) -> None:
         "source_attribution_cells.csv",
         "source_form_advantage.csv",
         "source_family_advantage.csv",
+        "source_overall_advantage.csv",
         "source_attribution_pruning_effect.csv",
         "source_family_pruning_effect.csv",
+        "source_overall_pruning_effect.csv",
         "general_capabilities.csv",
     }
     _require(set(report.get("csv_files", {})) == expected_csv, "Paper-ready CSV coverage is incomplete")
@@ -1055,6 +1058,20 @@ def final_audit(args: argparse.Namespace) -> None:
         == {"single_turn", "multi_turn"},
         "Source-attribution report lacks a truth-direction or turn-format cell",
     )
+    source_overall_rows = list(paper_results.get("source_overall_advantage", []))
+    _require(
+        {str(row.get("model_key")) for row in source_overall_rows}
+        == set(campaign.MODEL_KEYS)
+        and {str(row.get("state_id")) for row in source_overall_rows}
+        == set(campaign.PRIMARY_STATE_IDS)
+        and {str(row.get("claim_type")) for row in source_overall_rows}
+        == {"suggest_c", "suggest_w", "doubt_c", "doubt_w"}
+        and {str(row.get("turn_format")) for row in source_overall_rows}
+        == {"single_turn", "multi_turn"}
+        and {str(row.get("metric")) for row in source_overall_rows}
+        == set(reporting.USEFUL_METRICS),
+        "Pooled matched-source advantage coverage is incomplete",
+    )
     source_pruning_rows = list(
         paper_results.get("source_family_pruning_effect", [])
     )
@@ -1064,6 +1081,23 @@ def final_audit(args: argparse.Namespace) -> None:
         and {str(row.get("state_id")) for row in source_pruning_rows}
         == set(campaign.PRIMARY_STATE_IDS).difference({"unpruned"}),
         "Source-attribution pruning report lacks matched user/source state effects",
+    )
+    source_overall_pruning_rows = list(
+        paper_results.get("source_overall_pruning_effect", [])
+    )
+    _require(
+        {str(row.get("model_key")) for row in source_overall_pruning_rows}
+        == set(campaign.MODEL_KEYS)
+        and {
+            str(row.get("comparison_attribution"))
+            for row in source_overall_pruning_rows
+        }
+        == {"sampled_source", "bare_user"}
+        and {str(row.get("state_id")) for row in source_overall_pruning_rows}
+        == set(campaign.PRIMARY_STATE_IDS).difference({"unpruned"})
+        and {str(row.get("metric")) for row in source_overall_pruning_rows}
+        == set(reporting.USEFUL_METRICS),
+        "Pooled source/user pruning-effect coverage is incomplete",
     )
     reported_capabilities = {
         "TriviaQA" if row["benchmark"] == "TriviaQA-Wiki" else row["benchmark"]

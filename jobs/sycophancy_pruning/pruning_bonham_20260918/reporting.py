@@ -1145,6 +1145,19 @@ def report(args: argparse.Namespace) -> None:
         ),
         USEFUL_METRICS,
     )
+    source_overall_advantage = _summaries(
+        source_sweep_advantage_rows,
+        (
+            "model_key",
+            "state_id",
+            "dataset_id",
+            "claim_truth",
+            "claim_type",
+            "turn_format",
+            "neutral_cohort",
+        ),
+        USEFUL_METRICS,
+    )
     source_sweep_pruning_rows = _source_sweep_pruning_rows(
         source_sweep_paired
     )
@@ -1180,6 +1193,20 @@ def report(args: argparse.Namespace) -> None:
         ),
         USEFUL_METRICS,
     )
+    source_overall_pruning_effect = _summaries(
+        source_sweep_pruning_rows,
+        (
+            "model_key",
+            "state_id",
+            "dataset_id",
+            "claim_truth",
+            "claim_type",
+            "turn_format",
+            "neutral_cohort",
+            "comparison_attribution",
+        ),
+        USEFUL_METRICS,
+    )
     capabilities = [] if early_qwen_llama else _capability_rows(root)
     artifacts = {
         "generalization_cells.csv": general_cells,
@@ -1194,8 +1221,10 @@ def report(args: argparse.Namespace) -> None:
         "source_attribution_cells.csv": source_attribution_cells,
         "source_form_advantage.csv": source_form_advantage,
         "source_family_advantage.csv": source_family_advantage,
+        "source_overall_advantage.csv": source_overall_advantage,
         "source_attribution_pruning_effect.csv": source_attribution_pruning_effect,
         "source_family_pruning_effect.csv": source_family_pruning_effect,
+        "source_overall_pruning_effect.csv": source_overall_pruning_effect,
         "general_capabilities.csv": capabilities,
     }
     for filename, rows in artifacts.items():
@@ -1215,8 +1244,10 @@ def report(args: argparse.Namespace) -> None:
         "source_attribution_cells": source_attribution_cells,
         "source_form_advantage": source_form_advantage,
         "source_family_advantage": source_family_advantage,
+        "source_overall_advantage": source_overall_advantage,
         "source_attribution_pruning_effect": source_attribution_pruning_effect,
         "source_family_pruning_effect": source_family_pruning_effect,
+        "source_overall_pruning_effect": source_overall_pruning_effect,
         "general_capabilities": capabilities,
     }
     atomic_json(output / "paper_results.json", full_payload)
