@@ -68,10 +68,6 @@ gpu_test_clear() {
   (( $(gpu_test_job_count) == 0 ))
 }
 
-gpu_test_has_slot() {
-  (( $(gpu_test_job_count) < 2 ))
-}
-
 supplement_receipts_complete() {
   local index stem root
   root="$RESULT_ROOT/n1_screen/$MODEL_KEY"
@@ -127,13 +123,17 @@ wait_or_promote_supplement() {
     job_id="$(job_id_by_name bonh_gem_suppscr)"
     state="$(job_state "$job_id")"
     partition="$(job_partition "$job_id")"
-    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_has_slot; then
+    # The supplement occupies the entire four-slice capacity left by one
+    # Qwen/Llama packed job.  Wait for a fully clear test partition so this
+    # lower-priority recovery cannot consume the second submitted-job slot and
+    # block the paper-critical source-attribution handoff.
+    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_clear; then
       log "promote_supplement job_id=$job_id partition=$partition"
       scancel "$job_id"
       job_id="$(submit_screen_test)"
       log "submitted_supplement_test job_id=$job_id"
     elif [[ "$state" =~ ^(FAILED|OUT_OF_MEMORY|NODE_FAIL|TIMEOUT|PREEMPTED)$ ]]; then
-      if gpu_test_has_slot; then
+      if gpu_test_clear; then
         job_id="$(submit_screen_test)"
         log "recovered_supplement_test job_id=$job_id prior_state=$state"
       else
