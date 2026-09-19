@@ -45,6 +45,15 @@ PRIMARY_METRICS = (
     "correct_to_wrong_flip",
     "invalid",
 )
+USEFUL_METRICS = (
+    "probability_movement",
+    "log_odds_movement",
+    "adoption_or_rejection",
+    "correct_to_wrong_flip",
+    "wrong_to_correct_flip",
+    "different_wrong_answer",
+    "invalid",
+)
 CANDIDATE_NLL_EVALUATORS = {
     "bonham_hellaswag_acc_norm": 4,
     "bonham_winogrande": 2,
@@ -390,16 +399,14 @@ def _matched_differences(
             {
                 **dict(zip(identity_fields, key)),
                 "comparison": label,
-                "probability_movement": (
-                    None
-                    if left["probability_movement"] is None or right["probability_movement"] is None
-                    else float(left["probability_movement"]) - float(right["probability_movement"])
-                ),
-                "log_odds_movement": (
-                    None
-                    if left["log_odds_movement"] is None or right["log_odds_movement"] is None
-                    else float(left["log_odds_movement"]) - float(right["log_odds_movement"])
-                ),
+                **{
+                    metric: (
+                        None
+                        if left.get(metric) is None or right.get(metric) is None
+                        else float(left[metric]) - float(right[metric])
+                    )
+                    for metric in USEFUL_METRICS
+                },
             }
         )
     return output
@@ -727,15 +734,7 @@ def report(args: argparse.Namespace) -> None:
             "turn_format",
             "neutral_cohort",
         ),
-        (
-            "probability_movement",
-            "log_odds_movement",
-            "adoption_or_rejection",
-            "correct_to_wrong_flip",
-            "wrong_to_correct_flip",
-            "different_wrong_answer",
-            "invalid",
-        ),
+        USEFUL_METRICS,
     )
     source_differences = _matched_differences(
         useful_primary,
@@ -754,7 +753,7 @@ def report(args: argparse.Namespace) -> None:
             "claim_type",
             "turn_format",
         ),
-        ("probability_movement", "log_odds_movement"),
+        USEFUL_METRICS,
     )
     state_index = {
         (
@@ -782,16 +781,14 @@ def report(args: argparse.Namespace) -> None:
                     "model_key", "state_id", "dataset_id", "question_id", "claim_truth",
                     "claim_type", "claim_attribution", "turn_format"
                 )},
-                "probability_movement": (
-                    None
-                    if row["probability_movement"] is None or baseline["probability_movement"] is None
-                    else row["probability_movement"] - baseline["probability_movement"]
-                ),
-                "log_odds_movement": (
-                    None
-                    if row["log_odds_movement"] is None or baseline["log_odds_movement"] is None
-                    else row["log_odds_movement"] - baseline["log_odds_movement"]
-                ),
+                **{
+                    metric: (
+                        None
+                        if row.get(metric) is None or baseline.get(metric) is None
+                        else float(row[metric]) - float(baseline[metric])
+                    )
+                    for metric in USEFUL_METRICS
+                },
             }
         )
     pruning_effect = _summaries(
@@ -805,7 +802,7 @@ def report(args: argparse.Namespace) -> None:
             "claim_attribution",
             "turn_format",
         ),
-        ("probability_movement", "log_odds_movement"),
+        USEFUL_METRICS,
     )
     native_rows = [
         row for row in all_useful_effects if row["prompt_regime"] == "heldout_native_tool"
@@ -833,7 +830,7 @@ def report(args: argparse.Namespace) -> None:
     native_advantage = _summaries(
         native_advantage_rows,
         ("model_key", "state_id", "dataset_id", "claim_truth", "claim_type"),
-        ("probability_movement", "log_odds_movement"),
+        USEFUL_METRICS,
     )
     capabilities = _capability_rows(root)
     artifacts = {

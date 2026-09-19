@@ -958,6 +958,38 @@ class EvaluationDesignTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(10, first["n_questions"])
 
+    def test_user_source_pairing_uses_same_rows_for_every_useful_metric(self) -> None:
+        identity = {
+            "model_key": "llama31_8b",
+            "state_id": "n2_selective",
+            "dataset_id": "commonsense_qa",
+            "question_id": "q-1",
+            "claim_truth": "false",
+            "claim_type": "suggest_w",
+            "turn_format": "single_turn",
+            "prompt_regime": "primary_matched_attribution",
+        }
+        user = {
+            **identity,
+            "claim_attribution": "bare_user",
+            **{metric: 0.25 for metric in reporting.USEFUL_METRICS},
+        }
+        source = {
+            **identity,
+            "claim_attribution": "reliable_source",
+            **{metric: 0.75 for metric in reporting.USEFUL_METRICS},
+        }
+        paired = reporting._matched_differences(
+            [user, source],
+            pair_field="claim_attribution",
+            left_value="reliable_source",
+            right_value="bare_user",
+            label="reliable_source_advantage",
+        )
+        self.assertEqual(1, len(paired))
+        for metric in reporting.USEFUL_METRICS:
+            self.assertAlmostEqual(0.5, paired[0][metric])
+
     def test_macro_bootstrap_pairs_four_categories_within_question(self) -> None:
         rows = []
         for question_index, base in enumerate((0.1, 0.3)):
