@@ -1897,8 +1897,18 @@ def score_component(args: argparse.Namespace) -> None:
         return
     if destination.exists():
         raise FileExistsError(f"Incomplete score destination exists: {destination}")
-    attempt = destination.with_name(destination.name + f".partial.{os.getpid()}")
-    attempt.mkdir(parents=True)
+    # A stable partial directory makes each completed block-replay pass a
+    # restartable unit.  This is required on short, preemptible GPU queues:
+    # completed passes remain authenticated while an interrupted pass is
+    # recomputed from the unmodified model.
+    attempt = destination.with_name(destination.name + ".partial")
+    attempt.mkdir(parents=True, exist_ok=True)
+    identity_path = attempt / "identity.json"
+    if identity_path.is_file():
+        if read_json(identity_path) != identity:
+            raise CampaignError(f"Existing partial score identity changed: {attempt}")
+    else:
+        atomic_json(identity_path, identity)
     model, tokenizer = _load_model(model_snapshot(args.hf_cache, specification))
     examples = prepare_examples(
         rows,
@@ -1928,6 +1938,27 @@ def score_component(args: argparse.Namespace) -> None:
         for start in range(0, len(block_ids), blocks_per_pass):
             chosen = block_ids[start : start + blocks_per_pass]
             modules = [item for block in chosen for item in groups[block]]
+            progress_path = attempt / f"pass_{start:04d}_COMPLETE.json"
+            if progress_path.is_file():
+                progress = read_json(progress_path)
+                if list(progress.get("blocks", [])) != chosen:
+                    raise CampaignError(f"Changed replay-pass identity: {progress_path}")
+                pass_tensors = dict(progress.get("tensors", {}))
+                expected_names = {name for name, _module in modules}
+                if set(pass_tensors) != expected_names:
+                    raise CampaignError(f"Incomplete replay-pass tensor set: {progress_path}")
+                for name, row in pass_tensors.items():
+                    path = attempt / str(row["file"])
+                    if not path.is_file() or sha256_file(path) != str(row["sha256"]):
+                        raise CampaignError(f"Changed replay-pass tensor: {path}")
+                    tensor_metadata[name] = row
+                replay_losses.append(float(progress["mean_dataset_loss"]))
+                print(
+                    f"score_resume model={args.model_key} score={args.score_id} "
+                    f"blocks={chosen[0]}-{chosen[-1]}",
+                    flush=True,
+                )
+                continue
             accumulators = {
                 name: torch.zeros_like(module.weight, dtype=torch.float32)
                 for name, module in modules
@@ -1954,13 +1985,14 @@ def score_component(args: argparse.Namespace) -> None:
                         f"examples={example_index}/{len(examples)}",
                         flush=True,
                     )
-            replay_losses.append(loss_sum / len(examples))
+            mean_dataset_loss = loss_sum / len(examples)
+            pass_tensors = {}
             for name, module in modules:
                 value = accumulators[name] / len(examples)
                 filename = _safe_tensor_name(name)
                 path = attempt / filename
                 torch.save(value.cpu(), path)
-                tensor_metadata[name] = {
+                row = {
                     "file": filename,
                     "shape": list(value.shape),
                     "numel": int(value.numel()),
@@ -1968,8 +2000,21 @@ def score_component(args: argparse.Namespace) -> None:
                     "projection": name.rsplit(".", 1)[-1],
                     "sha256": sha256_file(path),
                 }
+                tensor_metadata[name] = row
+                pass_tensors[name] = row
                 module.weight.requires_grad_(False)
                 module.weight.grad = None
+            atomic_json(
+                progress_path,
+                {
+                    "status": "complete",
+                    "blocks": chosen,
+                    "example_count": len(examples),
+                    "mean_dataset_loss": mean_dataset_loss,
+                    "tensors": pass_tensors,
+                },
+            )
+            replay_losses.append(mean_dataset_loss)
             del accumulators
             model.zero_grad(set_to_none=True)
             torch.cuda.empty_cache()
@@ -1980,10 +2025,9 @@ def score_component(args: argparse.Namespace) -> None:
     tolerance = 1e-5 * max(1.0, abs(replay_losses[0]))
     if max(replay_losses) - min(replay_losses) > tolerance:
         raise CampaignError("Mean loss changed across block-replay passes")
-    atomic_json(attempt / "identity.json", identity)
     metadata = {
         **identity,
-        "identity_sha256": sha256_file(attempt / "identity.json"),
+        "identity_sha256": sha256_file(identity_path),
         "eligible_numel": sum(int(row["numel"]) for row in tensor_metadata.values()),
         "mean_dataset_loss": replay_losses[0],
         "blocks_per_pass": blocks_per_pass,
@@ -1993,7 +2037,7 @@ def score_component(args: argparse.Namespace) -> None:
     atomic_json(attempt / "metadata.json", metadata)
     complete = {
         "status": "complete",
-        "identity_sha256": sha256_file(attempt / "identity.json"),
+        "identity_sha256": sha256_file(identity_path),
         "metadata_sha256": sha256_file(attempt / "metadata.json"),
         "tensor_count": len(tensor_metadata),
         "tensor_hashes": {name: row["sha256"] for name, row in sorted(tensor_metadata.items())},
