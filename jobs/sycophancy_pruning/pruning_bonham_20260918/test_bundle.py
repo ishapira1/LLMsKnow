@@ -416,6 +416,10 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("wait_for_eval_prerequisites", supervisor)
         self.assertIn("wait_for_gpu_test_clear", supervisor)
         self.assertIn("BONHAM_EARLY_QWEN_LLAMA_ONLY", supervisor)
+        self.assertIn("BONHAM_ARTIFACT_ONLY_FINAL_TAIL", supervisor)
+        self.assertIn("wait_for_evaluation_artifacts", supervisor)
+        self.assertIn("all_evaluation_terminal_shards_complete=1", supervisor)
+        self.assertIn("artifact-only modes are mutually exclusive", supervisor)
         self.assertIn(
             'evaluations/inputs/$model/COMPLETE.json', supervisor
         )

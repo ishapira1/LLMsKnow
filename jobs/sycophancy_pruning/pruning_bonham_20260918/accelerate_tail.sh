@@ -6,6 +6,7 @@ require_runtime
 
 POLL_SECONDS="${POLL_SECONDS:-30}"
 EARLY_QWEN_LLAMA_ONLY="${BONHAM_EARLY_QWEN_LLAMA_ONLY:-0}"
+ARTIFACT_ONLY_FINAL_TAIL="${BONHAM_ARTIFACT_ONLY_FINAL_TAIL:-0}"
 ACCOUNT="${BONHAM_ACCOUNT:-barak_lab}"
 GPU_PARTITION="${BONHAM_GPU_TEST_PARTITION:-gpu_test}"
 GPU_GRES="${BONHAM_GPU_TEST_GRES:-gpu:nvidia_a100_3g.20gb}"
@@ -20,6 +21,14 @@ USER_NAME="${USER:-ishapira}"
   printf 'BONHAM_EARLY_QWEN_LLAMA_ONLY must be 0 or 1\n' >&2
   exit 2
 }
+[[ "$ARTIFACT_ONLY_FINAL_TAIL" == 0 || "$ARTIFACT_ONLY_FINAL_TAIL" == 1 ]] || {
+  printf 'BONHAM_ARTIFACT_ONLY_FINAL_TAIL must be 0 or 1\n' >&2
+  exit 2
+}
+if (( EARLY_QWEN_LLAMA_ONLY == 1 && ARTIFACT_ONLY_FINAL_TAIL == 1 )); then
+  printf 'Early-evaluation and artifact-only modes are mutually exclusive\n' >&2
+  exit 2
+fi
 
 mkdir -p \
   "$LOG_ROOT/submit" \
@@ -228,7 +237,45 @@ wait_for_weight_analysis() {
   done
 }
 
-log "supervisor_start result_root=$RESULT_ROOT commit=$(git -C "$REPO_DIR" rev-parse --short HEAD) early_qwen_llama_only=$EARLY_QWEN_LLAMA_ONLY"
+wait_for_evaluation_artifacts() {
+  local ready model state family index_path shard_count last_shard complete_path
+  local -a states=(
+    unpruned n1_mechanism n2_selective random_n1
+    random_n2 weak_prompt strong_prompt prompt_only_meandiff
+  )
+  while true; do
+    ready=1
+    for model in qwen25_7b llama31_8b gemma4_12b; do
+      for family in generalization useful_assertions capabilities; do
+        index_path="$RESULT_ROOT/evaluations/inputs/$model/$family/index.jsonl"
+        if [[ ! -s "$index_path" ]]; then
+          ready=0
+          continue
+        fi
+        shard_count="$(wc -l < "$index_path" | tr -d ' ')"
+        if ! [[ "$shard_count" =~ ^[1-9][0-9]*$ ]]; then
+          ready=0
+          continue
+        fi
+        last_shard="$((shard_count - 1))"
+        for state in "${states[@]}"; do
+          complete_path="$(printf \
+            '%s/evaluations/results/%s/%s/%s/shard_%04d/COMPLETE.json' \
+            "$RESULT_ROOT" "$model" "$state" "$family" "$last_shard")"
+          [[ -f "$complete_path" ]] || ready=0
+        done
+      done
+    done
+    if (( ready == 1 )); then
+      log 'all_evaluation_terminal_shards_complete=1'
+      return 0
+    fi
+    log 'waiting_for_evaluation_artifacts=1'
+    sleep "$POLL_SECONDS"
+  done
+}
+
+log "supervisor_start result_root=$RESULT_ROOT commit=$(git -C "$REPO_DIR" rev-parse --short HEAD) early_qwen_llama_only=$EARLY_QWEN_LLAMA_ONLY artifact_only_final_tail=$ARTIFACT_ONLY_FINAL_TAIL"
 if (( EARLY_QWEN_LLAMA_ONLY == 1 )); then
   # Start the four non-steering states as soon as each model's frozen inputs and
   # mask states exist.  Steering can finish concurrently before the second wave.
@@ -241,19 +288,25 @@ if (( EARLY_QWEN_LLAMA_ONLY == 1 )); then
   log 'early_qwen_llama_supervisor_complete=1'
   exit 0
 fi
-wait_for_eval_prerequisites
+if (( ARTIFACT_ONLY_FINAL_TAIL == 1 )); then
+  # A separately managed packed pipeline owns every model evaluation.  Wait on
+  # immutable terminal-shard receipts and never submit duplicate GPU waves.
+  wait_for_evaluation_artifacts
+else
+  wait_for_eval_prerequisites
 
-# Paper results first, without changing any frozen task or final-audit requirement.
-run_qwen_llama_wave core0 0 paper_core
-run_qwen_llama_wave core1 4 paper_core
-run_gemma_wave core0 0 paper_core
-run_gemma_wave core1 4 paper_core
+  # Paper results first, without changing any frozen task or final-audit requirement.
+  run_qwen_llama_wave core0 0 paper_core
+  run_qwen_llama_wave core1 4 paper_core
+  run_gemma_wave core0 0 paper_core
+  run_gemma_wave core1 4 paper_core
 
-# Complete the capability family for all eight states and all three models.
-run_qwen_llama_wave cap0 0 capabilities
-run_qwen_llama_wave cap1 4 capabilities
-run_gemma_wave cap0 0 capabilities
-run_gemma_wave cap1 4 capabilities
+  # Complete the capability family for all eight states and all three models.
+  run_qwen_llama_wave cap0 0 capabilities
+  run_qwen_llama_wave cap1 4 capabilities
+  run_gemma_wave cap0 0 capabilities
+  run_gemma_wave cap1 4 capabilities
+fi
 
 eval_validate_job="$(submit_cpu_job bonh_evalval_acc eval_validate serial_requeue 02:00:00 96G)"
 evalplus_prepare_job="$(submit_cpu_job bonh_eprep_acc evalplus_prepare serial_requeue 01:00:00 96G)"
