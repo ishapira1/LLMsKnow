@@ -342,6 +342,31 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("RANDOM_MASKS_COMPLETE.json", lane)
         self.assertIn("MASK_STATES_COMPLETE.json", lane)
 
+    def test_accelerated_tail_preserves_complete_evaluation_and_audit_scope(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        supervisor = (bundle / "accelerate_tail.sh").read_text(encoding="utf-8")
+        for token in (
+            "run_qwen_llama_wave core0 0 paper_core",
+            "run_qwen_llama_wave core1 4 paper_core",
+            "run_gemma_wave core0 0 paper_core",
+            "run_gemma_wave core1 4 paper_core",
+            "run_qwen_llama_wave cap0 0 capabilities",
+            "run_qwen_llama_wave cap1 4 capabilities",
+            "run_gemma_wave cap0 0 capabilities",
+            "run_gemma_wave cap1 4 capabilities",
+            "eval_validate",
+            "evalplus_prepare",
+            "evalplus_run",
+            "evalplus_aggregate",
+            "weight_aggregate",
+            "final_audit",
+            "final_email",
+        ):
+            self.assertIn(token, supervisor)
+        self.assertIn("wait_for_eval_prerequisites", supervisor)
+        self.assertIn("wait_for_gpu_test_clear", supervisor)
+        self.assertNotIn("ALLOW_STALE_LOCK_CLEANUP=1", supervisor)
+
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
         submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
         self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)

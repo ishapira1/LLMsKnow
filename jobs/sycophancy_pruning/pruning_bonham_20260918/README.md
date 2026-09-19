@@ -110,6 +110,12 @@ For accelerated state-sequence execution, `gpu_eval_states.sbatch` accepts
 families.  Splitting the presets changes only scheduling: every frozen cell is
 still required by evaluation validation and the final audit.
 
+`accelerate_tail.sh` is a restartable submission supervisor for the constrained
+`gpu_test` queue. It runs the paper-core waves first, then capabilities,
+EvalPlus, weight aggregation, reporting, final audit, and the authenticated
+completion email. Exact job names make restarts reuse submitted work rather
+than duplicate it; a failed stage stops the supervisor for diagnosis.
+
 ```bash
 # Weight analysis, reporting, and audit
 $CPU_PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/weight_analysis.py analyze-model \
