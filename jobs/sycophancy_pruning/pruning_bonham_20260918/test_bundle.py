@@ -462,6 +462,24 @@ class RuntimeIsolationTests(unittest.TestCase):
         ):
             self.assertIn(token, lane)
 
+    def test_model_pipeline_watcher_preserves_bundle_paths_and_resources(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        watcher = (bundle / "launch_qwen_llama_pipeline_when_ready.sh").read_text(
+            encoding="utf-8"
+        )
+        for variable in (
+            "LLAMA_CORE_MASK_JOB_ID",
+            "QWEN_CORE_MASK_JOB_ID",
+            "LLAMA_EVAL_PREP_JOB_ID",
+            "QWEN_EVAL_PREP_JOB_ID",
+        ):
+            self.assertIn(variable, watcher)
+        self.assertIn("BONHAM_BUNDLE_DIR=$BUNDLE_DIR", watcher)
+        self.assertIn('gpu:nvidia_a100_3g.20gb', watcher)
+        self.assertIn('--gres="$GPU_GRES:4"', watcher)
+        self.assertIn("wait_for_gpu_test_clear", watcher)
+        self.assertIn("gpu_model_pipeline.sbatch", watcher)
+
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
         submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
         self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)
