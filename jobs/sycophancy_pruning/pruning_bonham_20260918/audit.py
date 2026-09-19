@@ -562,6 +562,128 @@ def _audit_raw_evaluation_records(root: Path) -> int:
     return observed
 
 
+def _audit_weight_model_analysis(model_key: str, analysis: Mapping[str, Any]) -> None:
+    """Verify every preregistered within-model weight-analysis deliverable."""
+
+    _require(analysis.get("exact_nesting") is True, f"Weight nesting failed for {model_key}")
+    _require(
+        int(analysis.get("structural_null_replicates", 0)) == 10_000,
+        f"Structural-null count changed for {model_key}",
+    )
+    expected_pair_sizes = {
+        "seed5_vs_seed17": (1000, 1000),
+        "seed5_vs_seed29": (1000, 1000),
+        "seed17_vs_seed29": (1000, 1000),
+        "user_vs_all_reliable_source": (1000, 1000),
+        "user_vs_false_source_only": (1000, 1000),
+        "size250_vs_1000": (250, 1000),
+        "size500_vs_1000": (500, 1000),
+    }
+    overlaps = {str(row["pair_id"]): row for row in analysis.get("overlaps", [])}
+    _require(
+        set(overlaps) == set(expected_pair_sizes),
+        f"Weight-analysis pair coverage fails for {model_key}",
+    )
+    for pair_id, row in overlaps.items():
+        left_count, right_count = expected_pair_sizes[pair_id]
+        intersection = int(row.get("intersection_count", -1))
+        union = int(row.get("union_count", -1))
+        _require(
+            int(row.get("left_count", -1)) == left_count
+            and int(row.get("right_count", -1)) == right_count
+            and 0 <= intersection <= min(left_count, right_count)
+            and union == left_count + right_count - intersection
+            and math.isclose(float(row.get("jaccard", -1.0)), intersection / union)
+            and math.isclose(
+                float(row.get("left_overlap_fraction", -1.0)),
+                intersection / left_count,
+            )
+            and math.isclose(
+                float(row.get("right_overlap_fraction", -1.0)),
+                intersection / right_count,
+            ),
+            f"Weight-overlap statistics are malformed for {model_key}/{pair_id}",
+        )
+        if pair_id.startswith("size"):
+            _require(
+                row.get("analysis_role") == "sparsity_nesting_not_independent_stability"
+                and "structural_null" not in row
+                and intersection == left_count,
+                f"Nested size analysis is malformed for {model_key}/{pair_id}",
+            )
+        else:
+            structural_null = dict(row.get("structural_null", {}))
+            expected_intersection = float(structural_null.get("expected_intersection", -1.0))
+            enrichment = structural_null.get("enrichment")
+            _require(
+                row.get("analysis_role") == "non_nested_mask_overlap"
+                and int(structural_null.get("replicates", 0)) == 10_000
+                and int(structural_null.get("observed_intersection", -1)) == intersection
+                and expected_intersection >= 0.0
+                and (
+                    (expected_intersection == 0.0 and enrichment is None)
+                    or (
+                        expected_intersection > 0.0
+                        and math.isclose(float(enrichment), intersection / expected_intersection)
+                    )
+                ),
+                f"Structural null is incomplete for {model_key}/{pair_id}",
+            )
+
+    expected_question_pairs = {
+        "seed5_vs_seed17",
+        "seed5_vs_seed29",
+        "seed17_vs_seed29",
+    }
+    question_overlaps = {
+        str(row["pair_id"]): row for row in analysis.get("question_set_overlaps", [])
+    }
+    _require(
+        set(question_overlaps) == expected_question_pairs,
+        f"Seed question-set overlap coverage fails for {model_key}",
+    )
+    for pair_id, row in question_overlaps.items():
+        intersection = int(row.get("intersection_count", -1))
+        union = int(row.get("union_count", -1))
+        _require(
+            int(row.get("left_count", -1)) == 512
+            and int(row.get("right_count", -1)) == 512
+            and 0 <= intersection <= 512
+            and union == 1024 - intersection
+            and math.isclose(float(row.get("jaccard", -1.0)), intersection / union),
+            f"Seed question-set overlap is malformed for {model_key}/{pair_id}",
+        )
+
+    expected_composition_sizes = {
+        "n1_mechanism": 1000,
+        "n1_seed17": 1000,
+        "n1_seed29": 1000,
+        "n1_prefix_250": 250,
+        "n1_prefix_500": 500,
+        "n1_prefix_1000": 1000,
+        "source_all": 1000,
+        "source_false": 1000,
+    }
+    composition = dict(analysis.get("composition", {}))
+    _require(
+        set(composition) == set(expected_composition_sizes),
+        f"Layer/projection composition coverage fails for {model_key}",
+    )
+    for mask_id, expected_count in expected_composition_sizes.items():
+        rows = list(composition[mask_id])
+        _require(
+            rows
+            and sum(int(row.get("count", 0)) for row in rows) == expected_count
+            and all(
+                int(row.get("layer", -1)) >= 0
+                and str(row.get("projection", "")) in ELIGIBLE_PROJECTIONS
+                and int(row.get("count", 0)) > 0
+                for row in rows
+            ),
+            f"Layer/projection composition is malformed for {model_key}/{mask_id}",
+        )
+
+
 def final_audit(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     root = Path(args.result_root)
@@ -954,31 +1076,8 @@ def final_audit(args: argparse.Namespace) -> None:
     weight = read_json(root / "weight_analysis" / "COMPLETE.json")
     _require(weight.get("cross_architecture_intersections") == 0, "Cross-architecture weights mixed")
     _require(set(weight.get("models", {})) == set(campaign.MODEL_KEYS), "Weight-analysis model coverage fails")
-    expected_pairs = {
-        "seed5_vs_seed17",
-        "seed5_vs_seed29",
-        "seed17_vs_seed29",
-        "user_vs_all_reliable_source",
-        "user_vs_false_source_only",
-        "size250_vs_1000",
-        "size500_vs_1000",
-    }
     for model_key, analysis in weight["models"].items():
-        _require(analysis.get("exact_nesting") is True, f"Weight nesting failed for {model_key}")
-        _require(
-            int(analysis.get("structural_null_replicates", 0)) == 10_000,
-            f"Structural-null count changed for {model_key}",
-        )
-        overlaps = {row["pair_id"]: row for row in analysis.get("overlaps", [])}
-        _require(set(overlaps) == expected_pairs, f"Weight-analysis pair coverage fails for {model_key}")
-        for pair_id, row in overlaps.items():
-            if pair_id.startswith("size"):
-                _require("structural_null" not in row, f"Nested size pair has a null: {model_key}/{pair_id}")
-            else:
-                _require(
-                    int(row.get("structural_null", {}).get("replicates", 0)) == 10_000,
-                    f"Structural null is incomplete for {model_key}/{pair_id}",
-                )
+        _audit_weight_model_analysis(model_key, analysis)
     receipt = {
         "status": "complete",
         "experiment": campaign.EXPERIMENT,

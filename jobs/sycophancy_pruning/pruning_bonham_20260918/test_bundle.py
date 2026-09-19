@@ -1778,6 +1778,87 @@ class WeightAnalysisTests(unittest.TestCase):
         self.assertEqual(1000, first["replicates"])
         self.assertGreater(first["expected_intersection"], 0)
 
+    def test_final_audit_checks_all_weight_analysis_deliverables(self) -> None:
+        pair_sizes = {
+            "seed5_vs_seed17": (1000, 1000),
+            "seed5_vs_seed29": (1000, 1000),
+            "seed17_vs_seed29": (1000, 1000),
+            "user_vs_all_reliable_source": (1000, 1000),
+            "user_vs_false_source_only": (1000, 1000),
+            "size250_vs_1000": (250, 1000),
+            "size500_vs_1000": (500, 1000),
+        }
+        overlaps = []
+        for pair_id, (left_count, right_count) in pair_sizes.items():
+            nested = pair_id.startswith("size")
+            intersection = left_count if nested else 10
+            union = left_count + right_count - intersection
+            row = {
+                "pair_id": pair_id,
+                "left_count": left_count,
+                "right_count": right_count,
+                "intersection_count": intersection,
+                "union_count": union,
+                "jaccard": intersection / union,
+                "left_overlap_fraction": intersection / left_count,
+                "right_overlap_fraction": intersection / right_count,
+                "analysis_role": (
+                    "sparsity_nesting_not_independent_stability"
+                    if nested
+                    else "non_nested_mask_overlap"
+                ),
+            }
+            if not nested:
+                row["structural_null"] = {
+                    "replicates": 10_000,
+                    "observed_intersection": intersection,
+                    "expected_intersection": 5.0,
+                    "enrichment": 2.0,
+                }
+            overlaps.append(row)
+        question_set_overlaps = []
+        for pair_id in (
+            "seed5_vs_seed17",
+            "seed5_vs_seed29",
+            "seed17_vs_seed29",
+        ):
+            question_set_overlaps.append(
+                {
+                    "pair_id": pair_id,
+                    "left_count": 512,
+                    "right_count": 512,
+                    "intersection_count": 100,
+                    "union_count": 924,
+                    "jaccard": 100 / 924,
+                }
+            )
+        composition_sizes = {
+            "n1_mechanism": 1000,
+            "n1_seed17": 1000,
+            "n1_seed29": 1000,
+            "n1_prefix_250": 250,
+            "n1_prefix_500": 500,
+            "n1_prefix_1000": 1000,
+            "source_all": 1000,
+            "source_false": 1000,
+        }
+        analysis = {
+            "exact_nesting": True,
+            "structural_null_replicates": 10_000,
+            "overlaps": overlaps,
+            "question_set_overlaps": question_set_overlaps,
+            "composition": {
+                mask_id: [
+                    {"layer": 0, "projection": "q_proj", "count": count}
+                ]
+                for mask_id, count in composition_sizes.items()
+            },
+        }
+        audit._audit_weight_model_analysis("llama31_8b", analysis)
+        malformed = {**analysis, "question_set_overlaps": []}
+        with self.assertRaisesRegex(audit.AuditError, "question-set overlap coverage"):
+            audit._audit_weight_model_analysis("llama31_8b", malformed)
+
 
 if __name__ == "__main__":
     unittest.main()
