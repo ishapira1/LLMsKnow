@@ -416,6 +416,38 @@ class RuntimeIsolationTests(unittest.TestCase):
         )
         self.assertNotIn("ALLOW_STALE_LOCK_CLEANUP=1", supervisor)
 
+    def test_model_pipeline_packs_prerequisites_and_all_evaluations(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        launcher = (bundle / "gpu_model_pipeline.sbatch").read_text(encoding="utf-8")
+        lane = (bundle / "gpu_model_pipeline_lane.sh").read_text(encoding="utf-8")
+        self.assertIn("#SBATCH --mail-type=END,FAIL", launcher)
+        self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", launcher)
+        self.assertIn("gpu:nvidia_a100_3g.20gb:4", launcher)
+        self.assertIn("launch_step random_and_states", launcher)
+        self.assertIn("launch_step steering steering", launcher)
+        self.assertIn("paper_unpruned", launcher)
+        self.assertIn("paper_n1", launcher)
+        for state_id in (
+            "n2_selective",
+            "random_n1",
+            "random_n2",
+            "weak_prompt",
+            "strong_prompt",
+            "prompt_only_meandiff",
+        ):
+            self.assertIn(state_id, launcher)
+        self.assertIn("capabilities_", launcher)
+        for token in (
+            "build-random-mask",
+            "build-mask-states",
+            'steering.py" extract',
+            'steering.py" develop',
+            "run-state-sequence",
+            "paper_core",
+            "capabilities",
+        ):
+            self.assertIn(token, lane)
+
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
         submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
         self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)
