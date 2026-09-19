@@ -68,6 +68,10 @@ gpu_test_clear() {
   (( $(gpu_test_job_count) == 0 ))
 }
 
+gpu_test_has_slot() {
+  (( $(gpu_test_job_count) < 2 ))
+}
+
 supplement_receipts_complete() {
   local index stem root
   root="$RESULT_ROOT/n1_screen/$MODEL_KEY"
@@ -99,9 +103,9 @@ submit_cpu() {
 submit_screen_test() {
   local raw
   raw="$(sbatch --parsable --account="$ACCOUNT" --partition="$GPU_TEST_PARTITION" \
-    --job-name=bonh_gem_suppscr --nodes=1 --ntasks=4 --cpus-per-task=4 \
-    --mem=384G --time=04:00:00 --gres="$GPU_TEST_GRES:8" \
-    --export="ALL,BONHAM_BUNDLE_DIR=$BUNDLE_DIR,STAGE=n1_screen,MODEL_KEY=$MODEL_KEY,PACK_START=$SUPPLEMENT_FIRST,PACK_END=$SUPPLEMENT_LAST,LANES=4,GPUS_PER_LANE=2,CPUS_PER_LANE=4,MEM_PER_LANE=96G,SCREEN_BATCH_SIZE=4,SCREEN_INPUT_DIR=$RESULT_ROOT/inputs/n1_screen_model_supplement_shards/$MODEL_KEY" \
+    --job-name=bonh_gem_suppscr --nodes=1 --ntasks=2 --cpus-per-task=4 \
+    --mem=192G --time=04:00:00 --gres="$GPU_TEST_GRES:4" \
+    --export="ALL,BONHAM_BUNDLE_DIR=$BUNDLE_DIR,STAGE=n1_screen,MODEL_KEY=$MODEL_KEY,PACK_START=$SUPPLEMENT_FIRST,PACK_END=$SUPPLEMENT_LAST,LANES=2,GPUS_PER_LANE=2,CPUS_PER_LANE=4,MEM_PER_LANE=96G,SCREEN_BATCH_SIZE=4,SCREEN_INPUT_DIR=$RESULT_ROOT/inputs/n1_screen_model_supplement_shards/$MODEL_KEY" \
     --output="$LOG_ROOT/slurm/gpu_multilane/%x_%j.out" \
     --error="$LOG_ROOT/slurm/gpu_multilane/%x_%j.err" \
     "$BUNDLE_DIR/gpu_multilane.sbatch")"
@@ -114,13 +118,13 @@ wait_or_promote_supplement() {
     job_id="$(job_id_by_name bonh_gem_suppscr)"
     state="$(job_state "$job_id")"
     partition="$(job_partition "$job_id")"
-    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_clear; then
+    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_has_slot; then
       log "promote_supplement job_id=$job_id partition=$partition"
       scancel "$job_id"
       job_id="$(submit_screen_test)"
       log "submitted_supplement_test job_id=$job_id"
     elif [[ "$state" =~ ^(FAILED|OUT_OF_MEMORY|NODE_FAIL|TIMEOUT|PREEMPTED)$ ]]; then
-      if gpu_test_clear; then
+      if gpu_test_has_slot; then
         job_id="$(submit_screen_test)"
         log "recovered_supplement_test job_id=$job_id prior_state=$state"
       else

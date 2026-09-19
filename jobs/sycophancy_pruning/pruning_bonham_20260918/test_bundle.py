@@ -592,6 +592,8 @@ class RuntimeIsolationTests(unittest.TestCase):
             Path(__file__).resolve().parent / "accelerate_gemma_exact.sh"
         ).read_text(encoding="utf-8")
         self.assertIn("supplement_receipts_complete", source)
+        self.assertIn("gpu_test_has_slot", source)
+        self.assertIn('LANES=2,GPUS_PER_LANE=2', source)
         self.assertIn("promote_supplement", source)
         self.assertIn("promote_scores", source)
         self.assertIn("promote_pipeline", source)
