@@ -424,6 +424,8 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("BONHAM_ARTIFACT_ONLY_FINAL_TAIL", supervisor)
         self.assertIn("wait_for_evaluation_artifacts", supervisor)
         self.assertIn("all_evaluation_terminal_shards_complete=1", supervisor)
+        self.assertIn("shard_%04d/COMPLETE'", supervisor)
+        self.assertNotIn("shard_%04d/COMPLETE.json", supervisor)
         self.assertIn("artifact-only modes are mutually exclusive", supervisor)
         self.assertIn(
             'evaluations/inputs/$model/COMPLETE.json', supervisor

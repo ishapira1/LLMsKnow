@@ -262,7 +262,7 @@ wait_for_evaluation_artifacts() {
         last_shard="$((shard_count - 1))"
         for state in "${states[@]}"; do
           complete_path="$(printf \
-            '%s/evaluations/results/%s/%s/%s/shard_%04d/COMPLETE.json' \
+            '%s/evaluations/results/%s/%s/%s/shard_%04d/COMPLETE' \
             "$RESULT_ROOT" "$model" "$state" "$family" "$last_shard")"
           [[ -f "$complete_path" ]] || ready=0
         done
