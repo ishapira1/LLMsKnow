@@ -253,6 +253,17 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("#SBATCH --mail-type=END,FAIL", runner)
         self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", runner)
 
+    def test_score_multilane_runner_covers_all_components_with_block_replay(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        runner = (bundle / "gpu_score_multilane.sbatch").read_text(encoding="utf-8")
+        lane = (bundle / "gpu_score_lane.sh").read_text(encoding="utf-8")
+        for score_id in campaign.SCORE_SPECS:
+            self.assertIn(score_id, lane)
+        self.assertIn('--blocks-per-pass "$blocks_per_pass"', lane)
+        self.assertIn('--gpus-per-task="$GPUS_PER_LANE"', runner)
+        self.assertIn("#SBATCH --mail-type=END,FAIL", runner)
+        self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", runner)
+
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
         submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
         self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)
