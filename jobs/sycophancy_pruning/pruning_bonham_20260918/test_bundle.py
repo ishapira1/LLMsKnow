@@ -365,6 +365,12 @@ class RuntimeIsolationTests(unittest.TestCase):
             self.assertIn(token, supervisor)
         self.assertIn("wait_for_eval_prerequisites", supervisor)
         self.assertIn("wait_for_gpu_test_clear", supervisor)
+        self.assertIn(
+            "bonh_evalval_acc eval_validate serial_requeue 02:00:00", supervisor
+        )
+        self.assertIn(
+            "bonh_audit_acc final_audit serial_requeue 04:00:00", supervisor
+        )
         self.assertNotIn("ALLOW_STALE_LOCK_CLEANUP=1", supervisor)
 
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:

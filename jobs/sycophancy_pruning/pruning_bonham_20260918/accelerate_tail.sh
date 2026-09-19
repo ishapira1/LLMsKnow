@@ -205,8 +205,8 @@ run_qwen_llama_wave cap1 4 capabilities
 run_gemma_wave cap0 0 capabilities
 run_gemma_wave cap1 4 capabilities
 
-eval_validate_job="$(submit_cpu_job bonh_evalval_acc eval_validate test 00:10:00 96G)"
-evalplus_prepare_job="$(submit_cpu_job bonh_eprep_acc evalplus_prepare test 00:10:00 96G)"
+eval_validate_job="$(submit_cpu_job bonh_evalval_acc eval_validate serial_requeue 02:00:00 96G)"
+evalplus_prepare_job="$(submit_cpu_job bonh_eprep_acc evalplus_prepare serial_requeue 01:00:00 96G)"
 wait_jobs evaluation_validation "$eval_validate_job" "$evalplus_prepare_job"
 
 evalplus_run_job="$(submit_cpu_job bonh_eprun_acc evalplus_run serial_requeue 03:00:00 24G '0-191%40')"
@@ -220,7 +220,7 @@ wait_jobs weight_aggregate "$weight_aggregate_job"
 
 report_job="$(submit_cpu_job bonh_report_acc report serial_requeue 02:00:00 96G)"
 wait_jobs report "$report_job"
-audit_job="$(submit_cpu_job bonh_audit_acc final_audit test 00:10:00 96G)"
+audit_job="$(submit_cpu_job bonh_audit_acc final_audit serial_requeue 04:00:00 96G)"
 wait_jobs final_audit "$audit_job"
 email_job="$(submit_cpu_job bonh_email_acc final_email test 00:10:00 16G)"
 wait_jobs final_email "$email_job"
