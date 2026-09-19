@@ -483,6 +483,26 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("submitted_model=llama31_8b", watcher)
         self.assertIn("gpu_model_pipeline.sbatch", watcher)
 
+    def test_analysis_fallback_waits_for_evaluations_and_uses_all_test_slices(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        watcher = (bundle / "launch_analysis_fallback_when_evals_complete.sh").read_text(
+            encoding="utf-8"
+        )
+        for variable in (
+            "LLAMA_PIPELINE_JOB_ID",
+            "QWEN_PIPELINE_JOB_ID",
+            "LLAMA_ANALYSIS_ARRAY_JOB_ID",
+            "QWEN_ANALYSIS_ARRAY_JOB_ID",
+        ):
+            self.assertIn(variable, watcher)
+        self.assertIn("wait_for_pipelines", watcher)
+        self.assertIn("waiting_for_active_analysis_tasks", watcher)
+        self.assertIn('BLOCKS_PER_PASS=2', watcher)
+        self.assertIn('LANES=2', watcher)
+        self.assertIn('GPUS_PER_LANE=2', watcher)
+        self.assertIn('--gres="$GPU_GRES:4"', watcher)
+        self.assertIn("n1_seed17_prune:source_all_prune:n1_seed29_prune:source_false_prune", watcher)
+
     def test_submitter_can_reuse_validated_root_jobs(self) -> None:
         submit = (Path(__file__).resolve().parent / "submit.sh").read_text(encoding="utf-8")
         self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)
