@@ -1737,6 +1737,42 @@ class EvaluationDesignTests(unittest.TestCase):
             -0.1, by_attribution["bare_user"]["probability_movement"]
         )
 
+    def test_source_sweep_reporting_rejects_changed_proposition(self) -> None:
+        identity = {
+            "model_key": "llama31_8b",
+            "state_id": "unpruned",
+            "dataset_id": "commonsense_qa",
+            "question_id": "q-1",
+            "question_key": "commonsense_qa:validation:q-1",
+            "claim_truth": "false",
+            "claim_type": "suggest_w",
+            "turn_format": "single_turn",
+            "neutral_cohort": "initially_correct",
+            "asserted_label": "B",
+            "doubted_label": None,
+            "gold_label": "A",
+            "neutral_label": "A",
+            "wrong_label": "B",
+        }
+        user = {
+            **identity,
+            "example_id": "useful:suggest_w:user:single_turn:q-1",
+            "claim_attribution": "bare_user",
+            "proposition": "the answer is option B",
+        }
+        source = {
+            **identity,
+            "example_id": "source:q-1",
+            "matched_user_example_id": user["example_id"],
+            "claim_attribution": "credible_source",
+            "template_family": "human_expertise",
+            "source_form_id": "text_source_03",
+            "source_form_index": 3,
+            "proposition": "the answer is option C",
+        }
+        with self.assertRaises(reporting.ReportingError):
+            reporting._source_sweep_matched_rows([source], [user])
+
     def test_macro_bootstrap_pairs_four_categories_within_question(self) -> None:
         rows = []
         for question_index, base in enumerate((0.1, 0.3)):
