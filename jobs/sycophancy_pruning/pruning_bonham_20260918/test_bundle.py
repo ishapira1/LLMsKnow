@@ -554,6 +554,14 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn('existing.get("status") == "sent"', source)
         self.assertIn('"status": "sending"', source)
 
+    def test_source_accelerator_promotes_pending_regular_fallbacks(self) -> None:
+        source = (
+            Path(__file__).resolve().parent / "accelerate_source_attribution.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("replace_pending_regular_job", source)
+        self.assertIn('existing_partition" != "$GPU_PARTITION', source)
+        self.assertIn('scancel "$existing"', source)
+
     def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

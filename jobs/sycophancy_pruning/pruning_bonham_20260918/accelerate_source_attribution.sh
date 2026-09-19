@@ -36,6 +36,11 @@ job_state() {
     | cut -d'|' -f1 | head -1
 }
 
+job_partition() {
+  scontrol show job -o "$1" 2>/dev/null \
+    | tr ' ' '\n' | sed -n 's/^Partition=//p' | head -1
+}
+
 wait_jobs() {
   local label="$1"
   shift
@@ -120,8 +125,21 @@ wait_for_model_states() {
 submit_wave() {
   local name="$1" model="$2" offset="$3" gpus_per_state="$4"
   local mem_per_state="$5" total_gpus="$6" total_mem="$7"
-  local existing raw job_id
+  local existing existing_state existing_partition raw job_id
   existing="$(job_id_by_name "$name")"
+  if [[ -n "$existing" ]]; then
+    existing_state="$(job_state "$existing")"
+    existing_partition="$(job_partition "$existing")"
+    # Regular-partition submissions are opportunistic fallbacks. If one is
+    # still pending when a scarce gpu_test slot opens, replace it with the
+    # immediately runnable gpu_test job. Running/completed work is preserved.
+    if [[ "$existing_state" == PENDING && "$existing_partition" != "$GPU_PARTITION" ]] && \
+       (( $(gpu_test_job_count) < 2 )); then
+      log "replace_pending_regular_job name=$name job_id=$existing partition=$existing_partition"
+      scancel "$existing"
+      existing=''
+    fi
+  fi
   if [[ -n "$existing" ]]; then
     log "reuse_job name=$name job_id=$existing"
     printf '%s\n' "$existing"
