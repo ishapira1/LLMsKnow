@@ -22,6 +22,7 @@ require_runtime
 LANES="${LANES:-${SLURM_NTASKS:-1}}"
 GPUS_PER_LANE="${GPUS_PER_LANE:-1}"
 CPUS_PER_LANE="${CPUS_PER_LANE:-4}"
+MEM_PER_LANE="${MEM_PER_LANE:-48G}"
 if ! [[ "$LANES" =~ ^[1-9][0-9]*$ && "$GPUS_PER_LANE" =~ ^[1-9][0-9]*$ ]]; then
   printf 'LANES and GPUS_PER_LANE must be positive integers\n' >&2
   exit 2
@@ -35,8 +36,8 @@ fi
 PYTHON_BIN="$(python_for_model "$MODEL_KEY")"; export PYTHON_BIN
 cd "$REPO_DIR"
 start_epoch="$(date +%s)"
-printf 'experiment=pruning_bonham_20260918\nstage=score_component\nmodel=%s\nlanes=%s\ngpus_per_lane=%s\nblocks_per_pass=%s\n' \
-  "$MODEL_KEY" "$LANES" "$GPUS_PER_LANE" "${BLOCKS_PER_PASS:-1}"
+printf 'experiment=pruning_bonham_20260918\nstage=score_component\nmodel=%s\nlanes=%s\ngpus_per_lane=%s\nmem_per_lane=%s\nblocks_per_pass=%s\n' \
+  "$MODEL_KEY" "$LANES" "$GPUS_PER_LANE" "$MEM_PER_LANE" "${BLOCKS_PER_PASS:-1}"
 printf 'slurm_job_id=%s\nhostname=%s\nworking_directory=%s\npython=%s\nstart_time=%s\n' \
   "${SLURM_JOB_ID:-unset}" "$(hostname)" "$PWD" "$PYTHON_BIN" "$(date -Is)"
 nvidia-smi || true
@@ -55,7 +56,7 @@ trap requeue_job USR1
 for ((lane = 0; lane < LANES; lane++)); do
   printf 'launch_score_lane=%s\n' "$lane"
   srun --exclusive --exact --nodes=1 --ntasks=1 --cpus-per-task="$CPUS_PER_LANE" \
-    --gpus-per-task="$GPUS_PER_LANE" \
+    --gpus-per-task="$GPUS_PER_LANE" --mem="$MEM_PER_LANE" \
     --output="$lane_logs/lane_${lane}.out" --error="$lane_logs/lane_${lane}.err" \
     env LANE_INDEX="$lane" LANES="$LANES" \
     "$BUNDLE_DIR/gpu_score_lane.sh" &

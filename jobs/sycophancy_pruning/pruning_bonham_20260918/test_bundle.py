@@ -250,6 +250,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("run-screen-pack", runner)
         self.assertIn('--shard-step "$LANES"', runner)
         self.assertIn('--gpus-per-task="$GPUS_PER_LANE"', runner)
+        self.assertIn('--mem="$MEM_PER_LANE"', runner)
         self.assertIn("#SBATCH --mail-type=END,FAIL", runner)
         self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", runner)
 
@@ -261,6 +262,7 @@ class RuntimeIsolationTests(unittest.TestCase):
             self.assertIn(score_id, lane)
         self.assertIn('--blocks-per-pass "$blocks_per_pass"', lane)
         self.assertIn('--gpus-per-task="$GPUS_PER_LANE"', runner)
+        self.assertIn('--mem="$MEM_PER_LANE"', runner)
         self.assertIn("#SBATCH --mail-type=END,FAIL", runner)
         self.assertIn("#SBATCH --mail-user=itaishapira@g.harvard.edu", runner)
 

@@ -25,6 +25,7 @@ require_runtime
 LANES="${LANES:-${SLURM_NTASKS:-1}}"
 GPUS_PER_LANE="${GPUS_PER_LANE:-1}"
 CPUS_PER_LANE="${CPUS_PER_LANE:-4}"
+MEM_PER_LANE="${MEM_PER_LANE:-48G}"
 if ! [[ "$PACK_START" =~ ^[0-9]+$ && "$PACK_END" =~ ^[0-9]+$ && "$LANES" =~ ^[1-9][0-9]*$ && "$GPUS_PER_LANE" =~ ^[1-9][0-9]*$ ]]; then
   printf 'PACK_START/PACK_END must be non-negative and LANES/GPUS_PER_LANE must be positive integers\n' >&2
   exit 2
@@ -44,8 +45,8 @@ if (( GPUS_PER_LANE > 1 )); then
 fi
 cd "$REPO_DIR"
 start_epoch="$(date +%s)"
-printf 'experiment=pruning_bonham_20260918\nstage=%s\nmodel=%s\nlanes=%s\ngpus_per_lane=%s\npack_start=%s\npack_end=%s\n' \
-  "$STAGE" "$MODEL_KEY" "$LANES" "$GPUS_PER_LANE" "$PACK_START" "$PACK_END"
+printf 'experiment=pruning_bonham_20260918\nstage=%s\nmodel=%s\nlanes=%s\ngpus_per_lane=%s\nmem_per_lane=%s\npack_start=%s\npack_end=%s\n' \
+  "$STAGE" "$MODEL_KEY" "$LANES" "$GPUS_PER_LANE" "$MEM_PER_LANE" "$PACK_START" "$PACK_END"
 printf 'slurm_job_id=%s\nhostname=%s\nworking_directory=%s\npython=%s\nstart_time=%s\n' \
   "${SLURM_JOB_ID:-unset}" "$(hostname)" "$PWD" "$PYTHON_BIN" "$(date -Is)"
 nvidia-smi || true
@@ -80,7 +81,7 @@ for ((lane = 0; lane < LANES; lane++)); do
   printf 'lane=%s\n' "$lane"
   print_command "${command[@]}"
   srun --exclusive --exact --nodes=1 --ntasks=1 --cpus-per-task="$CPUS_PER_LANE" \
-    --gpus-per-task="$GPUS_PER_LANE" \
+    --gpus-per-task="$GPUS_PER_LANE" --mem="$MEM_PER_LANE" \
     --output="$lane_logs/lane_${lane}.out" --error="$lane_logs/lane_${lane}.err" \
     "${command[@]}" &
   children+=("$!")
