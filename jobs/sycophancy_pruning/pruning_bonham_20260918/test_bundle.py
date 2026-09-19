@@ -440,7 +440,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("launch_step random_and_states", launcher)
         self.assertIn("launch_step steering steering", launcher)
         self.assertIn("paper_unpruned", launcher)
-        self.assertIn("paper_n1", launcher)
+        self.assertIn("paper_weak_prompt", launcher)
         for state_id in (
             "n2_selective",
             "random_n1",

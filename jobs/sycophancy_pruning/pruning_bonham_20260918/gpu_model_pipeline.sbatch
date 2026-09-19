@@ -58,23 +58,23 @@ requeue_job() {
 }
 trap requeue_job USR1
 
-# Fill all four slices immediately.  The two initial evaluation states do not
-# depend on random controls or MeanDiff; the other states are queued as soon as
-# their corresponding prerequisite lane completes.
+# Fill all four slices immediately.  The two initial evaluation states were
+# written by model smoke and do not depend on random controls or MeanDiff; the
+# mask states are queued as soon as their prerequisite lane completes.
 launch_step random_and_states random_and_states
 random_pid="$LAST_PID"
 launch_step steering steering
 steering_pid="$LAST_PID"
 launch_step paper_unpruned evaluation unpruned paper_core
 evaluation_pids+=("$LAST_PID")
-launch_step paper_n1 evaluation n1_mechanism paper_core
+launch_step paper_weak_prompt evaluation weak_prompt paper_core
 evaluation_pids+=("$LAST_PID")
 
 if ! wait "$random_pid"; then
   printf 'pipeline_prerequisite_failed=random_and_states\n' >&2
   exit 1
 fi
-for state_id in n2_selective random_n1 random_n2 weak_prompt strong_prompt; do
+for state_id in n1_mechanism n2_selective random_n1 random_n2 strong_prompt; do
   launch_step "paper_${state_id}" evaluation "$state_id" paper_core
   evaluation_pids+=("$LAST_PID")
 done
