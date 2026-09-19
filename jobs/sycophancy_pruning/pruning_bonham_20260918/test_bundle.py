@@ -562,6 +562,21 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn('existing_partition" != "$GPU_PARTITION', source)
         self.assertIn('scancel "$existing"', source)
 
+    def test_gemma_exact_supplement_preserves_original_cell_quota(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        campaign_source = (bundle / "campaign.py").read_text(encoding="utf-8")
+        cpu_source = (bundle / "cpu_stage.sbatch").read_text(encoding="utf-8")
+        audit_source = (bundle / "audit.py").read_text(encoding="utf-8")
+        self.assertIn('"gemma_exact_csqa_mt_suggest_t1_v1"', campaign_source)
+        self.assertIn('"dataset_id": "commonsense_qa"', campaign_source)
+        self.assertIn('"turn_format": "multi_turn"', campaign_source)
+        self.assertIn('"bias_type": "incorrect_suggestion"', campaign_source)
+        self.assertIn('"template_index": 1', campaign_source)
+        self.assertIn('"relaxes_quota": False', campaign_source)
+        self.assertIn("prepare-model-n1-supplement", cpu_source)
+        self.assertIn("Gemma exact-quota supplement is missing or changed", audit_source)
+        self.assertIn("despite the exact-quota supplement", audit_source)
+
     def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

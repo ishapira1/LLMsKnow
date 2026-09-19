@@ -86,6 +86,13 @@ SCREEN_SHARD_LIMITS = {
     "n1_screen": 320,
     "source_screen": 48,
 }
+GEMMA_EXACT_SUPPLEMENT_ID = "gemma_exact_csqa_mt_suggest_t1_v1"
+GEMMA_EXACT_SUPPLEMENT_CELL = {
+    "dataset_id": "commonsense_qa",
+    "turn_format": "multi_turn",
+    "bias_type": "incorrect_suggestion",
+    "template_index": 1,
+}
 
 
 class CampaignError(BonhamError):
@@ -1247,6 +1254,145 @@ def prepare_model_n1_extension(args: argparse.Namespace) -> None:
             raise CampaignError("Changed model-filtered N1 extension receipt")
     else:
         atomic_json(complete_path, complete)
+    print(json.dumps(complete, indent=2, sort_keys=True))
+
+
+def prepare_model_n1_supplement(args: argparse.Namespace) -> None:
+    """Freeze an append-only Gemma screen for the one remaining exact N1 cell.
+
+    The all-model pool plus the ARC-only model-specific extension leaves the
+    Gemma CommonsenseQA/multi-turn/incorrect-suggestion/template-1 cell two
+    qualifying questions short. Thousands of unused construction-split
+    CommonsenseQA questions are nevertheless neutral-correct for Gemma. This
+    recovery screens that fixed cell only, preserving the original exact
+    32-cell allocation rather than relaxing any quota.
+    """
+
+    root = Path(args.result_root)
+    model_key = str(args.model_key)
+    if model_key != "gemma4_12b":
+        raise CampaignError("The exact N1 supplement is Gemma-specific")
+    destination = root / "inputs" / "n1_screen_model_supplement_shards" / model_key
+    complete_path = destination / "COMPLETE"
+    if complete_path.is_file():
+        print(json.dumps(read_json(complete_path), indent=2, sort_keys=True))
+        return
+
+    config = load_config(args.config)
+    extension_complete = read_json(
+        root / "inputs" / "n1_screen_model_extension_shards" / model_key / "COMPLETE"
+    )
+    first_shard = int(extension_complete["last_shard"]) + 1
+    existing_question_keys: set[str] = set()
+    index_paths = (
+        root / "inputs" / "n1_screen_shards" / "index.jsonl",
+        root
+        / "inputs"
+        / "n1_screen_model_extension_shards"
+        / model_key
+        / "index.jsonl",
+    )
+    for index_path in index_paths:
+        for entry in read_jsonl(index_path):
+            path = Path(str(entry["path"]))
+            if sha256_file(path) != str(entry["sha256"]):
+                raise CampaignError(f"Changed N1 input while preparing supplement: {path}")
+            for row in read_jsonl(path):
+                question_key = str(dict(row.get("metadata", {})).get("question_key", ""))
+                if not question_key:
+                    raise CampaignError(f"N1 task lacks a question key: {path}")
+                existing_question_keys.add(question_key)
+    reserve_keys = {
+        _question_key(_question_from_row(row))
+        for row in read_jsonl(root / "inputs" / "factual_preservation_questions.jsonl")
+    }
+    neutral = _record_by_question(_collect_records(root, "neutral_screen", model_key))
+    questions = [
+        _question_from_row(row)
+        for row in read_jsonl(root / "inputs" / "construction_pool.jsonl")
+    ]
+    candidates = []
+    for question in questions:
+        question_key = _question_key(question)
+        if (
+            question.dataset_id != GEMMA_EXACT_SUPPLEMENT_CELL["dataset_id"]
+            or question_key in reserve_keys
+            or question_key in existing_question_keys
+        ):
+            continue
+        record = neutral.get(question_key)
+        if record is not None and screen_choice(record) == question.gold:
+            candidates.append(question)
+    candidates.sort(
+        key=lambda question: stable_hash(
+            EXPERIMENT,
+            GEMMA_EXACT_SUPPLEMENT_ID,
+            question.source_example_id,
+        )
+    )
+    if len(candidates) < 512:
+        raise CampaignError(
+            f"Only {len(candidates)} unused neutral-correct Gemma CSQA questions remain"
+        )
+    tasks = [
+        _biased_task(
+            config,
+            question,
+            turn_format=str(GEMMA_EXACT_SUPPLEMENT_CELL["turn_format"]),
+            bias_type=str(GEMMA_EXACT_SUPPLEMENT_CELL["bias_type"]),
+            template_index=int(GEMMA_EXACT_SUPPLEMENT_CELL["template_index"]),
+            eligible_model_keys=(model_key,),
+        )
+        for question in candidates
+    ]
+    shard_size = int(args.shard_size)
+    if shard_size <= 0:
+        raise CampaignError("N1 supplement shard size must be positive")
+    entries = []
+    for offset, start in enumerate(range(0, len(tasks), shard_size)):
+        shard_index = first_shard + offset
+        path = destination / f"shard_{shard_index:04d}.jsonl"
+        subset = tasks[start : start + shard_size]
+        expected_text = "".join(canonical_json(task.to_dict()) + "\n" for task in subset)
+        expected_sha256 = hashlib.sha256(expected_text.encode("utf-8")).hexdigest()
+        if path.is_file():
+            if sha256_file(path) != expected_sha256:
+                raise CampaignError(f"Changed Gemma exact supplement shard: {path}")
+        else:
+            _write_tasks(path, subset)
+        entries.append(
+            {
+                "shard_index": shard_index,
+                "task_count": len(subset),
+                "path": str(path.resolve()),
+                "sha256": sha256_file(path),
+            }
+        )
+    index_path = destination / "index.jsonl"
+    if index_path.is_file():
+        if list(read_jsonl(index_path)) != entries:
+            raise CampaignError("Changed Gemma exact supplement index")
+    else:
+        atomic_jsonl(index_path, entries)
+    last_shard = first_shard + len(entries) - 1
+    if last_shard >= int(SCREEN_SHARD_LIMITS["n1_screen"]):
+        raise CampaignError("Gemma exact supplement exceeds N1 screen shard capacity")
+    complete = {
+        "status": "complete",
+        "append_only": True,
+        "supplement_id": GEMMA_EXACT_SUPPLEMENT_ID,
+        "model_key": model_key,
+        "cell": dict(GEMMA_EXACT_SUPPLEMENT_CELL),
+        "relaxes_quota": False,
+        "candidate_choice_source": "neutral_candidate_renormalized_argmax",
+        "candidate_question_count": len(candidates),
+        "task_count": len(tasks),
+        "shard_count": len(entries),
+        "first_shard": first_shard,
+        "last_shard": last_shard,
+        "index_sha256": sha256_file(index_path),
+    }
+    atomic_json(complete_path, complete)
     print(json.dumps(complete, indent=2, sort_keys=True))
 
 
@@ -2834,6 +2980,12 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--model-key", choices=MODEL_KEYS, required=True)
     command.add_argument("--shard-size", type=int, default=200)
     command.set_defaults(func=prepare_model_n1_extension)
+
+    command = subparsers.add_parser("prepare-model-n1-supplement")
+    command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument("--model-key", choices=MODEL_KEYS, required=True)
+    command.add_argument("--shard-size", type=int, default=200)
+    command.set_defaults(func=prepare_model_n1_supplement)
 
     command = subparsers.add_parser("allocate-manifests")
     command.add_argument("--result-root", type=Path, required=True)

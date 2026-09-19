@@ -788,12 +788,36 @@ def final_audit(args: argparse.Namespace) -> None:
                 (root / "states" / model_key / f"{state_id}.json").is_file(),
                 f"Missing state registry {model_key}/{state_id}",
             )
+        exact_supplement_sha256 = None
+        if model_key == "gemma4_12b":
+            supplement_path = (
+                root
+                / "inputs"
+                / "n1_screen_model_supplement_shards"
+                / model_key
+                / "COMPLETE"
+            )
+            supplement = read_json(supplement_path)
+            _require(
+                supplement.get("status") == "complete"
+                and supplement.get("relaxes_quota") is False
+                and supplement.get("supplement_id")
+                == campaign.GEMMA_EXACT_SUPPLEMENT_ID
+                and supplement.get("cell") == campaign.GEMMA_EXACT_SUPPLEMENT_CELL,
+                "Gemma exact-quota supplement is missing or changed",
+            )
+            _require(
+                manifest_receipt.get("balance_amendment") in (None, {}),
+                "Gemma used a balance amendment despite the exact-quota supplement",
+            )
+            exact_supplement_sha256 = sha256_file(supplement_path)
         model_audits[model_key] = {
             "model_id": specification["model_id"],
             "revision": specification["revision"],
             "n1_pool": read_json(manifest_root / "MANIFESTS_COMPLETE.json")["n1_pool"],
             "score_roles": score_roles,
             "mask_hashes": masks,
+            "exact_n1_supplement_sha256": exact_supplement_sha256,
         }
     evaluation_complete = read_json(root / "evaluations" / "results" / "COMPLETE.json")
     _require(evaluation_complete.get("status") == "complete", "Evaluations are incomplete")

@@ -108,6 +108,24 @@ $PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/evaluations.py run-s
   --family generalization --shard 0 --hf-cache "$HF_CACHE_DIR"
 ```
 
+### Exact-quota Gemma recovery
+
+If the preferred all-model construction pool and the frozen ARC-only
+model-specific extension leave Gemma short in an exact N1 cell, run
+`prepare-model-n1-supplement`. It freezes an append-only screen over unused,
+neutral-correct CommonsenseQA construction questions for the single deficient
+multi-turn incorrect-suggestion template. It changes neither the behavior
+qualification criterion nor any allocation quota: Gemma must still contain 512
+distinct questions and exactly 16 rows in every dataset × turn × bias ×
+construction-template cell. The exact supplement is therefore preferred to the
+separately guarded balance-amendment flag.
+
+```bash
+$CPU_PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/campaign.py \
+  prepare-model-n1-supplement --result-root "$RESULT_ROOT" \
+  --model-key gemma4_12b --shard-size 200
+```
+
 The exact 32-cell allocator remains the default and fails closed. The documented
 Gemma-only balanced-marginal fallback is present as an explicit, inert opt-in so
 that it cannot alter Llama or Qwen artifacts accidentally. It may be invoked only
