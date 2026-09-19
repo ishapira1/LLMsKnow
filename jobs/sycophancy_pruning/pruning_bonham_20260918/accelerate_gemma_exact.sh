@@ -69,8 +69,19 @@ gpu_test_clear() {
   (( $(gpu_test_job_count) == 0 ))
 }
 
+gpu_test_requested_gpus() {
+  squeue -h -u "$USER_NAME" -p "$GPU_TEST_PARTITION" -o '%b' \
+    | awk -F: '{ if ($NF ~ /^[0-9]+$/) total += $NF } END { print total + 0 }'
+}
+
 gpu_test_released_to_gemma() {
   gpu_test_clear && [[ ! -f "$CAPABILITY_PRIORITY_MARKER" ]]
+}
+
+gpu_test_released_to_gemma_supplement() {
+  (( $(gpu_test_job_count) < 2 )) && \
+    (( $(gpu_test_requested_gpus) <= 4 )) && \
+    [[ ! -f "$CAPABILITY_PRIORITY_MARKER" ]]
 }
 
 supplement_receipts_complete() {
@@ -128,17 +139,16 @@ wait_or_promote_supplement() {
     job_id="$(job_id_by_name bonh_gem_suppscr)"
     state="$(job_state "$job_id")"
     partition="$(job_partition "$job_id")"
-    # The supplement occupies the entire four-slice capacity left by one
-    # Qwen/Llama packed job.  Wait for a fully clear test partition so this
-    # lower-priority recovery cannot consume the second submitted-job slot and
-    # block the paper-critical source-attribution handoff.
-    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_released_to_gemma; then
+    # The supplement needs four slices and may safely share the test partition
+    # with one four-slice recovery job.  Later Gemma score/evaluation stages
+    # still require all eight slices through gpu_test_released_to_gemma.
+    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_released_to_gemma_supplement; then
       log "promote_supplement job_id=$job_id partition=$partition"
       scancel "$job_id"
       job_id="$(submit_screen_test)"
       log "submitted_supplement_test job_id=$job_id"
     elif [[ "$state" =~ ^(FAILED|OUT_OF_MEMORY|NODE_FAIL|TIMEOUT|PREEMPTED)$ ]]; then
-      if gpu_test_released_to_gemma; then
+      if gpu_test_released_to_gemma_supplement; then
         job_id="$(submit_screen_test)"
         log "recovered_supplement_test job_id=$job_id prior_state=$state"
       else
