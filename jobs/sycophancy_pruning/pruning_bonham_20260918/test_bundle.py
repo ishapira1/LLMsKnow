@@ -577,6 +577,28 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("Gemma exact-quota supplement is missing or changed", audit_source)
         self.assertIn("despite the exact-quota supplement", audit_source)
 
+    def test_model_pipeline_supports_two_gpu_gemma_lanes(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        pipeline = (bundle / "gpu_model_pipeline.sbatch").read_text(encoding="utf-8")
+        cpu_source = (bundle / "cpu_stage.sbatch").read_text(encoding="utf-8")
+        self.assertIn('GPUS_PER_LANE="${GPUS_PER_LANE:-1}"', pipeline)
+        self.assertIn('--gpus-per-task="$GPUS_PER_LANE"', pipeline)
+        self.assertIn("LLMSSYCOPH_DEVICE_MAP_AUTO=1", pipeline)
+        self.assertIn("allocate_model_manifests", cpu_source)
+        self.assertIn('--model-key "$MODEL_KEY"', cpu_source)
+
+    def test_gemma_exact_supervisor_preserves_and_promotes_work(self) -> None:
+        source = (
+            Path(__file__).resolve().parent / "accelerate_gemma_exact.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("supplement_receipts_complete", source)
+        self.assertIn("promote_supplement", source)
+        self.assertIn("promote_scores", source)
+        self.assertIn("promote_pipeline", source)
+        self.assertIn("allocate_model_manifests", source)
+        self.assertIn("GPUS_PER_LANE=2", source)
+        self.assertNotIn("gemma-balanced-amendment", source)
+
     def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

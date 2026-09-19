@@ -50,6 +50,9 @@ case "$STAGE" in
   allocate_manifests)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" allocate-manifests --result-root "$RESULT_ROOT")
     ;;
+  allocate_model_manifests)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" allocate-manifests --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY")
+    ;;
   build_masks)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" build-masks --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY")
     ;;

@@ -20,6 +20,16 @@ set -Eeuo pipefail
 source "$BONHAM_BUNDLE_DIR/common.sh"
 require_runtime
 : "${MODEL_KEY:?MODEL_KEY is required}"
+GPUS_PER_LANE="${GPUS_PER_LANE:-1}"
+CPUS_PER_LANE="${CPUS_PER_LANE:-4}"
+MEM_PER_LANE="${MEM_PER_LANE:-48G}"
+if ! [[ "$GPUS_PER_LANE" =~ ^[1-9][0-9]*$ && "$CPUS_PER_LANE" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'GPUS_PER_LANE and CPUS_PER_LANE must be positive integers\n' >&2
+  exit 2
+fi
+if (( GPUS_PER_LANE > 1 )); then
+  export LLMSSYCOPH_DEVICE_MAP_AUTO=1
+fi
 
 states=(
   unpruned n1_mechanism n2_selective random_n1
@@ -29,8 +39,8 @@ lane_root="$LOG_ROOT/by_task/$MODEL_KEY/gpu_model_pipeline/job_${SLURM_JOB_ID:-l
 mkdir -p "$lane_root" "$LOG_ROOT/slurm/gpu_model_pipeline"
 cd "$REPO_DIR"
 start_epoch="$(date +%s)"
-printf 'experiment=pruning_bonham_20260918\nstage=gpu_model_pipeline\nmodel=%s\nstart_time=%s\nhostname=%s\n' \
-  "$MODEL_KEY" "$(date -Is)" "$(hostname)"
+printf 'experiment=pruning_bonham_20260918\nstage=gpu_model_pipeline\nmodel=%s\ngpus_per_lane=%s\nmem_per_lane=%s\nstart_time=%s\nhostname=%s\n' \
+  "$MODEL_KEY" "$GPUS_PER_LANE" "$MEM_PER_LANE" "$(date -Is)" "$(hostname)"
 nvidia-smi || true
 
 children=()
@@ -42,8 +52,8 @@ launch_step() {
   printf 'launch_step=%s command=' "$label"
   printf '%q ' "$@"
   printf '\n'
-  srun --exclusive --exact --nodes=1 --ntasks=1 --cpus-per-task=4 \
-    --gpus-per-task=1 --mem=48G \
+  srun --exclusive --exact --nodes=1 --ntasks=1 --cpus-per-task="$CPUS_PER_LANE" \
+    --gpus-per-task="$GPUS_PER_LANE" --mem="$MEM_PER_LANE" \
     --output="$lane_root/${label}.out" --error="$lane_root/${label}.err" \
     "$BUNDLE_DIR/gpu_model_pipeline_lane.sh" "$@" &
   LAST_PID="$!"

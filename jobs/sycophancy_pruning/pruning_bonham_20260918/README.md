@@ -126,6 +126,12 @@ $CPU_PYTHON_BIN jobs/sycophancy_pruning/pruning_bonham_20260918/campaign.py \
   --model-key gemma4_12b --shard-size 200
 ```
 
+`accelerate_gemma_exact.sh` monitors the supplement screen, promotes a still
+pending regular-queue job into the first fully free `gpu_test` allocation,
+runs the unchanged exact allocator, and then drives Gemma attribution, masks,
+steering, and all evaluation families. Running or completed regular-queue work
+is preserved rather than duplicated.
+
 The exact 32-cell allocator remains the default and fails closed. The documented
 Gemma-only balanced-marginal fallback is present as an explicit, inert opt-in so
 that it cannot alter Llama or Qwen artifacts accidentally. It may be invoked only
