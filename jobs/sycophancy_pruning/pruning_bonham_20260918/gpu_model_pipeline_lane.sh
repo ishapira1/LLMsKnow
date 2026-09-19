@@ -35,6 +35,12 @@ case "$mode" in
   evaluation)
     state_id="${1:?state id is required}"
     family_set="${2:?evaluation family set is required}"
+    defer_marker="$RESULT_ROOT/control/DEFER_QWEN_LLAMA_CAPABILITIES_UNTIL_SOURCE"
+    if [[ "$family_set" == capabilities && "$MODEL_KEY" != gemma4_12b && -f "$defer_marker" ]]; then
+      printf 'capabilities_deferred_until_source=1 model=%s state=%s marker=%s\n' \
+        "$MODEL_KEY" "$state_id" "$defer_marker"
+      exit 0
+    fi
     case "$family_set" in
       paper_core) families=(generalization useful_assertions source_attribution) ;;
       source_attribution) families=(source_attribution) ;;
