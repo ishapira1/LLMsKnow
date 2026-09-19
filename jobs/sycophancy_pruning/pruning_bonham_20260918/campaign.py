@@ -2227,6 +2227,14 @@ def build_masks(args: argparse.Namespace) -> None:
     )
     outputs = {}
     for mask_id, (prune_id, preserve_id) in mask_specs.items():
+        destination = root / "masks" / args.model_key / mask_id
+        if (destination / "COMPLETE.json").is_file():
+            # Core N1/N2 masks may already have been published so paper
+            # evaluation can start before the analysis-only scores finish.
+            # Reuse the immutable receipt instead of rereading both full FP32
+            # score caches and deterministically reconstructing the same mask.
+            outputs[mask_id] = read_json(destination / "COMPLETE.json")
+            continue
         indices, metadata = select_mask(
             root / "scores" / args.model_key / prune_id,
             root / "scores" / args.model_key / preserve_id,
@@ -2242,7 +2250,6 @@ def build_masks(args: argparse.Namespace) -> None:
             "prune_score_id": prune_id,
             "preserve_score_id": preserve_id,
         }
-        destination = root / "masks" / args.model_key / mask_id
         _save_mask(destination, indices, metadata)
         outputs[mask_id] = read_json(destination / "COMPLETE.json")
 

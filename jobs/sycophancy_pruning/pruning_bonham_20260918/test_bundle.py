@@ -462,6 +462,15 @@ class RuntimeIsolationTests(unittest.TestCase):
         ):
             self.assertIn(token, lane)
 
+    def test_full_mask_build_reuses_published_core_masks(self) -> None:
+        source = Path(campaign.__file__).read_text(encoding="utf-8")
+        marker = 'if (destination / "COMPLETE.json").is_file():'
+        self.assertIn(marker, source)
+        reuse = source.index(marker, source.index("def build_masks"))
+        select = source.index("indices, metadata = select_mask(", reuse)
+        self.assertLess(reuse, select)
+        self.assertIn('outputs[mask_id] = read_json(destination / "COMPLETE.json")', source)
+
     def test_model_pipeline_watcher_preserves_bundle_paths_and_resources(self) -> None:
         bundle = Path(__file__).resolve().parent
         watcher = (bundle / "launch_qwen_llama_pipeline_when_ready.sh").read_text(
