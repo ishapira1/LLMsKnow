@@ -90,7 +90,16 @@ score_receipts_complete() {
 }
 
 submit_cpu() {
-  local name="$1" stage="$2" memory="$3" time_limit="$4" raw
+  local name="$1" stage="$2" memory="$3" time_limit="$4" existing state raw
+  existing="$(job_id_by_name "$name")"
+  state="$(job_state "$existing")"
+  case "$state" in
+    PENDING|RUNNING|CONFIGURING|COMPLETING|REQUEUED|RESIZING|SUSPENDED|COMPLETED)
+      log "reuse_cpu_job name=$name job_id=$existing state=$state"
+      printf '%s\n' "$existing"
+      return 0
+      ;;
+  esac
   raw="$(sbatch --parsable --account="$ACCOUNT" --partition=test \
     --job-name="$name" --time="$time_limit" --cpus-per-task=8 --mem="$memory" \
     --export="ALL,STAGE=$stage,MODEL_KEY=$MODEL_KEY,BONHAM_BUNDLE_DIR=$BUNDLE_DIR" \
@@ -163,8 +172,17 @@ submit_score() {
 
 wait_or_promote_scores() {
   local job_id state partition
-  job_id="$(submit_score regular)"
-  log "submitted_score_fallback job_id=$job_id"
+  job_id="$(job_id_by_name bonh_gemma_scores)"
+  state="$(job_state "$job_id")"
+  case "$state" in
+    PENDING|RUNNING|CONFIGURING|COMPLETING|REQUEUED|RESIZING|SUSPENDED|COMPLETED)
+      log "reuse_score_job job_id=$job_id state=$state"
+      ;;
+    *)
+      job_id="$(submit_score regular)"
+      log "submitted_score_fallback job_id=$job_id"
+      ;;
+  esac
   while ! score_receipts_complete; do
     state="$(job_state "$job_id")"
     partition="$(job_partition "$job_id")"
@@ -213,8 +231,17 @@ submit_pipeline() {
 
 wait_or_promote_pipeline() {
   local job_id state partition
-  job_id="$(submit_pipeline regular)"
-  log "submitted_pipeline_fallback job_id=$job_id"
+  job_id="$(job_id_by_name bonh_gemma_pipeline)"
+  state="$(job_state "$job_id")"
+  case "$state" in
+    PENDING|RUNNING|CONFIGURING|COMPLETING|REQUEUED|RESIZING|SUSPENDED|COMPLETED)
+      log "reuse_pipeline_job job_id=$job_id state=$state"
+      ;;
+    *)
+      job_id="$(submit_pipeline regular)"
+      log "submitted_pipeline_fallback job_id=$job_id"
+      ;;
+  esac
   while true; do
     state="$(job_state "$job_id")"
     partition="$(job_partition "$job_id")"
@@ -245,10 +272,14 @@ if [[ ! -f "$manifest_receipt" ]]; then
 fi
 [[ -f "$manifest_receipt" ]] || { log "missing_manifest_receipt=1"; exit 1; }
 
-eval_prepare_job="$(submit_cpu bonh_gem_evalprep eval_prepare_model 96G 02:00:00)"
-steering_prepare_job="$(submit_cpu bonh_gem_steerprep steering_prepare 96G 02:00:00)"
-wait_job gemma_eval_prepare "$eval_prepare_job"
-wait_job gemma_steering_prepare "$steering_prepare_job"
+if [[ ! -f "$RESULT_ROOT/evaluations/inputs/$MODEL_KEY/COMPLETE.json" ]]; then
+  eval_prepare_job="$(submit_cpu bonh_gem_evalprep eval_prepare_model 96G 02:00:00)"
+  wait_job gemma_eval_prepare "$eval_prepare_job"
+fi
+if [[ ! -f "$RESULT_ROOT/steering/$MODEL_KEY/inputs/paired_prompts.COMPLETE.json" ]]; then
+  steering_prepare_job="$(submit_cpu bonh_gem_steerprep steering_prepare 96G 02:00:00)"
+  wait_job gemma_steering_prepare "$steering_prepare_job"
+fi
 
 if ! score_receipts_complete; then
   wait_or_promote_scores

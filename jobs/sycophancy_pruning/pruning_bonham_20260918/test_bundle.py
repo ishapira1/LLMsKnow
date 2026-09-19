@@ -602,6 +602,10 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("allocate_model_manifests", source)
         self.assertIn("GPUS_PER_LANE=2", source)
         self.assertNotIn("gemma-balanced-amendment", source)
+        self.assertIn("reuse_cpu_job", source)
+        self.assertIn("reuse_score_job", source)
+        self.assertIn("reuse_pipeline_job", source)
+        self.assertIn("paired_prompts.COMPLETE.json", source)
 
     def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
