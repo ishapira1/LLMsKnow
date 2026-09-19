@@ -38,6 +38,9 @@ case "$STAGE" in
   prepare_screens)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" prepare-screens --result-root "$RESULT_ROOT" --shard-size 200)
     ;;
+  extend_n1_screens)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" extend-n1-screens --result-root "$RESULT_ROOT" --shard-size 200)
+    ;;
   allocate_manifests)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" allocate-manifests --result-root "$RESULT_ROOT")
     ;;
