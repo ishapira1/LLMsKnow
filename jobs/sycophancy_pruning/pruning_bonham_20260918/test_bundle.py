@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 from unittest.mock import patch
@@ -1594,6 +1595,36 @@ class EvaluationDesignTests(unittest.TestCase):
         self.assertAlmostEqual(0.4, by_type["doubt_correct"]["probability_movement"])
         self.assertEqual(1.0, by_type["incorrect_suggestion"]["adoption_or_rejection"])
         self.assertEqual(1.0, by_type["doubt_correct"]["adoption_or_rejection"])
+
+    def test_early_report_is_isolated_to_qwen_llama_paper_core(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(reporting, "_records", return_value=[]) as records:
+                with mock.patch.object(
+                    reporting,
+                    "_capability_rows",
+                    side_effect=AssertionError("early report must not read capabilities"),
+                ):
+                    with mock.patch.object(reporting, "_figures", return_value=[]):
+                        with mock.patch("builtins.print"):
+                            reporting.report(
+                                SimpleNamespace(
+                                    result_root=root,
+                                    early_qwen_llama=True,
+                                )
+                            )
+            receipt_path = root / "reports" / "early_qwen_llama" / "COMPLETE.json"
+            self.assertTrue(receipt_path.is_file())
+            self.assertFalse((root / "reports" / "COMPLETE.json").exists())
+            receipt = core.read_json(receipt_path)
+            self.assertEqual(
+                ["qwen25_7b", "llama31_8b"], receipt["model_keys"]
+            )
+            self.assertEqual(
+                "qwen_llama_paper_core_before_capabilities", receipt["scope"]
+            )
+            self.assertFalse(receipt["includes_capabilities"])
+            self.assertEqual(2 * 8 * 3, records.call_count)
 
     def test_clustered_bootstrap_is_deterministic(self) -> None:
         rows = [
