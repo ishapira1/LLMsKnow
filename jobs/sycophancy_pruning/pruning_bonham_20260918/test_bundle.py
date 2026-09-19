@@ -1233,6 +1233,107 @@ class EvaluationDesignTests(unittest.TestCase):
                 )
                 self.assertEqual(1, len({task.metadata["asserted_label"] for task in matched}))
                 self.assertEqual(1, len({task.metadata["doubted_label"] for task in matched}))
+        audit_result = evaluations.validate_useful_matched_design(
+            tasks, "llama31_8b"
+        )
+        self.assertEqual(1, audit_result["question_count"])
+        self.assertEqual({"initially_correct": 1}, audit_result["cohort_counts"])
+        self.assertTrue(audit_result["matched_user_source"])
+        self.assertTrue(audit_result["matched_turn_formats"])
+
+    def test_useful_initially_incorrect_uses_actual_neutral_wrong_answer(self) -> None:
+        question = _question()
+        neutral_wrong = "D"
+        neutral_record = {
+            "parse_status": "valid",
+            "parsed_value": neutral_wrong,
+            "forced_choice_probabilities": {
+                label: 0.7 if label == neutral_wrong else 0.1
+                for label in question.labels
+            },
+        }
+        tasks = evaluations._useful_tasks_for_model(
+            self.config,
+            "qwen25_7b",
+            [question],
+            {evaluations._question_key(question): neutral_record},
+        )
+        primary = [
+            task
+            for task in tasks
+            if task.evaluator_id == "bonham_useful_assertions_v1"
+        ]
+        self.assertEqual(8, len(primary))
+        self.assertEqual(
+            {"suggest_c", "doubt_w"},
+            {task.metadata["claim_type"] for task in primary},
+        )
+        self.assertEqual(
+            {neutral_wrong},
+            {task.metadata["wrong_label"] for task in primary},
+        )
+        self.assertEqual(
+            {question.gold},
+            {
+                task.metadata["asserted_label"]
+                for task in primary
+                if task.metadata["claim_type"] == "suggest_c"
+            },
+        )
+        self.assertEqual(
+            {neutral_wrong},
+            {
+                task.metadata["doubted_label"]
+                for task in primary
+                if task.metadata["claim_type"] == "doubt_w"
+            },
+        )
+        audit_result = evaluations.validate_useful_matched_design(
+            tasks, "qwen25_7b"
+        )
+        self.assertEqual({"initially_incorrect": 1}, audit_result["cohort_counts"])
+
+    def test_useful_matched_design_fails_closed_on_changed_source_proposition(self) -> None:
+        question = _question()
+        neutral_record = {
+            "parse_status": "valid",
+            "parsed_value": question.gold,
+            "forced_choice_probabilities": {
+                label: 0.7 if label == question.gold else 0.1
+                for label in question.labels
+            },
+        }
+        tasks = evaluations._useful_tasks_for_model(
+            self.config,
+            "llama31_8b",
+            [question],
+            {evaluations._question_key(question): neutral_record},
+        )
+        primary = [
+            task
+            for task in tasks
+            if task.evaluator_id == "bonham_useful_assertions_v1"
+        ]
+        tampered = list(primary)
+        source_index = next(
+            index
+            for index, task in enumerate(tampered)
+            if task.metadata["claim_attribution"] == "reliable_source"
+        )
+        source_task = tampered[source_index]
+        tampered[source_index] = evaluations.EvaluationTask(
+            **{
+                **source_task.__dict__,
+                "metadata": {
+                    **source_task.metadata,
+                    "proposition": "a different proposition",
+                },
+            }
+        )
+        with self.assertRaises(evaluations.EvaluationError):
+            evaluations.validate_useful_matched_design(
+                tampered, "llama31_8b"
+            )
 
     def test_reporting_uses_opposite_directions_for_suggestion_and_doubt(self) -> None:
         common = {

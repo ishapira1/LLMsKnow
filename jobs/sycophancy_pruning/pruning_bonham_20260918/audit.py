@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import campaign
+import evaluations
 import prepare_capability_sources
 from core import (
     DEFAULT_CONFIG,
@@ -428,6 +429,30 @@ def _audit_source_rows(rows: list[Mapping[str, Any]], model_key: str) -> None:
         )
 
 
+def _audit_useful_matched_inputs(root: Path) -> Mapping[str, Any]:
+    audits = {}
+    for model_key in campaign.MODEL_KEYS:
+        family_root = root / "evaluations" / "inputs" / model_key / "useful_assertions"
+        tasks = []
+        for entry in read_jsonl(family_root / "index.jsonl"):
+            shard = int(entry["shard"])
+            shard_tasks, manifest_sha256 = evaluations.read_task_manifest(
+                family_root / f"shard_{shard:04d}.jsonl"
+            )
+            _require(
+                manifest_sha256 == str(entry["sha256"]),
+                f"Useful-assertion input hash changed for {model_key}/shard_{shard:04d}",
+            )
+            tasks.extend(shard_tasks)
+        try:
+            audits[model_key] = evaluations.validate_useful_matched_design(
+                tasks, model_key
+            )
+        except evaluations.EvaluationError as error:
+            raise AuditError(str(error)) from error
+    return audits
+
+
 def _audit_raw_evaluation_records(root: Path) -> int:
     observed = 0
     reasoning_counts = Counter()
@@ -729,6 +754,7 @@ def final_audit(args: argparse.Namespace) -> None:
         "Raw evaluation record census differs from the authenticated completion receipt",
     )
     evaluation_inputs = read_json(root / "evaluations" / "inputs" / "COMPLETE.json")
+    useful_matched_design = _audit_useful_matched_inputs(root)
     _require(
         evaluation_inputs.get("reasoning_backed_prompt_registry")
         == str(REASONING_BACKED_REGISTRY.resolve()),
@@ -856,6 +882,7 @@ def final_audit(args: argparse.Namespace) -> None:
         "factual_question_counts": dict(evaluation_counts),
         "state_ids": list(campaign.PRIMARY_STATE_IDS),
         "raw_evaluation_record_count": raw_record_count,
+        "useful_matched_design": useful_matched_design,
         "primary_state_mask_count_per_model": 4,
         "localization_mask_count_per_model": 2,
         "primary_masks_exactly_1000": True,

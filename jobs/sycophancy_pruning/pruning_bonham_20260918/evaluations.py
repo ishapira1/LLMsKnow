@@ -576,6 +576,149 @@ def _useful_tasks_for_model(
     return tasks
 
 
+def validate_useful_matched_design(
+    tasks: Sequence[EvaluationTask], model_key: str
+) -> Mapping[str, Any]:
+    """Fail closed unless primary user/source updating cells are exactly paired."""
+
+    primary = [
+        task
+        for task in tasks
+        if task.evaluator_id == "bonham_useful_assertions_v1"
+    ]
+    if not primary:
+        raise EvaluationError(f"No primary useful-assertion tasks for {model_key}")
+    by_question: dict[str, list[EvaluationTask]] = defaultdict(list)
+    for task in primary:
+        metadata = dict(task.metadata)
+        if metadata.get("model_key") != model_key:
+            raise EvaluationError("Useful-assertion task has the wrong model identity")
+        by_question[str(metadata.get("question_key", ""))].append(task)
+
+    cohort_counts: Counter[str] = Counter()
+    dataset_cohort_counts: Counter[tuple[str, str]] = Counter()
+    for question_key, question_tasks in by_question.items():
+        if not question_key or len(question_tasks) != 8:
+            raise EvaluationError(
+                f"Useful-assertion question is not an eight-cell factorial: {question_key}"
+            )
+        cohorts = {str(task.metadata.get("neutral_cohort")) for task in question_tasks}
+        if len(cohorts) != 1:
+            raise EvaluationError(f"Useful-assertion cohort changed within {question_key}")
+        cohort = next(iter(cohorts))
+        expected_claims = (
+            {"suggest_w", "doubt_c"}
+            if cohort == "initially_correct"
+            else {"suggest_c", "doubt_w"}
+            if cohort == "initially_incorrect"
+            else set()
+        )
+        if not expected_claims:
+            raise EvaluationError(f"Unknown neutral cohort for {question_key}: {cohort}")
+        if {str(task.metadata.get("claim_type")) for task in question_tasks} != expected_claims:
+            raise EvaluationError(f"Wrong claim types for {question_key}/{cohort}")
+
+        reference = dict(question_tasks[0].metadata)
+        gold = str(reference.get("gold_label", ""))
+        neutral = str(reference.get("neutral_label", ""))
+        wrong = str(reference.get("wrong_label", ""))
+        if (
+            (cohort == "initially_correct" and neutral != gold)
+            or (cohort == "initially_incorrect" and (neutral == gold or wrong != neutral))
+        ):
+            raise EvaluationError(f"Neutral cohort labels are inconsistent for {question_key}")
+        invariant_fields = (
+            "dataset_id",
+            "question_id",
+            "question_key",
+            "gold_label",
+            "neutral_label",
+            "wrong_label",
+            "neutral_cohort",
+        )
+        if any(
+            tuple(task.metadata.get(field) for field in invariant_fields)
+            != tuple(reference.get(field) for field in invariant_fields)
+            for task in question_tasks
+        ):
+            raise EvaluationError(f"Matched cohort identity changed for {question_key}")
+
+        for claim_type in sorted(expected_claims):
+            for turn_format in TURN_FORMATS:
+                pair = [
+                    task
+                    for task in question_tasks
+                    if task.metadata.get("claim_type") == claim_type
+                    and task.metadata.get("turn_format") == turn_format
+                ]
+                if len(pair) != 2 or {
+                    str(task.metadata.get("claim_attribution")) for task in pair
+                } != {"bare_user", "reliable_source"}:
+                    raise EvaluationError(
+                        f"User/source pair is incomplete for {question_key}/{claim_type}/{turn_format}"
+                    )
+                signatures = {
+                    (
+                        task.metadata.get("proposition"),
+                        task.metadata.get("claim_truth"),
+                        task.metadata.get("asserted_label"),
+                        task.metadata.get("doubted_label"),
+                        task.metadata.get("gold_label"),
+                        task.metadata.get("neutral_label"),
+                        task.metadata.get("wrong_label"),
+                        task.gold_choice,
+                        task.target_choice,
+                    )
+                    for task in pair
+                }
+                if len(signatures) != 1:
+                    raise EvaluationError(
+                        f"User/source proposition changed for {question_key}/{claim_type}/{turn_format}"
+                    )
+
+            # Single- and multi-turn presentations must retain the same claim,
+            # target option, and proposition for each attribution.
+            for attribution in ("bare_user", "reliable_source"):
+                turns = [
+                    task
+                    for task in question_tasks
+                    if task.metadata.get("claim_type") == claim_type
+                    and task.metadata.get("claim_attribution") == attribution
+                ]
+                signatures = {
+                    (
+                        task.metadata.get("proposition"),
+                        task.metadata.get("asserted_label"),
+                        task.metadata.get("doubted_label"),
+                        task.gold_choice,
+                        task.target_choice,
+                    )
+                    for task in turns
+                }
+                if len(turns) != 2 or len(signatures) != 1 or {
+                    str(task.metadata.get("turn_format")) for task in turns
+                } != set(TURN_FORMATS):
+                    raise EvaluationError(
+                        f"Turn-format pair changed its claim for {question_key}/{claim_type}/{attribution}"
+                    )
+        cohort_counts[cohort] += 1
+        dataset_cohort_counts[(str(reference["dataset_id"]), cohort)] += 1
+
+    return {
+        "model_key": model_key,
+        "question_count": len(by_question),
+        "task_count": len(primary),
+        "cells_per_question": 8,
+        "cohort_counts": dict(sorted(cohort_counts.items())),
+        "dataset_cohort_counts": {
+            "|".join(key): value
+            for key, value in sorted(dataset_cohort_counts.items())
+        },
+        "matched_user_source": True,
+        "matched_turn_formats": True,
+    }
+
+
 def _capability_tasks(
     suite_source_bindings: Path, external_utility_root: Path
 ) -> list[EvaluationTask]:
@@ -695,6 +838,7 @@ def prepare(args: argparse.Namespace) -> None:
         )
         generalization = _generalization_tasks_for_model(config, model_key, questions)
         useful = _useful_tasks_for_model(config, model_key, questions, neutral)
+        useful_matched_design = validate_useful_matched_design(useful, model_key)
         capability_tasks = [
             replace(
                 task,
@@ -821,6 +965,7 @@ def prepare(args: argparse.Namespace) -> None:
             "model_key": model_key,
             "factual_question_counts": dict(counts),
             "model_outputs": model_outputs,
+            "useful_matched_design": useful_matched_design,
             "reasoning_backed_prompt_registry_sha256": sha256_file(
                 REASONING_BACKED_REGISTRY
             ),
