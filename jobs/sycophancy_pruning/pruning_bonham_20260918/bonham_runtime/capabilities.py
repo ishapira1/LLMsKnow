@@ -12,9 +12,9 @@ import hashlib
 import json
 from pathlib import Path
 import string
+import time
 from typing import Any, Callable, Mapping, Sequence
 
-from .evaluation.artifacts import sha256_file
 from .evaluation.runner import EvaluationTask
 from .evaluation.schemas import sha256_json
 from .evaluation.utility_adapters import (
@@ -55,11 +55,33 @@ def _read_jsonl(path: Path) -> list[Mapping[str, Any]]:
 
 def _authenticated_value(path: Path, expected: str, serialization: str | None = None) -> Any:
     path = Path(path).expanduser().resolve()
-    if not path.is_file() or sha256_file(path) != str(expected):
-        raise CapabilityError(f"Frozen capability source is absent or changed: {path}")
-    if serialization == "jsonl" or path.suffix == ".jsonl":
-        return _read_jsonl(path)
-    return _read_json(path)
+    last_error: Exception | None = None
+    for attempt in range(5):
+        try:
+            # Hash and parse one byte snapshot.  On a congested shared
+            # filesystem, two independent reads can otherwise observe a good
+            # hash followed by a transiently truncated parse read.
+            payload = path.read_bytes()
+            observed = hashlib.sha256(payload).hexdigest()
+            if observed != str(expected):
+                raise CapabilityError(
+                    f"Frozen capability source is absent or changed: {path}"
+                )
+            text = payload.decode("utf-8")
+            if serialization == "jsonl" or path.suffix == ".jsonl":
+                return [
+                    json.loads(line)
+                    for line in text.splitlines()
+                    if line.strip()
+                ]
+            return json.loads(text)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, CapabilityError) as error:
+            last_error = error
+            if attempt < 4:
+                time.sleep(attempt + 1)
+    raise CapabilityError(
+        f"Could not read authenticated capability source after retries: {path}"
+    ) from last_error
 
 
 def _binding_value(binding_path: Path, key: str) -> Any:

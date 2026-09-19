@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -24,6 +25,7 @@ import reporting
 import prepare_capability_sources
 import weight_analysis
 import completion_email
+from bonham_runtime import capabilities
 from bonham_runtime.capabilities import utility_evaluation_name
 from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluationTask
 from bonham_runtime.evaluation.runner import _generate_one
@@ -224,6 +226,18 @@ class RuntimeIsolationTests(unittest.TestCase):
             metadata={"question_id": "test"},
         )
         self.assertEqual("SST-2 arbitrary-label ICL", utility_evaluation_name(task))
+
+    def test_capability_source_hash_and_parse_share_one_byte_snapshot(self) -> None:
+        payload = b'{"row": 1}\n{"row": 2}\n'
+        expected = hashlib.sha256(payload).hexdigest()
+        with patch.object(
+            Path, "read_bytes", side_effect=(payload, b'{"truncated":')
+        ) as reader:
+            rows = capabilities._authenticated_value(
+                Path("/frozen/source.jsonl"), expected, "jsonl"
+            )
+        self.assertEqual([{"row": 1}, {"row": 2}], rows)
+        reader.assert_called_once()
 
     def test_reporting_dispatches_bonham_capability_evaluator_ids(self) -> None:
         self.assertEqual(
