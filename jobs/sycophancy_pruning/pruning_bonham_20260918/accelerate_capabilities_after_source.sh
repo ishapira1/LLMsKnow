@@ -11,6 +11,7 @@ GPU_GRES="${BONHAM_GPU_TEST_GRES:-gpu:nvidia_a100_3g.20gb}"
 ACCOUNTING_START="${BONHAM_ACCOUNTING_START:-2026-09-19}"
 USER_NAME="${USER:-ishapira}"
 DEFER_MARKER="$RESULT_ROOT/control/DEFER_QWEN_LLAMA_CAPABILITIES_UNTIL_SOURCE"
+CAPABILITY_PRIORITY_MARKER="$RESULT_ROOT/control/PRIORITIZE_QWEN_LLAMA_CAPABILITIES"
 
 [[ "$POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   printf 'POLL_SECONDS must be a positive integer\n' >&2
@@ -18,6 +19,7 @@ DEFER_MARKER="$RESULT_ROOT/control/DEFER_QWEN_LLAMA_CAPABILITIES_UNTIL_SOURCE"
 }
 
 mkdir -p "$LOG_ROOT/submit" "$LOG_ROOT/slurm/gpu_eval_states"
+touch "$CAPABILITY_PRIORITY_MARKER"
 supervisor_log="$LOG_ROOT/submit/capabilities_after_source_$(date +%Y%m%dT%H%M%S).log"
 exec > >(tee -a "$supervisor_log") 2>&1
 
@@ -153,4 +155,6 @@ if ! family_complete qwen25_7b capabilities || ! family_complete llama31_8b capa
   printf 'Capability waves ended without complete Qwen/Llama receipts\n' >&2
   exit 1
 fi
+rm -f "$CAPABILITY_PRIORITY_MARKER"
+log "capability_priority_marker_removed=$CAPABILITY_PRIORITY_MARKER"
 log 'capabilities_after_source_supervisor_complete=1'

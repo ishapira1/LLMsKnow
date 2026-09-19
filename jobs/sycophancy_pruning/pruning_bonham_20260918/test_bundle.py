@@ -599,6 +599,8 @@ class RuntimeIsolationTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("supplement_receipts_complete", source)
         self.assertIn("gpu_test_clear", source)
+        self.assertIn("gpu_test_released_to_gemma", source)
+        self.assertIn("PRIORITIZE_QWEN_LLAMA_CAPABILITIES", source)
         self.assertNotIn("gpu_test_has_slot", source)
         self.assertIn("block the paper-critical source-attribution handoff", source)
         self.assertIn('LANES=2,GPUS_PER_LANE=2', source)
@@ -622,15 +624,19 @@ class RuntimeIsolationTests(unittest.TestCase):
             bundle / "accelerate_capabilities_after_source.sh"
         ).read_text(encoding="utf-8")
         marker = "DEFER_QWEN_LLAMA_CAPABILITIES_UNTIL_SOURCE"
+        priority_marker = "PRIORITIZE_QWEN_LLAMA_CAPABILITIES"
         self.assertIn(marker, lane_source)
         self.assertIn('"$family_set" == capabilities', lane_source)
         self.assertIn("capabilities_deferred_until_source", lane_source)
         self.assertIn(marker, supervisor_source)
+        self.assertIn(priority_marker, supervisor_source)
+        self.assertIn('touch "$CAPABILITY_PRIORITY_MARKER"', supervisor_source)
         self.assertIn("wait_for_sources", supervisor_source)
         self.assertIn("source_attribution", supervisor_source)
         self.assertIn('rm -f "$DEFER_MARKER"', supervisor_source)
         self.assertIn("run_wave 0", supervisor_source)
         self.assertIn("run_wave 4", supervisor_source)
+        self.assertIn('rm -f "$CAPABILITY_PRIORITY_MARKER"', supervisor_source)
 
     def test_early_qwen_llama_report_waits_for_all_paper_core_families(self) -> None:
         bundle = Path(__file__).resolve().parent

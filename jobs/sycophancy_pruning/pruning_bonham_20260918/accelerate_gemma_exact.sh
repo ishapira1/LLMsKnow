@@ -10,6 +10,7 @@ GPU_TEST_PARTITION="${BONHAM_GPU_TEST_PARTITION:-gpu_test}"
 GPU_TEST_GRES="${BONHAM_GPU_TEST_GRES:-gpu:nvidia_a100_3g.20gb}"
 ACCOUNTING_START="${BONHAM_ACCOUNTING_START:-2026-09-19}"
 USER_NAME="${USER:-ishapira}"
+CAPABILITY_PRIORITY_MARKER="$RESULT_ROOT/control/PRIORITIZE_QWEN_LLAMA_CAPABILITIES"
 MODEL_KEY=gemma4_12b
 SUPPLEMENT_FIRST=191
 SUPPLEMENT_LAST=205
@@ -66,6 +67,10 @@ gpu_test_job_count() {
 
 gpu_test_clear() {
   (( $(gpu_test_job_count) == 0 ))
+}
+
+gpu_test_released_to_gemma() {
+  gpu_test_clear && [[ ! -f "$CAPABILITY_PRIORITY_MARKER" ]]
 }
 
 supplement_receipts_complete() {
@@ -127,13 +132,13 @@ wait_or_promote_supplement() {
     # Qwen/Llama packed job.  Wait for a fully clear test partition so this
     # lower-priority recovery cannot consume the second submitted-job slot and
     # block the paper-critical source-attribution handoff.
-    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_clear; then
+    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_released_to_gemma; then
       log "promote_supplement job_id=$job_id partition=$partition"
       scancel "$job_id"
       job_id="$(submit_screen_test)"
       log "submitted_supplement_test job_id=$job_id"
     elif [[ "$state" =~ ^(FAILED|OUT_OF_MEMORY|NODE_FAIL|TIMEOUT|PREEMPTED)$ ]]; then
-      if gpu_test_clear; then
+      if gpu_test_released_to_gemma; then
         job_id="$(submit_screen_test)"
         log "recovered_supplement_test job_id=$job_id prior_state=$state"
       else
@@ -186,13 +191,13 @@ wait_or_promote_scores() {
   while ! score_receipts_complete; do
     state="$(job_state "$job_id")"
     partition="$(job_partition "$job_id")"
-    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_clear; then
+    if [[ "$state" == PENDING && "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_released_to_gemma; then
       log "promote_scores job_id=$job_id partition=$partition"
       scancel "$job_id"
       job_id="$(submit_score test)"
       log "submitted_scores_test job_id=$job_id"
     elif [[ "$state" =~ ^(FAILED|OUT_OF_MEMORY|NODE_FAIL|TIMEOUT|PREEMPTED)$ ]]; then
-      if gpu_test_clear; then
+      if gpu_test_released_to_gemma; then
         job_id="$(submit_score test)"
         log "recovered_scores_test job_id=$job_id prior_state=$state"
       else
@@ -248,7 +253,7 @@ wait_or_promote_pipeline() {
     case "$state" in
       COMPLETED) log "gemma_pipeline_complete job_id=$job_id"; return 0 ;;
       PENDING)
-        if [[ "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_clear; then
+        if [[ "$partition" != "$GPU_TEST_PARTITION" ]] && gpu_test_released_to_gemma; then
           log "promote_pipeline job_id=$job_id partition=$partition"
           scancel "$job_id"
           job_id="$(submit_pipeline test)"
