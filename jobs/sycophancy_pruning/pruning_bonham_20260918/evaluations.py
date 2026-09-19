@@ -877,6 +877,107 @@ def run_shard(args: argparse.Namespace) -> None:
     print(json.dumps(summary, indent=2, sort_keys=True))
 
 
+def run_state_sequence(args: argparse.Namespace) -> None:
+    """Evaluate one intervention state across several families with one model load."""
+
+    families = tuple(dict.fromkeys(str(family) for family in args.families))
+    if not families:
+        raise EvaluationError("State sequence requires at least one evaluation family")
+    config = load_config(args.config)
+    root = Path(args.result_root)
+    specification = campaign.model_spec(config, args.model_key)
+    model, tokenizer = campaign._load_model(
+        campaign.model_snapshot(args.hf_cache, specification)
+    )
+    llm = campaign._LLM(model, tokenizer, str(specification["model_id"]))
+    state = campaign._read_state(
+        campaign._state_path(root, args.model_key, args.state_id)
+    )
+    snapshot_hash, condition_hash = campaign._evaluation_provenance(
+        root, args.model_key, args.config
+    )
+    family_counts = {}
+    for family in families:
+        index_path = (
+            root / "evaluations" / "inputs" / args.model_key / family / "index.jsonl"
+        )
+        entries = read_jsonl(index_path)
+        if not entries:
+            raise EvaluationError(f"No frozen evaluation shards indexed by {index_path}")
+        completed = 0
+        for entry in entries:
+            shard = int(entry["shard"])
+            manifest = index_path.parent / f"shard_{shard:04d}.jsonl"
+            tasks, manifest_hash = read_task_manifest(manifest)
+            if any(task.metadata.get("model_key") != args.model_key for task in tasks):
+                raise EvaluationError("Evaluation task model identity mismatch")
+            output = (
+                root
+                / "evaluations"
+                / "results"
+                / args.model_key
+                / args.state_id
+                / family
+                / f"shard_{shard:04d}"
+            )
+            print(
+                json.dumps(
+                    {
+                        "event": "evaluation_state_sequence_shard_start",
+                        "model_key": args.model_key,
+                        "state_id": args.state_id,
+                        "family": family,
+                        "shard": shard,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            summary = run_evaluation_cell(
+                llm=llm,
+                state=state,
+                tasks=tasks,
+                task_manifest_sha256=manifest_hash,
+                snapshot_inventory_sha256=snapshot_hash,
+                condition_registry_sha256=condition_hash,
+                output_dir=output,
+                run_id=(
+                    f"{campaign.EXPERIMENT}:{args.model_key}:{args.state_id}:"
+                    f"{family}:{shard}"
+                ),
+                inference_batch_size=int(args.batch_size),
+                require_batched_inference=int(args.batch_size) > 1,
+            )
+            completed += 1
+            print(
+                json.dumps(
+                    {
+                        "event": "evaluation_state_sequence_shard_complete",
+                        "model_key": args.model_key,
+                        "state_id": args.state_id,
+                        "family": family,
+                        "shard": shard,
+                        "record_count": int(summary["record_count"]),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        family_counts[family] = completed
+    print(
+        json.dumps(
+            {
+                "status": "complete",
+                "model_key": args.model_key,
+                "state_id": args.state_id,
+                "family_counts": family_counts,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 def validate_complete(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
     states = tuple(args.state_ids or campaign.PRIMARY_STATE_IDS)
@@ -947,6 +1048,20 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--hf-cache", type=Path, required=True)
     command.add_argument("--batch-size", type=int, default=4)
     command.set_defaults(func=run_shard)
+
+    command = subparsers.add_parser("run-state-sequence")
+    command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument("--model-key", choices=campaign.MODEL_KEYS, required=True)
+    command.add_argument("--state-id", choices=campaign.PRIMARY_STATE_IDS, required=True)
+    command.add_argument(
+        "--families",
+        nargs="+",
+        choices=("generalization", "useful_assertions", "capabilities"),
+        required=True,
+    )
+    command.add_argument("--hf-cache", type=Path, required=True)
+    command.add_argument("--batch-size", type=int, default=4)
+    command.set_defaults(func=run_state_sequence)
 
     command = subparsers.add_parser("validate-complete")
     command.add_argument("--result-root", type=Path, required=True)
