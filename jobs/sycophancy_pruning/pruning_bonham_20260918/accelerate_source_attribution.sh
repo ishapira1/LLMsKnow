@@ -63,10 +63,24 @@ wait_jobs() {
   done
 }
 
+gpu_test_job_count() {
+  squeue -h -u "$USER_NAME" -p "$GPU_PARTITION" | wc -l | tr -d ' '
+}
+
+wait_for_gpu_test_slot() {
+  local active
+  while true; do
+    active="$(gpu_test_job_count)"
+    if (( active < 2 )); then return 0; fi
+    log "waiting_for_gpu_test_slot active=$active"
+    sleep "$POLL_SECONDS"
+  done
+}
+
 wait_for_gpu_test_clear() {
   local active
   while true; do
-    active="$(squeue -h -u "$USER_NAME" -p "$GPU_PARTITION" | wc -l | tr -d ' ')"
+    active="$(gpu_test_job_count)"
     if (( active == 0 )); then return 0; fi
     log "waiting_for_gpu_test_clear active=$active"
     sleep "$POLL_SECONDS"
@@ -130,12 +144,50 @@ submit_wave() {
   printf '%s\n' "$job_id"
 }
 
-run_qwen_llama_wave() {
-  local suffix="$1" offset="$2" qwen_job llama_job
-  wait_for_gpu_test_clear
-  qwen_job="$(submit_wave "bonh_qwen_src${suffix}" qwen25_7b "$offset" 1 48G 4 192G)"
-  llama_job="$(submit_wave "bonh_llama_src${suffix}" llama31_8b "$offset" 1 48G 4 192G)"
-  wait_jobs "qwen_llama_source_$suffix" "$qwen_job" "$llama_job"
+wait_for_pipeline() {
+  local model="$1" pipeline_name pipeline_id state
+  case "$model" in
+    qwen25_7b) pipeline_name=bonh_qwen_pipeline ;;
+    llama31_8b) pipeline_name=bonh_llama_pipeline ;;
+    *) printf 'No packed-pipeline name for %s\n' "$model" >&2; return 2 ;;
+  esac
+  pipeline_id="$(job_id_by_name "$pipeline_name")"
+  [[ -n "$pipeline_id" ]] || {
+    printf 'Could not resolve %s\n' "$pipeline_name" >&2
+    return 2
+  }
+  while true; do
+    state="$(job_state "$pipeline_id")"
+    case "$state" in
+      COMPLETED)
+        log "pipeline_complete model=$model job_id=$pipeline_id"
+        return 0
+        ;;
+      PENDING|RUNNING|CONFIGURING|COMPLETING|REQUEUED|RESIZING|SUSPENDED|'')
+        sleep "$POLL_SECONDS"
+        ;;
+      *)
+        log "pipeline_failure model=$model job_id=$pipeline_id state=$state"
+        return 1
+        ;;
+    esac
+  done
+}
+
+run_model_source_waves() {
+  local model="$1" short_name job_id
+  case "$model" in
+    qwen25_7b) short_name=qwen ;;
+    llama31_8b) short_name=llama ;;
+    *) printf 'Unknown one-GPU source model: %s\n' "$model" >&2; return 2 ;;
+  esac
+  wait_for_pipeline "$model"
+  wait_for_gpu_test_slot
+  job_id="$(submit_wave "bonh_${short_name}_src0" "$model" 0 1 48G 4 192G)"
+  wait_jobs "${short_name}_source_0" "$job_id"
+  wait_for_gpu_test_slot
+  job_id="$(submit_wave "bonh_${short_name}_src1" "$model" 4 1 48G 4 192G)"
+  wait_jobs "${short_name}_source_1" "$job_id"
 }
 
 run_gemma_wave() {
@@ -151,8 +203,14 @@ for model in qwen25_7b llama31_8b; do
   freeze_model_source_sweep "$model"
   wait_for_model_states "$model"
 done
-run_qwen_llama_wave 0 0
-run_qwen_llama_wave 1 4
+run_model_source_waves qwen25_7b &
+qwen_worker="$!"
+run_model_source_waves llama31_8b &
+llama_worker="$!"
+worker_status=0
+wait "$qwen_worker" || worker_status=1
+wait "$llama_worker" || worker_status=1
+(( worker_status == 0 )) || exit "$worker_status"
 
 wait_for_model_inputs gemma4_12b
 freeze_model_source_sweep gemma4_12b
