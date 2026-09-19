@@ -151,6 +151,7 @@ evalplus_run="$(submit_job bonh_eprun_0918 evalplus_run "$cpu" "$evalplus_prepar
 evalplus_aggregate="$(submit_job bonh_epagg_0918 evalplus_aggregate "$cpu" "$evalplus_run" '' shared '' '')"
 report="$(submit_job bonh_report_0918 report "$cpu" "$eval_validate:$evalplus_aggregate:$weight_aggregate" '' shared '' '')"
 audit="$(submit_job bonh_audit_0918 final_audit "$cpu" "$report" '' shared '' '')"
+final_email="$(submit_job bonh_email_0918 final_email "$cpu" "$audit" '' shared '' '')"
 
-printf 'experiment=pruning_bonham_20260918\ndry_run=%s\nresult_root=%s\nsubmission_log=%s\nfinal_audit_job=%s\n' \
-  "$DRY_RUN" "$RESULT_ROOT" "$submission_log" "$audit" | tee -a "$submission_log"
+printf 'experiment=pruning_bonham_20260918\ndry_run=%s\nresult_root=%s\nsubmission_log=%s\nfinal_audit_job=%s\nfinal_email_job=%s\n' \
+  "$DRY_RUN" "$RESULT_ROOT" "$submission_log" "$audit" "$final_email" | tee -a "$submission_log"

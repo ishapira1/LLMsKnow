@@ -23,6 +23,7 @@ import evaluations
 import reporting
 import prepare_capability_sources
 import weight_analysis
+import completion_email
 from bonham_runtime.capabilities import utility_evaluation_name
 from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluationTask
 from bonham_runtime.evaluation.runner import _generate_one
@@ -289,6 +290,47 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("BONHAM_REUSE_CAPABILITY_SOURCES_JOB_ID", submit)
         self.assertIn("BONHAM_REUSE_SOURCE_FREEZE_JOB_ID", submit)
         self.assertIn("reuse_root_job", submit)
+
+    def test_completion_email_is_final_audit_gated_and_deduplicated(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        cpu_stage = (bundle / "cpu_stage.sbatch").read_text(encoding="utf-8")
+        submit = (bundle / "submit.sh").read_text(encoding="utf-8")
+        source = (bundle / "completion_email.py").read_text(encoding="utf-8")
+        self.assertIn("final_email)", cpu_stage)
+        self.assertIn('final_email "$cpu" "$audit"', submit)
+        self.assertIn('root / "audit" / "COMPLETE.json"', source)
+        self.assertIn('existing.get("status") == "sent"', source)
+        self.assertIn('"status": "sending"', source)
+
+    def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            audit_path = root / "audit" / "COMPLETE.json"
+            audit_path.parent.mkdir(parents=True)
+            audit_path.write_text(
+                json.dumps(
+                    {
+                        "status": "complete",
+                        "experiment": campaign.EXPERIMENT,
+                        "models": {"llama31_8b": {}},
+                        "state_ids": list(campaign.PRIMARY_STATE_IDS),
+                        "raw_evaluation_record_count": 123,
+                        "protection_fraction": 0.00005,
+                        "primary_masks_exactly_1000": True,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            identity = {
+                "experiment": campaign.EXPERIMENT,
+                "audit_path": str(audit_path),
+                "audit_sha256": core.sha256_file(audit_path),
+            }
+            body = completion_email.build_body(root, identity)
+            self.assertIn("final audit", body)
+            self.assertIn("123", body)
+            self.assertIn(core.sha256_file(audit_path), body)
 
     def test_bonham_triviaqa_uses_registered_exact_match_parser(self) -> None:
         task = RuntimeEvaluationTask(

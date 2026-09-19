@@ -84,6 +84,9 @@ case "$STAGE" in
   final_audit)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/audit.py" --result-root "$RESULT_ROOT")
     ;;
+  final_email)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/completion_email.py" --result-root "$RESULT_ROOT" --recipient itaishapira@g.harvard.edu)
+    ;;
   *) printf 'unknown Bonham CPU stage: %s\n' "$STAGE" >&2; exit 2 ;;
 esac
 print_command "${command[@]}"
