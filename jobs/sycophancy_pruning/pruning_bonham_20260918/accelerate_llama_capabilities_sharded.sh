@@ -75,12 +75,15 @@ pair_complete() {
   capability_state_complete "${states[$first]}" && capability_state_complete "${states[$second]}"
 }
 
-wait_gpu_test_clear() {
+wait_gpu_test_slot() {
   local active
   while true; do
     active="$(squeue -h -u "$USER_NAME" -p "$GPU_PARTITION" | wc -l | tr -d ' ')"
-    if (( active == 0 )); then return 0; fi
-    log "waiting_for_gpu_test_clear active=$active"
+    # gpu_test permits two submitted jobs per user.  Each Llama recovery job
+    # requests four of the eight permitted slices, so it is safe to fill one
+    # free job slot while a one-slice Qwen recovery is still running.
+    if (( active < 2 )); then return 0; fi
+    log "waiting_for_gpu_test_slot active=$active"
     sleep "$POLL_SECONDS"
   done
 }
@@ -156,12 +159,13 @@ wait_success() {
 run_wave() {
   local label="$1" pair_a="$2" pair_b="$3" job_id
   local -a jobs=()
-  wait_gpu_test_clear
   if ! pair_complete "$pair_a"; then
+    wait_gpu_test_slot
     job_id="$(submit_pair "$pair_a")"
     [[ -z "$job_id" ]] || jobs+=("$job_id")
   fi
   if ! pair_complete "$pair_b"; then
+    wait_gpu_test_slot
     job_id="$(submit_pair "$pair_b")"
     [[ -z "$job_id" ]] || jobs+=("$job_id")
   fi

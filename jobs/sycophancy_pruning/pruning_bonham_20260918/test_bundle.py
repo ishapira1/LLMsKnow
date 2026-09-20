@@ -337,6 +337,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB=$MAX_MEMORY_GIB", script)
         self.assertIn("STATE_INDICES=$pair", script)
         self.assertIn("scontrol hold", script)
+        self.assertIn("if (( active < 2 ))", script)
 
     def test_capability_name_projection(self) -> None:
         task = RuntimeEvaluationTask(
