@@ -989,6 +989,8 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("evalplus_missing_tasks", supervisor)
         self.assertIn('"${missing_tasks}%40"', supervisor)
         self.assertIn("evalplus_qwen_llama_shards_complete=128", supervisor)
+        self.assertIn("EVALPLUS_PARALLEL_WORKERS", cpu_source)
+        self.assertIn('--parallel-workers "$EVALPLUS_PARALLEL_WORKERS"', cpu_source)
         self.assertIn("wait_for_capabilities", supervisor)
         self.assertIn("qwen_llama_complete/COMPLETE.json", supervisor)
 

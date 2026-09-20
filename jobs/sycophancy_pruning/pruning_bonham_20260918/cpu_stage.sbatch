@@ -106,7 +106,15 @@ case "$STAGE" in
     run_model="${models[$((state_index / 8))]}"
     state_id="${states[$((state_index % 8))]}"
     benchmark="${benchmarks[$((within / 4))]}"; shard="$((within % 4))"
-    command=("$PYTHON_BIN" "$BUNDLE_DIR/evalplus.py" run-shard --result-root "$RESULT_ROOT" --model-key "$run_model" --state-id "$state_id" --benchmark "$benchmark" --shard "$shard" --image "$EVALPLUS_IMAGE" --image-sha256 "$EVALPLUS_IMAGE_SHA256" --singularity-binary /usr/bin/singularity --timeout-seconds 7200)
+    evalplus_parallel_args=()
+    if [[ -n "${EVALPLUS_PARALLEL_WORKERS:-}" ]]; then
+      [[ "$EVALPLUS_PARALLEL_WORKERS" =~ ^[1-9][0-9]*$ ]] || {
+        printf 'EVALPLUS_PARALLEL_WORKERS must be a positive integer\n' >&2
+        exit 2
+      }
+      evalplus_parallel_args=(--parallel-workers "$EVALPLUS_PARALLEL_WORKERS")
+    fi
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/evalplus.py" run-shard --result-root "$RESULT_ROOT" --model-key "$run_model" --state-id "$state_id" --benchmark "$benchmark" --shard "$shard" --image "$EVALPLUS_IMAGE" --image-sha256 "$EVALPLUS_IMAGE_SHA256" --singularity-binary /usr/bin/singularity --timeout-seconds 7200 "${evalplus_parallel_args[@]}")
     ;;
   evalplus_aggregate)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/evalplus.py" aggregate --result-root "$RESULT_ROOT" --image-sha256 "$EVALPLUS_IMAGE_SHA256")
