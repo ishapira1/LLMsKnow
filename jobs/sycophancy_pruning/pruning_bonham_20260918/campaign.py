@@ -1906,10 +1906,13 @@ def _reserve_balanced_amendment_steering(
 
     The Gemma balanced-marginal amendment must not consume the questions needed
     by the preregistered 100-fit/50-development MeanDiff cohort. We therefore
-    reserve 150 neutral-correct questions per construction dataset first and
-    exclude them from every N1 seed. Questions that never exhibit a qualifying
-    N1 response are preferred, followed by questions participating in the
-    fewest qualifying N1 conditions, which preserves scarce pruning candidates.
+    reserve 150 questions per construction dataset first and exclude them from
+    every N1 seed. Neutral-correct questions are preferred; when the frozen pool
+    cannot supply all 150, the remaining slots use disjoint questions from the
+    same construction split. Within each correctness stratum, questions that
+    participate in fewer qualifying N1 conditions are preferred, which preserves
+    scarce pruning candidates. MeanDiff itself uses paired prompt activations and
+    does not require a correct neutral answer.
     """
 
     if model_key != "gemma4_12b":
@@ -1931,13 +1934,14 @@ def _reserve_balanced_amendment_steering(
     steering_rows: list[Mapping[str, Any]] = []
     steering_keys: set[str] = set()
     audit: dict[str, Any] = {
-        "method": "reserve_neutral_correct_low_n1_degree_v1",
+        "method": "reserve_paired_questions_outside_feasibility_witness_v1",
         "fit_per_dataset": 100,
         "development_per_dataset": 50,
         "datasets": {},
     }
     for dataset_id in ("commonsense_qa", "arc_challenge"):
         eligible = []
+        neutral_correct_by_key = {}
         for question in construction_questions:
             question_key = _question_key(question)
             if (
@@ -1946,13 +1950,15 @@ def _reserve_balanced_amendment_steering(
             ):
                 continue
             neutral_record = neutral_index.get(question_key)
-            if (
-                neutral_record is not None
-                and screen_choice(neutral_record) == question.gold
-            ):
-                eligible.append(question)
+            if neutral_record is None:
+                continue
+            eligible.append(question)
+            neutral_correct_by_key[question_key] = (
+                screen_choice(neutral_record) == question.gold
+            )
         eligible.sort(
             key=lambda question: (
+                not neutral_correct_by_key[_question_key(question)],
                 int(qualifying_degree[_question_key(question)]),
                 stable_hash(
                     EXPERIMENT,
@@ -1984,6 +1990,14 @@ def _reserve_balanced_amendment_steering(
         audit["datasets"][dataset_id] = {
             "eligible_count": len(eligible),
             "reserved_count": len(selected),
+            "neutral_correct_count": sum(
+                neutral_correct_by_key[_question_key(question)]
+                for question in selected
+            ),
+            "neutral_incorrect_or_invalid_count": sum(
+                not neutral_correct_by_key[_question_key(question)]
+                for question in selected
+            ),
             "zero_qualification_count": int(degrees.get(0, 0)),
             "qualification_degree_counts": {
                 str(degree): count for degree, count in sorted(degrees.items())

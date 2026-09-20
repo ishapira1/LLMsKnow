@@ -153,11 +153,16 @@ from source template 0 to source template 1 without changing any source-family
 total. Before allocating any of the three N1 seeds, the amended path first
 constructs a valid seed-5 N1 feasibility witness, then reserves the complete
 100-fit/50-development steering cohort in each construction dataset outside
-that witness. Among those questions, the reservation deterministically prefers
-questions that never behavior-qualify for N1, then questions with the fewest
-qualifying N1 conditions. Excluding the reservation from all seeds leaves the
-original witness available, which proves that the amended N1 constraints remain
-feasible while preserving the full 300-question disjoint MeanDiff cohort.
+that witness. It uses all available neutral-correct questions first and, if the
+frozen pool has fewer than 150, fills the remaining paired-prompt slots with
+disjoint questions from the same construction split. MeanDiff is defined by the
+within-question harmful-minus-neutral activation contrast and does not require
+neutral correctness; development still reports neutral accuracy and gold-margin
+preservation. Within each correctness stratum, the reservation prefers questions
+that never behavior-qualify for N1, then questions with the fewest qualifying N1
+conditions. Excluding the reservation from all seeds leaves the original witness
+available, which proves that the amended N1 constraints remain feasible while
+preserving the full 300-question disjoint MeanDiff cohort.
 
 For accelerated state-sequence execution, `gpu_eval_states.sbatch` accepts
 `EVALUATION_FAMILY_SET=paper_core` (generalization, useful assertions, and the

@@ -1858,7 +1858,8 @@ class AllocationTests(unittest.TestCase):
             Counter((row["dataset_id"], row["steering_split"]) for row in rows),
         )
         self.assertEqual(
-            "reserve_neutral_correct_low_n1_degree_v1", reservation["method"]
+            "reserve_paired_questions_outside_feasibility_witness_v1",
+            reservation["method"],
         )
 
     def test_gemma_source_swap_stays_within_quantified_family(self) -> None:

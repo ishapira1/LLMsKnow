@@ -1019,9 +1019,12 @@ def final_audit(args: argparse.Namespace) -> None:
             steering_reservation = dict(
                 manifest_receipt.get("steering_reservation") or {}
             )
+            reservation_datasets = dict(
+                steering_reservation.get("datasets", {})
+            )
             _require(
                 steering_reservation.get("method")
-                == "reserve_neutral_correct_low_n1_degree_v1"
+                == "reserve_paired_questions_outside_feasibility_witness_v1"
                 and int(steering_reservation.get("fit_per_dataset", -1)) == 100
                 and int(steering_reservation.get("development_per_dataset", -1))
                 == 50
@@ -1037,8 +1040,15 @@ def final_audit(args: argparse.Namespace) -> None:
                     )
                 )
                 == 64
-                and set(dict(steering_reservation.get("datasets", {})))
-                == {"commonsense_qa", "arc_challenge"},
+                and set(reservation_datasets)
+                == {"commonsense_qa", "arc_challenge"}
+                and all(
+                    int(row.get("reserved_count", -1)) == 150
+                    and int(row.get("neutral_correct_count", -1))
+                    + int(row.get("neutral_incorrect_or_invalid_count", -1))
+                    == 150
+                    for row in reservation_datasets.values()
+                ),
                 "Gemma balanced amendment lacks the authenticated full steering reservation",
             )
             exact_supplement_sha256 = sha256_file(supplement_path)
