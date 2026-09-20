@@ -7,6 +7,7 @@ from collections import Counter
 import errno
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -44,6 +45,7 @@ from bonham_runtime.evaluation.artifacts import (
 )
 from bonham_runtime.llm.base import GenerationResult
 from bonham_runtime.llm.huggingface import HuggingFaceLLM
+from bonham_runtime.llm.huggingface import _auto_device_max_memory
 from bonham_runtime.weight_pruning.paper_pruning import prepare_examples
 
 
@@ -287,6 +289,24 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIs(RuntimeEvaluationTask, evaluations.EvaluationTask)
         self.assertTrue(callable(prepare_examples))
         self.assertTrue(hasattr(HuggingFaceLLM, "_load_model_and_tokenizer"))
+
+    def test_opt_in_device_memory_cap_forces_deterministic_sharding(self) -> None:
+        with patch.dict(
+            os.environ, {"LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB": "12"}, clear=False
+        ):
+            self.assertEqual(
+                {0: "12GiB", 1: "12GiB"},
+                _auto_device_max_memory(device_map_auto=True, cuda_device_count=2),
+            )
+            with self.assertRaisesRegex(ValueError, "requires device_map_auto"):
+                _auto_device_max_memory(device_map_auto=False, cuda_device_count=2)
+
+    def test_device_memory_cap_is_absent_by_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB", None)
+            self.assertIsNone(
+                _auto_device_max_memory(device_map_auto=True, cuda_device_count=2)
+            )
 
     def test_bundle_has_no_historical_campaign_dependency(self) -> None:
         bundle = Path(__file__).resolve().parent

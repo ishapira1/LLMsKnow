@@ -34,6 +34,44 @@ def _hf_load_kwargs(hf_cache_dir: Optional[str]) -> Dict[str, Any]:
     return load_kwargs
 
 
+def _auto_device_max_memory(
+    *, device_map_auto: bool, cuda_device_count: int
+) -> Optional[Dict[int, str]]:
+    """Resolve an opt-in per-device cap used to force safe model sharding.
+
+    A model can fit its parameters on one MIG slice while leaving too little
+    workspace for long-sequence attention.  Capping parameter placement below
+    physical capacity makes Accelerate split the unchanged model across the
+    requested visible devices, reserving workspace on each slice.  The default
+    remains unchanged when the environment variable is absent.
+    """
+
+    raw = str(os.getenv("LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB", "") or "").strip()
+    if not raw:
+        return None
+    if not device_map_auto:
+        raise ValueError(
+            "LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB requires device_map_auto so the "
+            "model can be distributed across visible CUDA devices."
+        )
+    try:
+        gib = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB must be a positive integer."
+        ) from exc
+    if gib <= 0:
+        raise ValueError(
+            "LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB must be a positive integer."
+        )
+    count = int(cuda_device_count)
+    if count <= 0:
+        raise ValueError(
+            "Per-device max memory was requested, but no visible CUDA device exists."
+        )
+    return {index: f"{gib}GiB" for index in range(count)}
+
+
 def _qwen_prefers_bfloat16(model_name: str) -> bool:
     normalized = str(model_name or "").lower()
     return "qwen" in normalized
@@ -199,10 +237,23 @@ class HuggingFaceLLM(BaseLLM):
             log_status("llm/huggingface.py", f"using Hugging Face auth token for model={model_name}")
         try:
             if device == "cuda":
+                max_memory = _auto_device_max_memory(
+                    device_map_auto=bool(device_map_auto),
+                    cuda_device_count=int(torch.cuda.device_count()),
+                )
+                placement_kwargs: Dict[str, Any] = {
+                    "device_map": "auto" if device_map_auto else None,
+                }
+                if max_memory is not None:
+                    placement_kwargs["max_memory"] = max_memory
+                    log_status(
+                        "llm/huggingface.py",
+                        f"using device_map=auto max_memory={max_memory}",
+                    )
                 model = auto_model.from_pretrained(
                     model_name,
                     torch_dtype=resolved_torch_dtype,
-                    device_map="auto" if device_map_auto else None,
+                    **placement_kwargs,
                     **load_kwargs,
                 )
                 if not device_map_auto:
