@@ -80,6 +80,15 @@ wait_for_capabilities() {
   log 'qwen_llama_capabilities_complete=1'
 }
 
+wait_for_weight_analysis() {
+  while [[ ! -f "$RESULT_ROOT/weight_analysis/qwen25_7b/COMPLETE.json" ]] || \
+        [[ ! -f "$RESULT_ROOT/weight_analysis/llama31_8b/COMPLETE.json" ]]; do
+    log 'waiting_for_qwen_llama_weight_analysis=1'
+    sleep "$POLL_SECONDS"
+  done
+  log 'qwen_llama_weight_analysis_complete=1'
+}
+
 submit_cpu_job() {
   local name="$1" stage="$2" time_limit="$3" memory="$4" array_spec="${5:-}"
   local existing state raw job_id
@@ -131,4 +140,8 @@ wait_job evalplus_aggregate_qwen_llama "$aggregate_job"
 report_job="$(submit_cpu_job bonh_ql_report qwen_llama_complete_report 02:00:00 96G)"
 wait_job qwen_llama_complete_report "$report_job"
 
-log "qwen_llama_evalplus_supervisor_complete=1 report=$RESULT_ROOT/reports/qwen_llama_complete/COMPLETE.json"
+wait_for_weight_analysis
+weight_job="$(submit_cpu_job bonh_ql_weightagg weight_aggregate_qwen_llama 01:00:00 96G)"
+wait_job weight_aggregate_qwen_llama "$weight_job"
+
+log "qwen_llama_evalplus_supervisor_complete=1 report=$RESULT_ROOT/reports/qwen_llama_complete/COMPLETE.json weight=$RESULT_ROOT/weight_analysis/COMPLETE_qwen25_7b_llama31_8b.json"

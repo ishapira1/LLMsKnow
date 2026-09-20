@@ -86,6 +86,9 @@ case "$STAGE" in
   weight_aggregate)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/weight_analysis.py" aggregate --result-root "$RESULT_ROOT")
     ;;
+  weight_aggregate_qwen_llama)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/weight_analysis.py" aggregate --result-root "$RESULT_ROOT" --model-key qwen25_7b --model-key llama31_8b)
+    ;;
   eval_validate)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/evaluations.py" validate-complete --result-root "$RESULT_ROOT")
     ;;

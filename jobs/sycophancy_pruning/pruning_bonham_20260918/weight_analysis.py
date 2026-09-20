@@ -254,8 +254,9 @@ def canonical_value(value: Any) -> Any:
 
 def aggregate(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
+    model_keys = tuple(dict.fromkeys(args.model_key or ())) or campaign.MODEL_KEYS
     models = {}
-    for model_key in campaign.MODEL_KEYS:
+    for model_key in model_keys:
         complete = read_json(root / "weight_analysis" / model_key / "COMPLETE.json")
         analysis_path = root / "weight_analysis" / model_key / "analysis.json"
         if complete.get("analysis_sha256") != sha256_file(analysis_path):
@@ -266,7 +267,8 @@ def aggregate(args: argparse.Namespace) -> None:
         "models": models,
         "cross_architecture_intersections": 0,
     }
-    atomic_json(root / "weight_analysis" / "COMPLETE.json", receipt)
+    suffix = "" if model_keys == campaign.MODEL_KEYS else "_" + "_".join(model_keys)
+    atomic_json(root / "weight_analysis" / f"COMPLETE{suffix}.json", receipt)
     print(json.dumps(receipt, indent=2, sort_keys=True))
 
 
@@ -280,6 +282,9 @@ def build_parser() -> argparse.ArgumentParser:
     command.set_defaults(func=analyze_model)
     command = subparsers.add_parser("aggregate")
     command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument(
+        "--model-key", choices=campaign.MODEL_KEYS, action="append", default=[]
+    )
     command.set_defaults(func=aggregate)
     return parser
 

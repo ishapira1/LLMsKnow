@@ -795,6 +795,7 @@ class RuntimeIsolationTests(unittest.TestCase):
             "evalplus_prepare_qwen_llama",
             "evalplus_aggregate_qwen_llama",
             "qwen_llama_complete_report",
+            "weight_aggregate_qwen_llama",
         ):
             self.assertIn(stage, cpu_source)
             self.assertIn(stage, supervisor)
@@ -2156,6 +2157,20 @@ class EvaluationDesignTests(unittest.TestCase):
 
 
 class WeightAnalysisTests(unittest.TestCase):
+    def test_qwen_llama_aggregate_scope_is_explicit(self) -> None:
+        args = weight_analysis.build_parser().parse_args(
+            [
+                "aggregate",
+                "--result-root",
+                "/tmp/bonham-test",
+                "--model-key",
+                "qwen25_7b",
+                "--model-key",
+                "llama31_8b",
+            ]
+        )
+        self.assertEqual(["qwen25_7b", "llama31_8b"], args.model_key)
+
     def test_structural_null_is_module_count_matched_and_deterministic(self) -> None:
         left = {
             "model.layers.0.self_attn.q_proj": torch.tensor([0, 1]),
