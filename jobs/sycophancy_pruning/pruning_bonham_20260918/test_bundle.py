@@ -328,6 +328,16 @@ class RuntimeIsolationTests(unittest.TestCase):
                     offenders.append((str(source.relative_to(bundle)), needle))
         self.assertEqual([], offenders)
 
+    def test_llama_capability_recovery_forces_two_slice_sharding(self) -> None:
+        script = (
+            Path(__file__).resolve().parent
+            / "accelerate_llama_capabilities_sharded.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GPUS_PER_STATE=2", script)
+        self.assertIn("LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB=$MAX_MEMORY_GIB", script)
+        self.assertIn("STATE_INDICES=$pair", script)
+        self.assertIn("scontrol hold", script)
+
     def test_capability_name_projection(self) -> None:
         task = RuntimeEvaluationTask(
             example_id="symbolic:test",
