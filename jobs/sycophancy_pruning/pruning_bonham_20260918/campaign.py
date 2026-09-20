@@ -1574,6 +1574,24 @@ def _record_qualifies_n1(record: Mapping[str, Any]) -> bool:
     )
 
 
+def _n1_template_index(value: Any) -> int:
+    """Parse either an integer index or the frozen `<bias_type>_<index>` ID."""
+
+    if isinstance(value, bool):
+        raise CampaignError(f"Malformed N1 template ID: {value!r}")
+    try:
+        index = int(value)
+    except (TypeError, ValueError):
+        text = str(value)
+        try:
+            index = int(text.rsplit("_", maxsplit=1)[-1])
+        except (TypeError, ValueError) as error:
+            raise CampaignError(f"Malformed N1 template ID: {value!r}") from error
+    if index not in range(4):
+        raise CampaignError(f"N1 template index is out of range: {index}")
+    return index
+
+
 def _allocate_n1(
     records_by_model: Mapping[str, Mapping[tuple[str, str], Mapping[str, Any]]],
     *,
@@ -2698,7 +2716,7 @@ def allocate_manifests(args: argparse.Namespace) -> None:
                 "turn_format": Counter(row["turn_format"] for row in primary_rows),
                 "bias_type": Counter(row["bias_type"] for row in primary_rows),
                 "bias_template": Counter(
-                    (row["bias_type"], int(row["template_id"]))
+                    (row["bias_type"], _n1_template_index(row["template_id"]))
                     for row in primary_rows
                 ),
             }

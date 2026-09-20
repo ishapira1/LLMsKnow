@@ -1767,7 +1767,9 @@ class AllocationTests(unittest.TestCase):
                     "dataset": row["dataset_id"],
                     "turn_format": metadata["turn_format"],
                     "bias_type": metadata["bias_type"],
-                    "template_id": metadata["template_index"],
+                    "template_id": (
+                        f"{metadata['bias_type']}_{metadata['template_index']}"
+                    ),
                     "behavior_qualified": True,
                     "qualification_choice_source": "candidate_renormalized_argmax",
                     "attribution_target_choice": (

@@ -363,7 +363,8 @@ def _audit_n1_rows(
     if balance_amendment == campaign.GEMMA_BALANCED_AMENDMENT_ID:
         _require(model_key == "gemma4_12b", "Gemma balance amendment used by another model")
         bias_templates = Counter(
-            (row["bias_type"], int(row["template_id"])) for row in rows
+            (row["bias_type"], campaign._n1_template_index(row["template_id"]))
+            for row in rows
         )
         _require(
             len(bias_templates) == 8 and set(bias_templates.values()) == {64},
