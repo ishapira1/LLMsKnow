@@ -1299,6 +1299,7 @@ def run_evaluation_cell(
     run_id: str,
     inference_batch_size: int = 1,
     require_batched_inference: bool = False,
+    allow_inference_batch_variation: bool = False,
 ) -> Mapping[str, Any]:
     evaluator_ids = {task.evaluator_id for task in tasks}
     dataset_ids = {task.dataset_id for task in tasks}
@@ -1359,7 +1360,11 @@ def run_evaluation_cell(
         ),
     )
     if Path(output_dir).exists():
-        return validate_complete_bundle(output_dir, expected_identity=identity)
+        return validate_complete_bundle(
+            output_dir,
+            expected_identity=identity,
+            allow_inference_batch_variation=allow_inference_batch_variation,
+        )
     records = evaluate_tasks(
         llm,
         state=state,

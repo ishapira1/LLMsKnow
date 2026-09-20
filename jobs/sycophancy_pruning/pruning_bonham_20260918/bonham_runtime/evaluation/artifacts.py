@@ -280,6 +280,7 @@ def validate_complete_bundle(
     bundle: Path,
     *,
     expected_identity: Optional[CacheIdentity] = None,
+    allow_inference_batch_variation: bool = False,
 ) -> Mapping[str, Any]:
     bundle = Path(bundle)
     if not bundle.is_dir() or not (bundle / "COMPLETE").is_file():
@@ -299,7 +300,30 @@ def validate_complete_bundle(
     if complete.get("identity_sha256") != identity_sha256:
         raise EvaluationArtifactError("COMPLETE references a different identity")
     if expected_identity is not None and identity_sha256 != expected_identity.identity_sha256:
-        raise EvaluationArtifactError("Complete artifact identity does not match requested cache identity")
+        identities_match = False
+        if allow_inference_batch_variation:
+            observed_for_comparison = dict(identity_payload)
+            expected_for_comparison = expected_identity.to_dict()
+            observed_decoding = dict(observed_for_comparison.get("decoding", {}))
+            expected_decoding = dict(expected_for_comparison.get("decoding", {}))
+            # Inference packing and its fail-closed enforcement are execution
+            # details, not decoding semantics.  This narrow compatibility path
+            # permits an authenticated capability shard produced at one batch
+            # size to be reused when memory pressure requires another.  Every
+            # model, state, task, parser, prompt, decoding, and implementation
+            # identity field remains exact.
+            for field_name in ("inference_batch_size", "require_batched_inference"):
+                observed_decoding.pop(field_name, None)
+                expected_decoding.pop(field_name, None)
+            observed_for_comparison["decoding"] = observed_decoding
+            expected_for_comparison["decoding"] = expected_decoding
+            identities_match = canonical_json(observed_for_comparison) == canonical_json(
+                expected_for_comparison
+            )
+        if not identities_match:
+            raise EvaluationArtifactError(
+                "Complete artifact identity does not match requested cache identity"
+            )
     expected_hashes = complete.get("file_sha256")
     if not isinstance(expected_hashes, dict):
         raise EvaluationArtifactError("COMPLETE is missing file hashes")
@@ -328,4 +352,3 @@ __all__ = [
     "validate_complete_bundle",
     "write_complete_bundle",
 ]
-

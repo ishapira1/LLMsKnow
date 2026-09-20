@@ -1598,6 +1598,7 @@ def run_shard(args: argparse.Namespace) -> None:
         ),
         inference_batch_size=int(args.batch_size),
         require_batched_inference=int(args.batch_size) > 1,
+        allow_inference_batch_variation=args.family == "capabilities",
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
@@ -1672,6 +1673,7 @@ def run_state_sequence(args: argparse.Namespace) -> None:
                 ),
                 inference_batch_size=int(args.batch_size),
                 require_batched_inference=int(args.batch_size) > 1,
+                allow_inference_batch_variation=family == "capabilities",
             )
             completed += 1
             print(

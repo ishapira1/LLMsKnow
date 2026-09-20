@@ -33,6 +33,12 @@ from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluation
 from bonham_runtime.evaluation.runner import _generate_one
 from bonham_runtime.evaluation.runner import _paper_record_fields
 from bonham_runtime.evaluation.runner import _postprocess_generation_record
+from bonham_runtime.evaluation.artifacts import (
+    CacheIdentity,
+    EvaluationArtifactError,
+    validate_complete_bundle,
+    write_complete_bundle,
+)
 from bonham_runtime.llm.base import GenerationResult
 from bonham_runtime.llm.huggingface import HuggingFaceLLM
 from bonham_runtime.weight_pruning.paper_pruning import prepare_examples
@@ -131,6 +137,69 @@ class PromptRegistryTests(unittest.TestCase):
         self.assertEqual(48, sum(counts[index] for index in range(3, 12)))
         self.assertEqual(set(range(12)), set(indices))
         self.assertLessEqual(max(counts.values()) - min(counts.values()), 1)
+
+
+class EvaluationArtifactTests(unittest.TestCase):
+    @staticmethod
+    def _identity(batch_size: int, *, state_id: str = "unpruned") -> CacheIdentity:
+        return CacheIdentity(
+            model_id="example/model",
+            model_revision="revision",
+            tokenizer_revision="revision",
+            snapshot_inventory_sha256="1" * 64,
+            chat_template_sha256="2" * 64,
+            state_id=state_id,
+            state_artifact_sha256="3" * 64,
+            evaluator_id="multiple_choice",
+            evaluator_version="runner-v1",
+            parser_version="parser-v1",
+            dataset_id="example",
+            dataset_revision="dataset-revision",
+            manifest_sha256="4" * 64,
+            condition_registry_sha256="5" * 64,
+            decoding={
+                "do_sample": False,
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "inference_batch_size": batch_size,
+                "require_batched_inference": batch_size > 1,
+                "batched_inference_version": "batched-v1",
+                "option_scoring": "flattened_full_option_sequence_batch",
+            },
+        )
+
+    def test_capability_cache_can_vary_only_inference_batch_packing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "shard_0000"
+            write_complete_bundle(
+                destination,
+                identity=self._identity(4),
+                records=[
+                    {
+                        "run_id": "run",
+                        "state_id": "unpruned",
+                        "evaluator_id": "multiple_choice",
+                        "example_id": "example-1",
+                        "condition_id": "neutral",
+                        "draw_id": "0",
+                    }
+                ],
+                metrics=[],
+                summary={"status": "complete"},
+            )
+            with self.assertRaises(EvaluationArtifactError):
+                validate_complete_bundle(destination, expected_identity=self._identity(1))
+            validate_complete_bundle(
+                destination,
+                expected_identity=self._identity(1),
+                allow_inference_batch_variation=True,
+            )
+            with self.assertRaises(EvaluationArtifactError):
+                validate_complete_bundle(
+                    destination,
+                    expected_identity=self._identity(1, state_id="n1_mechanism"),
+                    allow_inference_batch_variation=True,
+                )
 
 
 class FrozenQuestionNormalizationTests(unittest.TestCase):
