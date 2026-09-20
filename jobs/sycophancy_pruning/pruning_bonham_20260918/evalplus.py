@@ -54,6 +54,83 @@ def _scope_suffix(model_keys: tuple[str, ...]) -> str:
     return "_" + "_".join(model_keys)
 
 
+def _validate_prepared_scope(
+    root: Path,
+    model_keys: tuple[str, ...],
+) -> Mapping[str, Any]:
+    suffix = _scope_suffix(model_keys)
+    index_path = root / "evalplus" / "inputs" / f"index{suffix}.jsonl"
+    complete_path = root / "evalplus" / "inputs" / f"COMPLETE{suffix}.json"
+    if not index_path.is_file() or not complete_path.is_file():
+        raise EvalPlusError("Prepared EvalPlus scope is incomplete")
+    receipt = read_json(complete_path)
+    entries = read_jsonl(index_path)
+    expected_inventory = {
+        (model_key, state_id, benchmark, shard)
+        for model_key in model_keys
+        for state_id in campaign.PRIMARY_STATE_IDS
+        for benchmark in BENCHMARK_FILES
+        for shard in range(SHARD_COUNT)
+    }
+    if (
+        receipt.get("status") != "complete"
+        or receipt.get("experiment") != campaign.EXPERIMENT
+        or tuple(receipt.get("model_keys", ())) != model_keys
+        or int(receipt.get("shard_count", -1)) != len(expected_inventory)
+        or int(receipt.get("shards_per_benchmark_state", -1)) != SHARD_COUNT
+        or dict(receipt.get("task_counts", {})) != dict(EVALPLUS_TASK_COUNTS)
+        or receipt.get("index_sha256") != sha256_file(index_path)
+        or len(entries) != len(expected_inventory)
+    ):
+        raise EvalPlusError("Prepared EvalPlus receipt differs from the frozen scope")
+    observed_inventory = set()
+    observed_task_counts = {}
+    for entry in entries:
+        key = (
+            str(entry.get("model_key", "")),
+            str(entry.get("state_id", "")),
+            str(entry.get("benchmark", "")),
+            int(entry.get("shard", -1)),
+        )
+        if key not in expected_inventory or key in observed_inventory:
+            raise EvalPlusError(f"Prepared EvalPlus shard inventory is invalid: {key}")
+        observed_inventory.add(key)
+        model_key, state_id, benchmark, shard = key
+        expected_path = (
+            root
+            / "evalplus"
+            / "inputs"
+            / model_key
+            / state_id
+            / benchmark
+            / f"shard_{shard:04d}.jsonl"
+        )
+        path = Path(str(entry.get("path", "")))
+        rows = read_jsonl(path)
+        task_ids = [str(row.get("task_id", "")) for row in rows]
+        if (
+            path.resolve() != expected_path.resolve()
+            or entry.get("sha256") != sha256_file(path)
+            or int(entry.get("task_count", -1)) != len(rows)
+            or not rows
+            or any(not task_id for task_id in task_ids)
+            or len(task_ids) != len(set(task_ids))
+        ):
+            raise EvalPlusError(f"Prepared EvalPlus shard changed: {path}")
+        count_key = (model_key, state_id, benchmark)
+        observed_task_counts[count_key] = observed_task_counts.get(count_key, 0) + len(rows)
+    if observed_inventory != expected_inventory:
+        raise EvalPlusError("Prepared EvalPlus shard inventory is incomplete")
+    for model_key in model_keys:
+        for state_id in campaign.PRIMARY_STATE_IDS:
+            for benchmark, expected in EVALPLUS_TASK_COUNTS.items():
+                if observed_task_counts.get((model_key, state_id, benchmark)) != int(expected):
+                    raise EvalPlusError(
+                        f"Prepared {benchmark} task count is incomplete for {model_key}/{state_id}"
+                    )
+    return receipt
+
+
 def _sample_rows(root: Path, model_key: str, state_id: str, benchmark: str) -> list[Mapping[str, Any]]:
     filename = BENCHMARK_FILES[benchmark]
     rows = []
@@ -79,6 +156,13 @@ def _sample_rows(root: Path, model_key: str, state_id: str, benchmark: str) -> l
 def prepare(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
     model_keys = _selected_models(args)
+    suffix = _scope_suffix(model_keys)
+    index_path = root / "evalplus" / "inputs" / f"index{suffix}.jsonl"
+    complete_path = root / "evalplus" / "inputs" / f"COMPLETE{suffix}.json"
+    if index_path.exists() or complete_path.exists():
+        receipt = _validate_prepared_scope(root, model_keys)
+        print(json.dumps(receipt, indent=2, sort_keys=True))
+        return
     entries = []
     canonical_inventory = {}
     for model_key in model_keys:
@@ -126,8 +210,6 @@ def prepare(args: argparse.Namespace) -> None:
     )
     if len(entries) != expected_entries:
         raise EvalPlusError("EvalPlus input shard census is incomplete")
-    suffix = _scope_suffix(model_keys)
-    index_path = root / "evalplus" / "inputs" / f"index{suffix}.jsonl"
     atomic_jsonl(index_path, entries)
     receipt = {
         "status": "complete",
@@ -138,7 +220,7 @@ def prepare(args: argparse.Namespace) -> None:
         "shards_per_benchmark_state": SHARD_COUNT,
         "index_sha256": sha256_file(index_path),
     }
-    atomic_json(root / "evalplus" / "inputs" / f"COMPLETE{suffix}.json", receipt)
+    atomic_json(complete_path, receipt)
     print(json.dumps(receipt, indent=2, sort_keys=True))
 
 

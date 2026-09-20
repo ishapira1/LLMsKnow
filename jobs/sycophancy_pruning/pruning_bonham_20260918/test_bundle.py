@@ -319,6 +319,69 @@ class EvalPlusScopeTests(unittest.TestCase):
             with self.assertRaises(reporting.ReportingError):
                 reporting._authenticated_evalplus_scope(root, model_keys)
 
+    def test_prepared_evalplus_scope_is_authenticated_and_reusable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model_keys = ("qwen25_7b", "llama31_8b")
+            task_counts = {"humaneval": 1, "mbpp": 1}
+            entries = []
+            with patch.object(evalplus, "SHARD_COUNT", 1), patch.object(
+                evalplus, "EVALPLUS_TASK_COUNTS", task_counts
+            ):
+                for model_key in model_keys:
+                    for state_id in campaign.PRIMARY_STATE_IDS:
+                        for benchmark in task_counts:
+                            path = (
+                                root
+                                / "evalplus"
+                                / "inputs"
+                                / model_key
+                                / state_id
+                                / benchmark
+                                / "shard_0000.jsonl"
+                            )
+                            core.atomic_jsonl(
+                                path,
+                                [{"task_id": f"{model_key}:{state_id}:{benchmark}"}],
+                            )
+                            entries.append(
+                                {
+                                    "model_key": model_key,
+                                    "state_id": state_id,
+                                    "benchmark": benchmark,
+                                    "shard": 0,
+                                    "task_count": 1,
+                                    "path": str(path.resolve()),
+                                    "sha256": core.sha256_file(path),
+                                }
+                            )
+                suffix = evalplus._scope_suffix(model_keys)
+                index_path = root / "evalplus" / "inputs" / f"index{suffix}.jsonl"
+                complete_path = root / "evalplus" / "inputs" / f"COMPLETE{suffix}.json"
+                core.atomic_jsonl(index_path, entries)
+                receipt = {
+                    "status": "complete",
+                    "experiment": campaign.EXPERIMENT,
+                    "model_keys": list(model_keys),
+                    "shard_count": len(entries),
+                    "shards_per_benchmark_state": 1,
+                    "task_counts": task_counts,
+                    "index_sha256": core.sha256_file(index_path),
+                }
+                core.atomic_json(complete_path, receipt)
+                self.assertEqual(
+                    receipt,
+                    evalplus._validate_prepared_scope(root, model_keys),
+                )
+                with patch("builtins.print"):
+                    evalplus.prepare(
+                        SimpleNamespace(result_root=root, model_key=list(model_keys))
+                    )
+                changed_path = Path(entries[0]["path"])
+                changed_path.write_text('{"task_id":"changed"}\n', encoding="utf-8")
+                with self.assertRaises(evalplus.EvalPlusError):
+                    evalplus._validate_prepared_scope(root, model_keys)
+
 
 class FrozenQuestionNormalizationTests(unittest.TestCase):
     def test_openbookqa_question_stem_is_normalized(self) -> None:
