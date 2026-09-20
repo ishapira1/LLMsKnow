@@ -1025,6 +1025,18 @@ def final_audit(args: argparse.Namespace) -> None:
                 and int(steering_reservation.get("fit_per_dataset", -1)) == 100
                 and int(steering_reservation.get("development_per_dataset", -1))
                 == 50
+                and int(
+                    steering_reservation.get("feasibility_witness_seed", -1)
+                )
+                == 5
+                and len(
+                    str(
+                        steering_reservation.get(
+                            "feasibility_witness_question_hash", ""
+                        )
+                    )
+                )
+                == 64
                 and set(dict(steering_reservation.get("datasets", {})))
                 == {"commonsense_qa", "arc_challenge"},
                 "Gemma balanced amendment lacks the authenticated full steering reservation",

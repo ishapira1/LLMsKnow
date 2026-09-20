@@ -2439,6 +2439,15 @@ def allocate_manifests(args: argparse.Namespace) -> None:
     steering_reservation_audit: dict[str, Mapping[str, Any]] = {}
     if gemma_balanced_amendment:
         model_key = selected_model_keys[0]
+        provisional_n1 = _allocate_n1_balanced_marginals(
+            n1_indices,
+            model_keys=(model_key,),
+            seed=5,
+            excluded_question_keys=source_question_keys_by_model[model_key],
+        )
+        provisional_n1_keys = {
+            str(row["task_metadata"]["question_key"]) for row in provisional_n1
+        }
         steering_rows, steering_keys, reservation_audit = (
             _reserve_balanced_amendment_steering(
                 root,
@@ -2446,10 +2455,19 @@ def allocate_manifests(args: argparse.Namespace) -> None:
                 neutral_index=neutral[model_key],
                 n1_index=n1_indices[model_key],
                 excluded_question_keys=(
-                    preservation_keys | source_question_keys_by_model[model_key]
+                    preservation_keys
+                    | source_question_keys_by_model[model_key]
+                    | provisional_n1_keys
                 ),
             )
         )
+        reservation_audit = {
+            **reservation_audit,
+            "feasibility_witness_seed": 5,
+            "feasibility_witness_question_hash": stable_hash(
+                *sorted(provisional_n1_keys)
+            ),
+        }
         reserved_steering_by_model[model_key] = steering_rows
         reserved_steering_keys_by_model[model_key] = steering_keys
         steering_reservation_audit[model_key] = reservation_audit
