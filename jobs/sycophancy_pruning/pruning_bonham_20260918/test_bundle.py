@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 from collections import Counter
+import errno
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -1092,6 +1094,40 @@ class RuntimeIsolationTests(unittest.TestCase):
 
 
 class ScoreAndSelectorTests(unittest.TestCase):
+    def test_identical_concurrent_mask_publication_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "mask"
+            real_replace = campaign.os.replace
+
+            def concurrent_publish(source: Path, target: Path) -> None:
+                if Path(source).is_dir():
+                    shutil.copytree(source, target)
+                    raise OSError(errno.ENOTEMPTY, "simulated concurrent publish")
+                real_replace(source, target)
+
+            metadata = {
+                "p": 0.00005,
+                "n": 2,
+                "ordering": [
+                    {"rank": 1, "tensor_name": "layer.q_proj", "flat_index": 1},
+                    {"rank": 2, "tensor_name": "layer.q_proj", "flat_index": 3},
+                ],
+            }
+            with mock.patch.object(campaign.os, "replace", side_effect=concurrent_publish):
+                campaign._save_mask(
+                    destination,
+                    {"layer.q_proj": torch.tensor([1, 3])},
+                    metadata,
+                )
+            self.assertTrue((destination / "COMPLETE.json").is_file())
+            attempts = list(destination.parent.glob("mask.partial.*"))
+            self.assertEqual(1, len(attempts))
+            for name in ("indices.pt", "metadata.json", "ordering.jsonl", "COMPLETE.json"):
+                self.assertEqual(
+                    core.sha256_file(destination / name),
+                    core.sha256_file(attempts[0] / name),
+                )
+
     def test_preservation_is_mean_absolute_per_example_not_absolute_mean(self) -> None:
         weight = torch.tensor([2.0])
         accumulator = torch.zeros(1, dtype=torch.float32)

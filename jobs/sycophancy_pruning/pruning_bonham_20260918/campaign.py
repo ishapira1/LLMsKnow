@@ -2889,7 +2889,21 @@ def _save_mask(path: Path, indices: Mapping[str, Any], metadata: Mapping[str, An
     }
     atomic_json(attempt / "COMPLETE.json", complete)
     path.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(attempt, path)
+    try:
+        os.replace(attempt, path)
+    except OSError:
+        # Two recovery chains can legitimately reach the same deterministic
+        # mask after a delayed score job completes. Treat the losing publish
+        # as success only when the winner is a complete byte-identical bundle;
+        # otherwise retain both attempts and fail closed. Failed/duplicate
+        # attempt directories are deliberately not removed.
+        required = ("indices.pt", "metadata.json", "ordering.jsonl", "COMPLETE.json")
+        if not (path / "COMPLETE.json").is_file() or any(
+            not (path / name).is_file()
+            or sha256_file(path / name) != sha256_file(attempt / name)
+            for name in required
+        ):
+            raise
 
 
 def _derive_mask_prefix(
