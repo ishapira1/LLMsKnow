@@ -92,6 +92,9 @@ case "$STAGE" in
   evalplus_prepare)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/evalplus.py" prepare --result-root "$RESULT_ROOT")
     ;;
+  evalplus_prepare_qwen_llama)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/evalplus.py" prepare --result-root "$RESULT_ROOT" --model-key qwen25_7b --model-key llama31_8b)
+    ;;
   evalplus_run)
     state_index="$((task / 8))"; within="$((task % 8))"
     models=(llama31_8b qwen25_7b gemma4_12b)
@@ -105,11 +108,17 @@ case "$STAGE" in
   evalplus_aggregate)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/evalplus.py" aggregate --result-root "$RESULT_ROOT" --image-sha256 "$EVALPLUS_IMAGE_SHA256")
     ;;
+  evalplus_aggregate_qwen_llama)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/evalplus.py" aggregate --result-root "$RESULT_ROOT" --image-sha256 "$EVALPLUS_IMAGE_SHA256" --model-key qwen25_7b --model-key llama31_8b)
+    ;;
   report)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/reporting.py" --result-root "$RESULT_ROOT")
     ;;
   early_report)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/reporting.py" --result-root "$RESULT_ROOT" --early-qwen-llama)
+    ;;
+  qwen_llama_complete_report)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/reporting.py" --result-root "$RESULT_ROOT" --qwen-llama-complete)
     ;;
   final_audit)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/audit.py" --result-root "$RESULT_ROOT")

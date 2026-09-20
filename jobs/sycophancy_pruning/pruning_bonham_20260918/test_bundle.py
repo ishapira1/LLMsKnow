@@ -27,6 +27,7 @@ import reporting
 import prepare_capability_sources
 import weight_analysis
 import completion_email
+import evalplus
 from bonham_runtime import capabilities
 from bonham_runtime.capabilities import utility_evaluation_name
 from bonham_runtime.evaluation.runner import EvaluationTask as RuntimeEvaluationTask
@@ -200,6 +201,30 @@ class EvaluationArtifactTests(unittest.TestCase):
                     expected_identity=self._identity(1, state_id="n1_mechanism"),
                     allow_inference_batch_variation=True,
                 )
+
+
+class EvalPlusScopeTests(unittest.TestCase):
+    def test_qwen_llama_scope_is_explicit_and_does_not_claim_full_completion(self) -> None:
+        parser = evalplus.build_parser()
+        args = parser.parse_args(
+            [
+                "prepare",
+                "--result-root",
+                "/tmp/bonham-test",
+                "--model-key",
+                "qwen25_7b",
+                "--model-key",
+                "llama31_8b",
+            ]
+        )
+        selected = evalplus._selected_models(args)
+        self.assertEqual(("qwen25_7b", "llama31_8b"), selected)
+        self.assertEqual("_qwen25_7b_llama31_8b", evalplus._scope_suffix(selected))
+        full_args = parser.parse_args(
+            ["prepare", "--result-root", "/tmp/bonham-test"]
+        )
+        self.assertEqual(campaign.MODEL_KEYS, evalplus._selected_models(full_args))
+        self.assertEqual("", evalplus._scope_suffix(campaign.MODEL_KEYS))
 
 
 class FrozenQuestionNormalizationTests(unittest.TestCase):
@@ -756,6 +781,26 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("serial_requeue", supervisor_source)
         self.assertIn('"source_overall_advantage.csv"', report_source)
         self.assertIn('"source_overall_pruning_effect.csv"', report_source)
+
+    def test_qwen_llama_evalplus_tail_is_scoped_and_reusable(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        evalplus_source = (bundle / "evalplus.py").read_text(encoding="utf-8")
+        cpu_source = (bundle / "cpu_stage.sbatch").read_text(encoding="utf-8")
+        supervisor = (
+            bundle / "accelerate_qwen_llama_evalplus.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('action="append"', evalplus_source)
+        self.assertIn('f"COMPLETE{suffix}.json"', evalplus_source)
+        for stage in (
+            "evalplus_prepare_qwen_llama",
+            "evalplus_aggregate_qwen_llama",
+            "qwen_llama_complete_report",
+        ):
+            self.assertIn(stage, cpu_source)
+            self.assertIn(stage, supervisor)
+        self.assertIn("0-127%40", supervisor)
+        self.assertIn("wait_for_capabilities", supervisor)
+        self.assertIn("qwen_llama_complete/COMPLETE.json", supervisor)
 
     def test_completion_email_body_identifies_authenticated_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1870,6 +1915,35 @@ class EvaluationDesignTests(unittest.TestCase):
             )
             self.assertFalse(receipt["includes_capabilities"])
             self.assertEqual(2 * 8 * 3, records.call_count)
+
+    def test_complete_qwen_llama_report_includes_only_their_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(reporting, "_records", return_value=[]):
+                with mock.patch.object(
+                    reporting, "_capability_rows", return_value=[]
+                ) as capabilities:
+                    with mock.patch.object(reporting, "_figures", return_value=[]):
+                        with mock.patch("builtins.print"):
+                            reporting.report(
+                                SimpleNamespace(
+                                    result_root=root,
+                                    early_qwen_llama=False,
+                                    qwen_llama_complete=True,
+                                )
+                            )
+            receipt_path = (
+                root / "reports" / "qwen_llama_complete" / "COMPLETE.json"
+            )
+            receipt = core.read_json(receipt_path)
+            self.assertEqual(
+                ["qwen25_7b", "llama31_8b"], receipt["model_keys"]
+            )
+            self.assertEqual("qwen_llama_complete", receipt["scope"])
+            self.assertTrue(receipt["includes_capabilities"])
+            capabilities.assert_called_once_with(
+                root, model_keys=("qwen25_7b", "llama31_8b")
+            )
 
     def test_clustered_bootstrap_is_deterministic(self) -> None:
         rows = [

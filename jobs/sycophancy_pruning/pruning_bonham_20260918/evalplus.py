@@ -43,6 +43,17 @@ class EvalPlusError(campaign.CampaignError):
     pass
 
 
+def _selected_models(args: argparse.Namespace) -> tuple[str, ...]:
+    requested = tuple(dict.fromkeys(getattr(args, "model_key", None) or ()))
+    return requested or campaign.MODEL_KEYS
+
+
+def _scope_suffix(model_keys: tuple[str, ...]) -> str:
+    if model_keys == campaign.MODEL_KEYS:
+        return ""
+    return "_" + "_".join(model_keys)
+
+
 def _sample_rows(root: Path, model_key: str, state_id: str, benchmark: str) -> list[Mapping[str, Any]]:
     filename = BENCHMARK_FILES[benchmark]
     rows = []
@@ -67,9 +78,10 @@ def _sample_rows(root: Path, model_key: str, state_id: str, benchmark: str) -> l
 
 def prepare(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
+    model_keys = _selected_models(args)
     entries = []
     canonical_inventory = {}
-    for model_key in campaign.MODEL_KEYS:
+    for model_key in model_keys:
         for state_id in campaign.PRIMARY_STATE_IDS:
             for benchmark in BENCHMARK_FILES:
                 rows = _sample_rows(root, model_key, state_id, benchmark)
@@ -107,24 +119,26 @@ def prepare(args: argparse.Namespace) -> None:
                         }
                     )
     expected_entries = (
-        len(campaign.MODEL_KEYS)
+        len(model_keys)
         * len(campaign.PRIMARY_STATE_IDS)
         * len(BENCHMARK_FILES)
         * SHARD_COUNT
     )
     if len(entries) != expected_entries:
         raise EvalPlusError("EvalPlus input shard census is incomplete")
-    index_path = root / "evalplus" / "inputs" / "index.jsonl"
+    suffix = _scope_suffix(model_keys)
+    index_path = root / "evalplus" / "inputs" / f"index{suffix}.jsonl"
     atomic_jsonl(index_path, entries)
     receipt = {
         "status": "complete",
         "experiment": campaign.EXPERIMENT,
         "shard_count": len(entries),
+        "model_keys": list(model_keys),
         "task_counts": dict(EVALPLUS_TASK_COUNTS),
         "shards_per_benchmark_state": SHARD_COUNT,
         "index_sha256": sha256_file(index_path),
     }
-    atomic_json(root / "evalplus" / "inputs" / "COMPLETE.json", receipt)
+    atomic_json(root / "evalplus" / "inputs" / f"COMPLETE{suffix}.json", receipt)
     print(json.dumps(receipt, indent=2, sort_keys=True))
 
 
@@ -258,9 +272,10 @@ def run_shard(args: argparse.Namespace) -> None:
 
 def aggregate(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
+    model_keys = _selected_models(args)
     canonical = {}
     publications = []
-    for model_key in campaign.MODEL_KEYS:
+    for model_key in model_keys:
         for state_id in campaign.PRIMARY_STATE_IDS:
             combined = []
             source_receipts = []
@@ -330,10 +345,12 @@ def aggregate(args: argparse.Namespace) -> None:
         "status": "complete",
         "experiment": campaign.EXPERIMENT,
         "publication_count": len(publications),
+        "model_keys": list(model_keys),
         "image_sha256": args.image_sha256,
         "publications_sha256": sha256_json(publications),
     }
-    atomic_json(root / "evalplus" / "results" / "COMPLETE.json", final)
+    suffix = _scope_suffix(model_keys)
+    atomic_json(root / "evalplus" / "results" / f"COMPLETE{suffix}.json", final)
     print(json.dumps(final, indent=2, sort_keys=True))
 
 
@@ -342,6 +359,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     command = subparsers.add_parser("prepare")
     command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument(
+        "--model-key", choices=campaign.MODEL_KEYS, action="append", default=[]
+    )
     command.set_defaults(func=prepare)
     command = subparsers.add_parser("run-shard")
     command.add_argument("--result-root", type=Path, required=True)
@@ -358,6 +378,9 @@ def build_parser() -> argparse.ArgumentParser:
     command = subparsers.add_parser("aggregate")
     command.add_argument("--result-root", type=Path, required=True)
     command.add_argument("--image-sha256", required=True)
+    command.add_argument(
+        "--model-key", choices=campaign.MODEL_KEYS, action="append", default=[]
+    )
     command.set_defaults(func=aggregate)
     return parser
 

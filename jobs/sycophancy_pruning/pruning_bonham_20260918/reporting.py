@@ -589,9 +589,12 @@ def _latex_escape(value: Any) -> str:
     return str(value).replace("\\", "\\textbackslash{}").replace("_", "\\_")
 
 
-def _capability_rows(root: Path) -> list[Mapping[str, Any]]:
+def _capability_rows(
+    root: Path,
+    model_keys: Sequence[str] = campaign.MODEL_KEYS,
+) -> list[Mapping[str, Any]]:
     rows = []
-    for model_key in campaign.MODEL_KEYS:
+    for model_key in model_keys:
         for state_id in campaign.PRIMARY_STATE_IDS:
             raw = _records(root, model_key, state_id, "capabilities")
             grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
@@ -896,15 +899,22 @@ def _figures(
 def report(args: argparse.Namespace) -> None:
     root = Path(args.result_root)
     early_qwen_llama = bool(getattr(args, "early_qwen_llama", False))
+    qwen_llama_complete = bool(getattr(args, "qwen_llama_complete", False))
+    if early_qwen_llama and qwen_llama_complete:
+        raise ReportingError("Qwen/Llama report modes are mutually exclusive")
     model_keys = (
         ("qwen25_7b", "llama31_8b")
-        if early_qwen_llama
+        if early_qwen_llama or qwen_llama_complete
         else campaign.MODEL_KEYS
     )
     output = (
         root / "reports" / "early_qwen_llama"
         if early_qwen_llama
-        else root / "reports"
+        else (
+            root / "reports" / "qwen_llama_complete"
+            if qwen_llama_complete
+            else root / "reports"
+        )
     )
     all_general_effects = []
     all_useful_effects = []
@@ -1207,7 +1217,9 @@ def report(args: argparse.Namespace) -> None:
         ),
         USEFUL_METRICS,
     )
-    capabilities = [] if early_qwen_llama else _capability_rows(root)
+    capabilities = (
+        [] if early_qwen_llama else _capability_rows(root, model_keys=model_keys)
+    )
     artifacts = {
         "generalization_cells.csv": general_cells,
         "generalization_template_families.csv": general_families,
@@ -1283,7 +1295,11 @@ def report(args: argparse.Namespace) -> None:
         "scope": (
             "qwen_llama_paper_core_before_capabilities"
             if early_qwen_llama
-            else "complete_campaign"
+            else (
+                "qwen_llama_complete"
+                if qwen_llama_complete
+                else "complete_campaign"
+            )
         ),
         "model_keys": list(model_keys),
         "includes_capabilities": not early_qwen_llama,
@@ -1302,12 +1318,21 @@ def report(args: argparse.Namespace) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--result-root", type=Path, required=True)
-    parser.add_argument(
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument(
         "--early-qwen-llama",
         action="store_true",
         help=(
             "write an authenticated Qwen/Llama paper-core bundle under "
             "reports/early_qwen_llama without waiting for capabilities or Gemma"
+        ),
+    )
+    scope.add_argument(
+        "--qwen-llama-complete",
+        action="store_true",
+        help=(
+            "write an authenticated Qwen/Llama bundle with capability and "
+            "EvalPlus results under reports/qwen_llama_complete"
         ),
     )
     args = parser.parse_args()
