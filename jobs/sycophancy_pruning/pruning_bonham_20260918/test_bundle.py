@@ -873,7 +873,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn('"relaxes_quota": False', campaign_source)
         self.assertIn("prepare-model-n1-supplement", cpu_source)
         self.assertIn("Gemma exact-quota supplement is missing or changed", audit_source)
-        self.assertIn("despite the exact-quota supplement", audit_source)
+        self.assertIn("authorized balanced-marginal amendment", audit_source)
 
     def test_gemma_source_supplement_preserves_exact_protocol(self) -> None:
         bundle = Path(__file__).resolve().parent
@@ -920,7 +920,7 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("promote_pipeline", source)
         self.assertIn("allocate_model_manifests", source)
         self.assertIn("GPUS_PER_LANE=2", source)
-        self.assertNotIn("gemma-balanced-amendment", source)
+        self.assertIn("GEMMA_BALANCED_AMENDMENT=1", source)
         self.assertIn("reuse_cpu_job", source)
         self.assertIn("reuse_score_job", source)
         self.assertIn("reuse_pipeline_job", source)
@@ -1785,6 +1785,80 @@ class AllocationTests(unittest.TestCase):
             manifest_rows,
             "gemma4_12b",
             balance_amendment=campaign.GEMMA_BALANCED_AMENDMENT_ID,
+        )
+
+    def test_gemma_amendment_reserves_full_low_burden_steering_cohort(self) -> None:
+        questions = []
+        neutral = {}
+        n1_records = {}
+        qualifying_keys = set()
+        for dataset_id in ("commonsense_qa", "arc_challenge"):
+            for position in range(180):
+                question = core.Question(
+                    dataset_id=dataset_id,
+                    source_example_id=f"{dataset_id}-{position}",
+                    source_split="train",
+                    question=f"Synthetic question {position}?",
+                    labels=("A", "B", "C", "D"),
+                    answers=("a", "b", "c", "d"),
+                    gold="B",
+                )
+                questions.append(question)
+                question_key = campaign._question_key(question)
+                neutral[question_key] = {
+                    "forced_choice_probabilities": {
+                        "A": 0.0,
+                        "B": 1.0,
+                        "C": 0.0,
+                        "D": 0.0,
+                    },
+                    "task_metadata": {"question_key": question_key},
+                }
+                if position >= 150:
+                    condition = "n1.single_turn.incorrect_suggestion.t0"
+                    qualifying_keys.add(question_key)
+                    n1_records[(question_key, condition)] = {
+                        "condition_id": condition,
+                        "forced_choice_probabilities": {
+                            "A": 1.0,
+                            "B": 0.0,
+                            "C": 0.0,
+                            "D": 0.0,
+                        },
+                        "task_metadata": {
+                            "question_key": question_key,
+                            "bias_type": "incorrect_suggestion",
+                            "wrong_label": "A",
+                            "gold_label": "B",
+                        },
+                    }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            campaign.atomic_jsonl(
+                root / "inputs" / "construction_pool.jsonl",
+                (question.to_dict() for question in questions),
+            )
+            rows, keys, reservation = campaign._reserve_balanced_amendment_steering(
+                root,
+                model_key="gemma4_12b",
+                neutral_index=neutral,
+                n1_index=n1_records,
+                excluded_question_keys=set(),
+            )
+        self.assertEqual(300, len(rows))
+        self.assertEqual(300, len(keys))
+        self.assertFalse(keys & qualifying_keys)
+        self.assertEqual(
+            {
+                ("commonsense_qa", "fit"): 100,
+                ("commonsense_qa", "development"): 50,
+                ("arc_challenge", "fit"): 100,
+                ("arc_challenge", "development"): 50,
+            },
+            Counter((row["dataset_id"], row["steering_split"]) for row in rows),
+        )
+        self.assertEqual(
+            "reserve_neutral_correct_low_n1_degree_v1", reservation["method"]
         )
 
     def test_gemma_source_swap_stays_within_quantified_family(self) -> None:

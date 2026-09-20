@@ -55,6 +55,9 @@ case "$STAGE" in
     ;;
   allocate_model_manifests)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" allocate-manifests --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY")
+    if [[ "$MODEL_KEY" == gemma4_12b && "${GEMMA_BALANCED_AMENDMENT:-0}" == 1 ]]; then
+      command+=(--gemma-balanced-amendment)
+    fi
     ;;
   build_masks)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" build-masks --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY")

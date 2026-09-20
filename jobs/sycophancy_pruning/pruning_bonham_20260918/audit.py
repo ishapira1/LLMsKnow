@@ -846,9 +846,25 @@ def final_audit(args: argparse.Namespace) -> None:
         }
         factual_questions = {str(row["question_key"]) for row in factual_preservation}
         source_questions = {str(row["question_key"]) for row in source_rows}
+        steering_rows = read_jsonl(
+            root / "inputs" / "steering_questions" / f"{model_key}.jsonl"
+        )
+        _require(
+            Counter(
+                (str(row["dataset_id"]), str(row["steering_split"]))
+                for row in steering_rows
+            )
+            == {
+                ("commonsense_qa", "fit"): 100,
+                ("commonsense_qa", "development"): 50,
+                ("arc_challenge", "fit"): 100,
+                ("arc_challenge", "development"): 50,
+            },
+            f"Steering cohort is not the full frozen 100/50 split for {model_key}",
+        )
         steering_questions = {
             f"{row['dataset_id']}:{row['source_split']}:{row['source_example_id']}"
-            for row in read_jsonl(root / "inputs" / "steering_questions" / f"{model_key}.jsonl")
+            for row in steering_rows
         }
         named_sets = {
             "pruning": n1_all_questions,
@@ -996,8 +1012,22 @@ def final_audit(args: argparse.Namespace) -> None:
                 "Gemma exact-quota supplement is missing or changed",
             )
             _require(
-                manifest_receipt.get("balance_amendment") in (None, {}),
-                "Gemma used a balance amendment despite the exact-quota supplement",
+                manifest_receipt.get("balance_amendment")
+                == campaign.GEMMA_BALANCED_AMENDMENT_ID,
+                "Gemma did not use the authorized balanced-marginal amendment",
+            )
+            steering_reservation = dict(
+                manifest_receipt.get("steering_reservation") or {}
+            )
+            _require(
+                steering_reservation.get("method")
+                == "reserve_neutral_correct_low_n1_degree_v1"
+                and int(steering_reservation.get("fit_per_dataset", -1)) == 100
+                and int(steering_reservation.get("development_per_dataset", -1))
+                == 50
+                and set(dict(steering_reservation.get("datasets", {})))
+                == {"commonsense_qa", "arc_challenge"},
+                "Gemma balanced amendment lacks the authenticated full steering reservation",
             )
             exact_supplement_sha256 = sha256_file(supplement_path)
             source_supplement_path = (

@@ -150,7 +150,12 @@ dataset-by-turn-by-bias cells from 64 and records the amendment identifier and
 realized cell counts in the authenticated manifest receipt. The accompanying
 source-bank fallback moves one ARC initially-correct quantified-reliability slot
 from source template 0 to source template 1 without changing any source-family
-total.
+total. Before allocating any of the three N1 seeds, the amended path reserves
+the complete 100-fit/50-development steering cohort in each construction
+dataset. The reservation deterministically prefers neutral-correct questions
+that never behavior-qualify for N1, then questions with the fewest qualifying
+N1 conditions. This preserves the original 300-question disjoint MeanDiff
+cohort while avoiding scarce pruning candidates.
 
 For accelerated state-sequence execution, `gpu_eval_states.sbatch` accepts
 `EVALUATION_FAMILY_SET=paper_core` (generalization, useful assertions, and the

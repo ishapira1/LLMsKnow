@@ -1894,6 +1894,110 @@ def _allocate_n1_balanced_marginals(
     )
 
 
+def _reserve_balanced_amendment_steering(
+    root: Path,
+    *,
+    model_key: str,
+    neutral_index: Mapping[str, Mapping[str, Any]],
+    n1_index: Mapping[tuple[str, str], Mapping[str, Any]],
+    excluded_question_keys: set[str],
+) -> tuple[list[Mapping[str, Any]], set[str], Mapping[str, Any]]:
+    """Reserve the full frozen steering cohort before amended N1 allocation.
+
+    The Gemma balanced-marginal amendment must not consume the questions needed
+    by the preregistered 100-fit/50-development MeanDiff cohort. We therefore
+    reserve 150 neutral-correct questions per construction dataset first and
+    exclude them from every N1 seed. Questions that never exhibit a qualifying
+    N1 response are preferred, followed by questions participating in the
+    fewest qualifying N1 conditions, which preserves scarce pruning candidates.
+    """
+
+    if model_key != "gemma4_12b":
+        raise CampaignError("The steering-aware balance amendment is Gemma-only")
+
+    qualifying_degree: Counter[str] = Counter()
+    for record in n1_index.values():
+        if _record_qualifies_n1(record):
+            question_key = str(
+                dict(record.get("task_metadata", {})).get("question_key", "")
+            )
+            if question_key:
+                qualifying_degree[question_key] += 1
+
+    construction_questions = [
+        _question_from_row(row)
+        for row in read_jsonl(root / "inputs" / "construction_pool.jsonl")
+    ]
+    steering_rows: list[Mapping[str, Any]] = []
+    steering_keys: set[str] = set()
+    audit: dict[str, Any] = {
+        "method": "reserve_neutral_correct_low_n1_degree_v1",
+        "fit_per_dataset": 100,
+        "development_per_dataset": 50,
+        "datasets": {},
+    }
+    for dataset_id in ("commonsense_qa", "arc_challenge"):
+        eligible = []
+        for question in construction_questions:
+            question_key = _question_key(question)
+            if (
+                question.dataset_id != dataset_id
+                or question_key in excluded_question_keys
+            ):
+                continue
+            neutral_record = neutral_index.get(question_key)
+            if (
+                neutral_record is not None
+                and screen_choice(neutral_record) == question.gold
+            ):
+                eligible.append(question)
+        eligible.sort(
+            key=lambda question: (
+                int(qualifying_degree[_question_key(question)]),
+                stable_hash(
+                    EXPERIMENT,
+                    GEMMA_BALANCED_AMENDMENT_ID,
+                    "steering-reservation",
+                    dataset_id,
+                    question.source_example_id,
+                ),
+            )
+        )
+        if len(eligible) < 150:
+            raise CampaignError(
+                f"Only {len(eligible)} disjoint steering rows can be reserved for "
+                f"{model_key}/{dataset_id}"
+            )
+        selected = eligible[:150]
+        for position, question in enumerate(selected):
+            question_key = _question_key(question)
+            steering_keys.add(question_key)
+            steering_rows.append(
+                {
+                    **question.to_dict(),
+                    "steering_split": "fit" if position < 100 else "development",
+                }
+            )
+        degrees = Counter(
+            int(qualifying_degree[_question_key(question)]) for question in selected
+        )
+        audit["datasets"][dataset_id] = {
+            "eligible_count": len(eligible),
+            "reserved_count": len(selected),
+            "zero_qualification_count": int(degrees.get(0, 0)),
+            "qualification_degree_counts": {
+                str(degree): count for degree, count in sorted(degrees.items())
+            },
+            "question_hash": stable_hash(
+                *(_question_key(question) for question in selected)
+            ),
+        }
+    if len(steering_rows) != 300 or len(steering_keys) != 300:
+        raise CampaignError("Gemma steering reservation is not 300 distinct questions")
+    audit["question_hash"] = stable_hash(*sorted(steering_keys))
+    return steering_rows, steering_keys, audit
+
+
 def _manifest_row(
     *,
     specification: Mapping[str, Any],
@@ -2328,6 +2432,28 @@ def allocate_manifests(args: argparse.Namespace) -> None:
             _question_key(row) for row in selected_source
         }
 
+    reserved_steering_by_model: dict[str, list[Mapping[str, Any]]] = {}
+    reserved_steering_keys_by_model: dict[str, set[str]] = {
+        model_key: set() for model_key in selected_model_keys
+    }
+    steering_reservation_audit: dict[str, Mapping[str, Any]] = {}
+    if gemma_balanced_amendment:
+        model_key = selected_model_keys[0]
+        steering_rows, steering_keys, reservation_audit = (
+            _reserve_balanced_amendment_steering(
+                root,
+                model_key=model_key,
+                neutral_index=neutral[model_key],
+                n1_index=n1_indices[model_key],
+                excluded_question_keys=(
+                    preservation_keys | source_question_keys_by_model[model_key]
+                ),
+            )
+        )
+        reserved_steering_by_model[model_key] = steering_rows
+        reserved_steering_keys_by_model[model_key] = steering_keys
+        steering_reservation_audit[model_key] = reservation_audit
+
     allocations: dict[int, dict[str, list[Mapping[str, Any]]]] = {}
     fallback_audit: dict[str, Any] = {}
     for seed in (5, 17, 29):
@@ -2338,7 +2464,10 @@ def allocate_manifests(args: argparse.Namespace) -> None:
                     n1_indices,
                     model_keys=(model_key,),
                     seed=seed,
-                    excluded_question_keys=source_question_keys_by_model[model_key],
+                    excluded_question_keys=(
+                        source_question_keys_by_model[model_key]
+                        | reserved_steering_keys_by_model[model_key]
+                    ),
                 )
             else:
                 selected = _allocate_n1(
@@ -2474,32 +2603,47 @@ def allocate_manifests(args: argparse.Namespace) -> None:
             _question_from_row(row)
             for row in read_jsonl(root / "inputs" / "construction_pool.jsonl")
         ]
-        steering_rows = []
-        for dataset_id in ("commonsense_qa", "arc_challenge"):
-            eligible = []
-            for question in construction_questions:
-                if question.dataset_id != dataset_id or _question_key(question) in excluded:
-                    continue
-                record = neutral[model_key].get(_question_key(question))
-                if (
-                    record is not None
-                    and screen_choice(record) == question.gold
-                ):
-                    eligible.append(question)
-            eligible.sort(
-                key=lambda row: stable_hash(
-                    EXPERIMENT, "steering", model_key, dataset_id, row.source_example_id
+        if gemma_balanced_amendment:
+            steering_rows = reserved_steering_by_model[model_key]
+        else:
+            steering_rows = []
+            for dataset_id in ("commonsense_qa", "arc_challenge"):
+                eligible = []
+                for question in construction_questions:
+                    if (
+                        question.dataset_id != dataset_id
+                        or _question_key(question) in excluded
+                    ):
+                        continue
+                    record = neutral[model_key].get(_question_key(question))
+                    if (
+                        record is not None
+                        and screen_choice(record) == question.gold
+                    ):
+                        eligible.append(question)
+                eligible.sort(
+                    key=lambda row: stable_hash(
+                        EXPERIMENT,
+                        "steering",
+                        model_key,
+                        dataset_id,
+                        row.source_example_id,
+                    )
                 )
-            )
-            if len(eligible) < 150:
-                raise CampaignError(f"Only {len(eligible)} disjoint steering rows for {model_key}/{dataset_id}")
-            for position, question in enumerate(eligible[:150]):
-                steering_rows.append(
-                    {
-                        **question.to_dict(),
-                        "steering_split": "fit" if position < 100 else "development",
-                    }
-                )
+                if len(eligible) < 150:
+                    raise CampaignError(
+                        f"Only {len(eligible)} disjoint steering rows for "
+                        f"{model_key}/{dataset_id}"
+                    )
+                for position, question in enumerate(eligible[:150]):
+                    steering_rows.append(
+                        {
+                            **question.to_dict(),
+                            "steering_split": (
+                                "fit" if position < 100 else "development"
+                            ),
+                        }
+                    )
         atomic_jsonl(
             root / "inputs" / "steering_questions" / f"{model_key}.jsonl",
             steering_rows,
@@ -2568,6 +2712,7 @@ def allocate_manifests(args: argparse.Namespace) -> None:
             "n2_source_count": len(source_rows),
             "n2_contains_bare_user": False,
             "steering_count": len(steering_rows),
+            "steering_reservation": steering_reservation_audit.get(model_key),
             "n1_n2_pruning_byte_identical": True,
             "hashes": {
                 "n1_pruning": sha256_file(n1_path),

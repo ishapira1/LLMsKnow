@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd -P)/common.sh"
 require_runtime
+export GEMMA_BALANCED_AMENDMENT=1
 
 POLL_SECONDS="${POLL_SECONDS:-60}"
 ACCOUNT="${BONHAM_ACCOUNT:-barak_lab}"
