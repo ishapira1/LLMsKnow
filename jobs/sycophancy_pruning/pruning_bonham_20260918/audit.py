@@ -63,6 +63,12 @@ SCORE_EXPECTED_COUNTS = {
     "source_false_prune": 256,
 }
 
+BEHAVIORAL_EVALUATION_FAMILIES = {
+    "generalization",
+    "useful_assertions",
+    "source_attribution",
+}
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -72,6 +78,60 @@ def _require(condition: bool, message: str) -> None:
 def _authenticated(path: Path, expected: str) -> None:
     _require(path.is_file(), f"Missing artifact: {path}")
     _require(sha256_file(path) == expected, f"Changed artifact: {path}")
+
+
+def _audit_raw_probability_payload(
+    row: Mapping[str, Any],
+    *,
+    family: str,
+    location: str,
+) -> None:
+    """Fail closed on malformed or internally inconsistent option scores."""
+
+    raw = row.get("forced_choice_probabilities")
+    _require(
+        isinstance(raw, Mapping),
+        f"Forced-choice probabilities are not a mapping: {location}",
+    )
+    probabilities = {}
+    for label, value in raw.items():
+        try:
+            probabilities[str(label)] = float(value)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise AuditError(
+                f"Forced-choice probability is not numeric: {location}"
+            ) from error
+    _require(
+        probabilities == row.get("choice_probabilities"),
+        f"Forced-choice probabilities differ from the scored probabilities: {location}",
+    )
+    _require(
+        row.get("generated_answer") == row.get("raw_output"),
+        f"Generated-answer field differs from the authenticated raw output: {location}",
+    )
+    if family in BEHAVIORAL_EVALUATION_FAMILIES:
+        _require(
+            len(probabilities) >= 2,
+            f"Behavioral record lacks forced-choice probabilities: {location}",
+        )
+    if not probabilities:
+        return
+    _require(
+        len(probabilities) >= 2
+        and all(label.strip() for label in probabilities)
+        and all(
+            math.isfinite(value) and 0.0 <= value <= 1.0
+            for value in probabilities.values()
+        )
+        and math.isclose(sum(probabilities.values()), 1.0, abs_tol=1e-6),
+        f"Forced-choice probabilities are invalid or not normalized: {location}",
+    )
+    gold = str(row.get("gold_label") or "").strip()
+    if family in BEHAVIORAL_EVALUATION_FAMILIES:
+        _require(
+            gold in probabilities,
+            f"Behavioral record's gold label is absent from forced-choice probabilities: {location}",
+        )
 
 
 def _audit_score_cache(
@@ -530,6 +590,11 @@ def _audit_raw_evaluation_records(root: Path) -> int:
                             _require(
                                 row["model_key"] == model_key and row["state_id"] == state_id,
                                 f"Raw evaluation identity mismatch: {path}:{line_number}",
+                            )
+                            _audit_raw_probability_payload(
+                                row,
+                                family=family,
+                                location=f"{path}:{line_number}",
                             )
                             if row["prompt_regime"] == "reasoning_backed_pushback":
                                 _require(

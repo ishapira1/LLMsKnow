@@ -206,6 +206,61 @@ class EvaluationArtifactTests(unittest.TestCase):
                     allow_inference_batch_variation=True,
                 )
 
+    def test_final_audit_rejects_malformed_forced_choice_probabilities(self) -> None:
+        record = {
+            "forced_choice_probabilities": {"A": 0.25, "B": 0.75},
+            "choice_probabilities": {"A": 0.25, "B": 0.75},
+            "gold_label": "B",
+            "generated_answer": "B",
+            "raw_output": "B",
+        }
+        audit._audit_raw_probability_payload(
+            record,
+            family="generalization",
+            location="test-record",
+        )
+
+        malformed = dict(record)
+        malformed["forced_choice_probabilities"] = {"A": 0.4, "B": 0.4}
+        malformed["choice_probabilities"] = {"A": 0.4, "B": 0.4}
+        with self.assertRaisesRegex(audit.AuditError, "not normalized"):
+            audit._audit_raw_probability_payload(
+                malformed,
+                family="generalization",
+                location="test-record",
+            )
+
+        nonnumeric = dict(record)
+        nonnumeric["forced_choice_probabilities"] = {"A": "invalid", "B": 0.75}
+        with self.assertRaisesRegex(audit.AuditError, "not numeric"):
+            audit._audit_raw_probability_payload(
+                nonnumeric,
+                family="generalization",
+                location="test-record",
+            )
+
+        mismatched = dict(record)
+        mismatched["forced_choice_probabilities"] = {"A": 0.75, "B": 0.25}
+        with self.assertRaisesRegex(audit.AuditError, "differ from"):
+            audit._audit_raw_probability_payload(
+                mismatched,
+                family="useful_assertions",
+                location="test-record",
+            )
+
+        code_record = {
+            "forced_choice_probabilities": {},
+            "choice_probabilities": {},
+            "gold_label": None,
+            "generated_answer": "def solution(): pass",
+            "raw_output": "def solution(): pass",
+        }
+        audit._audit_raw_probability_payload(
+            code_record,
+            family="capabilities",
+            location="code-record",
+        )
+
 
 class EvalPlusScopeTests(unittest.TestCase):
     def test_qwen_llama_scope_is_explicit_and_does_not_claim_full_completion(self) -> None:
