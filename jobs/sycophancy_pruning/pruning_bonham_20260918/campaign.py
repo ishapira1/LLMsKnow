@@ -93,6 +93,12 @@ GEMMA_EXACT_SUPPLEMENT_CELL = {
     "bias_type": "incorrect_suggestion",
     "template_index": 1,
 }
+GEMMA_SOURCE_SUPPLEMENT_ID = "gemma_exact_arc_correct_source_t0_v1"
+GEMMA_SOURCE_SUPPLEMENT_CELL = {
+    "dataset_id": "arc_challenge",
+    "neutral_correctness": "initially_correct",
+    "template_index": 0,
+}
 
 
 class CampaignError(BonhamError):
@@ -1396,6 +1402,153 @@ def prepare_model_n1_supplement(args: argparse.Namespace) -> None:
     print(json.dumps(complete, indent=2, sort_keys=True))
 
 
+def prepare_model_source_supplement(args: argparse.Namespace) -> None:
+    """Freeze an append-only Gemma source screen for the one scarce exact slot.
+
+    The primary outcome-independent assignment screens every ARC construction
+    question under one source template. Gemma has only two fully source-aligned
+    questions for the three required template-0 slots in the initially-correct
+    ARC cell. This supplement renders template 0 for every *other* question in
+    that same frozen cohort. It neither changes a response criterion nor a
+    quota. Allocation uses deterministic distinct-question matching, so a
+    question can enter the final bank under at most one template.
+    """
+
+    root = Path(args.result_root)
+    model_key = str(args.model_key)
+    if model_key != "gemma4_12b":
+        raise CampaignError("The exact source supplement is Gemma-specific")
+    destination = root / "inputs" / "source_screen_model_supplement_shards" / model_key
+    candidate_path = (
+        root / "inputs" / "source_screen_model_supplement_candidates" / f"{model_key}.jsonl"
+    )
+    complete_path = destination / "COMPLETE"
+    if complete_path.is_file():
+        complete = read_json(complete_path)
+        if (
+            complete.get("status") != "complete"
+            or complete.get("supplement_id") != GEMMA_SOURCE_SUPPLEMENT_ID
+            or sha256_file(candidate_path) != complete.get("candidate_sha256")
+        ):
+            raise CampaignError("Gemma exact source supplement is missing or changed")
+        print(json.dumps(complete, indent=2, sort_keys=True))
+        return
+
+    config = load_config(args.config)
+    primary_candidate_path = root / "inputs" / "source_screen_candidates" / f"{model_key}.jsonl"
+    primary_candidates = list(read_jsonl(primary_candidate_path))
+    selected = [
+        dict(candidate)
+        for candidate in primary_candidates
+        if str(candidate.get("dataset_id")) == GEMMA_SOURCE_SUPPLEMENT_CELL["dataset_id"]
+        and str(candidate.get("neutral_correctness"))
+        == GEMMA_SOURCE_SUPPLEMENT_CELL["neutral_correctness"]
+        and int(candidate.get("source_template_index", -1))
+        != int(GEMMA_SOURCE_SUPPLEMENT_CELL["template_index"])
+    ]
+    selected.sort(
+        key=lambda row: stable_hash(
+            EXPERIMENT,
+            GEMMA_SOURCE_SUPPLEMENT_ID,
+            _question_key(row),
+        )
+    )
+    if not selected:
+        raise CampaignError("No alternate Gemma ARC source assignments remain")
+
+    supplement_candidates = []
+    tasks = []
+    template_index = int(GEMMA_SOURCE_SUPPLEMENT_CELL["template_index"])
+    for candidate in selected:
+        original_template_index = int(candidate["source_template_index"])
+        supplement = {
+            **candidate,
+            "source_template_index": template_index,
+            "primary_source_template_index": original_template_index,
+            "source_assignment_supplement": GEMMA_SOURCE_SUPPLEMENT_ID,
+        }
+        supplement_candidates.append(supplement)
+        question = _question_from_row(candidate)
+        neutral_answer = str(candidate["neutral_label"])
+        for claim_type in ("suggest_w", "doubt_c"):
+            for turn_format in TURN_FORMATS:
+                tasks.append(
+                    _source_task(
+                        config,
+                        question,
+                        claim_type=claim_type,
+                        turn_format=turn_format,
+                        template_index=template_index,
+                        neutral_answer=neutral_answer,
+                    )
+                )
+
+    if candidate_path.is_file():
+        if list(read_jsonl(candidate_path)) != supplement_candidates:
+            raise CampaignError("Changed Gemma exact source-supplement candidates")
+    else:
+        atomic_jsonl(candidate_path, supplement_candidates)
+
+    primary_input_dir = root / "inputs" / "source_screen_shards" / model_key
+    primary_paths = sorted(primary_input_dir.glob("shard_*.jsonl"))
+    primary_indices = [int(path.stem.split("_")[-1]) for path in primary_paths]
+    if primary_indices != list(range(len(primary_indices))):
+        raise CampaignError("Primary source-screen shard indices are not contiguous")
+    first_shard = len(primary_indices)
+    shard_size = int(args.shard_size)
+    if shard_size <= 0:
+        raise CampaignError("Source supplement shard size must be positive")
+    entries = []
+    for offset, start in enumerate(range(0, len(tasks), shard_size)):
+        shard_index = first_shard + offset
+        path = destination / f"shard_{shard_index:04d}.jsonl"
+        subset = tasks[start : start + shard_size]
+        expected_text = "".join(canonical_json(task.to_dict()) + "\n" for task in subset)
+        expected_sha256 = hashlib.sha256(expected_text.encode("utf-8")).hexdigest()
+        if path.is_file():
+            if sha256_file(path) != expected_sha256:
+                raise CampaignError(f"Changed Gemma source supplement shard: {path}")
+        else:
+            _write_tasks(path, subset)
+        entries.append(
+            {
+                "shard_index": shard_index,
+                "task_count": len(subset),
+                "path": str(path.resolve()),
+                "sha256": expected_sha256,
+            }
+        )
+    last_shard = first_shard + len(entries) - 1
+    if last_shard >= int(SCREEN_SHARD_LIMITS["source_screen"]):
+        raise CampaignError("Gemma exact source supplement exceeds source-screen capacity")
+    index_path = destination / "index.jsonl"
+    if index_path.is_file():
+        if list(read_jsonl(index_path)) != entries:
+            raise CampaignError("Changed Gemma exact source-supplement index")
+    else:
+        atomic_jsonl(index_path, entries)
+    complete = {
+        "status": "complete",
+        "append_only": True,
+        "supplement_id": GEMMA_SOURCE_SUPPLEMENT_ID,
+        "model_key": model_key,
+        "cell": dict(GEMMA_SOURCE_SUPPLEMENT_CELL),
+        "relaxes_quota": False,
+        "relaxes_behavior_qualification": False,
+        "candidate_assignment_is_response_independent": True,
+        "primary_candidate_sha256": sha256_file(primary_candidate_path),
+        "candidate_count": len(supplement_candidates),
+        "candidate_sha256": sha256_file(candidate_path),
+        "task_count": len(tasks),
+        "shard_count": len(entries),
+        "first_shard": first_shard,
+        "last_shard": last_shard,
+        "index_sha256": sha256_file(index_path),
+    }
+    atomic_json(complete_path, complete)
+    print(json.dumps(complete, indent=2, sort_keys=True))
+
+
 def _index_records(
     rows: Sequence[Mapping[str, Any]],
 ) -> Mapping[tuple[str, str], Mapping[str, Any]]:
@@ -1926,6 +2079,7 @@ def _allocate_source_questions(
 ) -> list[Mapping[str, Any]]:
     indexed = _index_records(records)
     qualified: dict[tuple[str, str, int], list[Mapping[str, Any]]] = defaultdict(list)
+    seen_assignments: set[tuple[str, str, int, str]] = set()
     for candidate in candidates:
         question_key = _question_key(candidate)
         if question_key in excluded_question_keys:
@@ -1942,6 +2096,15 @@ def _allocate_source_questions(
             for claim_type in claims
             for turn_format in TURN_FORMATS
         ]
+        assignment = (
+            str(candidate["dataset_id"]),
+            correctness,
+            template_index,
+            question_key,
+        )
+        if assignment in seen_assignments:
+            continue
+        seen_assignments.add(assignment)
         if all(key in indexed and _source_record_qualifies(indexed[key]) for key in keys):
             qualified[(str(candidate["dataset_id"]), correctness, template_index)].append(candidate)
     selected = []
@@ -1953,8 +2116,8 @@ def _allocate_source_questions(
                 model_key=model_key,
                 gemma_balanced_amendment=gemma_balanced_amendment,
             )
-            for template_index, count in sorted(quota.items()):
-                choices = sorted(
+            choices_by_template = {
+                template_index: sorted(
                     qualified[(dataset_id, correctness, template_index)],
                     key=lambda row: stable_hash(
                         EXPERIMENT,
@@ -1966,13 +2129,57 @@ def _allocate_source_questions(
                         row["source_example_id"],
                     ),
                 )
-                if len(choices) < count:
+                for template_index in sorted(quota)
+            }
+            for template_index, count in sorted(quota.items()):
+                if len(choices_by_template[template_index]) < count:
                     raise CampaignError(
                         "Source-responsive quota cannot be filled without relaxing criteria: "
                         f"{model_key}/{dataset_id}/{correctness}/template={template_index} "
-                        f"needs {count}, found {len(choices)}"
+                        f"needs {count}, found {len(choices_by_template[template_index])}"
                     )
-                selected.extend(choices[:count])
+
+            # Supplementary assignments can expose the same question under
+            # more than one template. Match exact template slots to distinct
+            # questions rather than greedily selecting a duplicate.
+            ordered_templates = sorted(
+                quota,
+                key=lambda template_index: (
+                    len(choices_by_template[template_index]),
+                    template_index,
+                ),
+            )
+            slots = [
+                (template_index, position)
+                for template_index in ordered_templates
+                for position in range(quota[template_index])
+            ]
+            slot_candidate: dict[tuple[int, int], Mapping[str, Any]] = {}
+            question_slot: dict[str, tuple[int, int]] = {}
+
+            def augment(slot: tuple[int, int], seen_questions: set[str]) -> bool:
+                for candidate in choices_by_template[slot[0]]:
+                    question_key = _question_key(candidate)
+                    if question_key in seen_questions:
+                        continue
+                    seen_questions.add(question_key)
+                    previous = question_slot.get(question_key)
+                    if previous is None or augment(previous, seen_questions):
+                        question_slot[question_key] = slot
+                        slot_candidate[slot] = candidate
+                        return True
+                return False
+
+            for slot in slots:
+                if not augment(slot, set()):
+                    matched = Counter(slot[0] for slot in slot_candidate)
+                    raise CampaignError(
+                        "Source-responsive distinct-question matching is infeasible without "
+                        f"relaxing criteria: {model_key}/{dataset_id}/{correctness}; "
+                        f"matched={dict(sorted(matched.items()))}, "
+                        f"quota={dict(sorted(quota.items()))}"
+                    )
+            selected.extend(slot_candidate[slot] for slot in slots)
     keys = [_question_key(row) for row in selected]
     if len(selected) != 128 or len(keys) != len(set(keys)):
         raise CampaignError("N2 source allocation is not 128 distinct base questions")
@@ -2086,9 +2293,29 @@ def allocate_manifests(args: argparse.Namespace) -> None:
     selected_source_by_model = {}
     source_question_keys_by_model = {}
     for model_key in selected_model_keys:
-        candidates = read_jsonl(
+        candidates = list(read_jsonl(
             root / "inputs" / "source_screen_candidates" / f"{model_key}.jsonl"
+        ))
+        supplement_complete_path = (
+            root / "inputs" / "source_screen_model_supplement_shards" / model_key / "COMPLETE"
         )
+        if supplement_complete_path.is_file():
+            supplement_complete = read_json(supplement_complete_path)
+            supplement_candidate_path = (
+                root
+                / "inputs"
+                / "source_screen_model_supplement_candidates"
+                / f"{model_key}.jsonl"
+            )
+            if (
+                supplement_complete.get("status") != "complete"
+                or supplement_complete.get("relaxes_quota") is not False
+                or supplement_complete.get("relaxes_behavior_qualification") is not False
+                or sha256_file(supplement_candidate_path)
+                != supplement_complete.get("candidate_sha256")
+            ):
+                raise CampaignError("Source-screen supplement is missing or changed")
+            candidates.extend(read_jsonl(supplement_candidate_path))
         selected_source = _allocate_source_questions(
             source_records[model_key],
             candidates,
@@ -2986,6 +3213,12 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--model-key", choices=MODEL_KEYS, required=True)
     command.add_argument("--shard-size", type=int, default=200)
     command.set_defaults(func=prepare_model_n1_supplement)
+
+    command = subparsers.add_parser("prepare-model-source-supplement")
+    command.add_argument("--result-root", type=Path, required=True)
+    command.add_argument("--model-key", choices=MODEL_KEYS, required=True)
+    command.add_argument("--shard-size", type=int, default=200)
+    command.set_defaults(func=prepare_model_source_supplement)
 
     command = subparsers.add_parser("allocate-manifests")
     command.add_argument("--result-root", type=Path, required=True)

@@ -47,6 +47,9 @@ case "$STAGE" in
   prepare_model_n1_supplement)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" prepare-model-n1-supplement --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY" --shard-size 200)
     ;;
+  prepare_model_source_supplement)
+    command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" prepare-model-source-supplement --result-root "$RESULT_ROOT" --model-key "$MODEL_KEY" --shard-size 200)
+    ;;
   allocate_manifests)
     command=("$PYTHON_BIN" "$BUNDLE_DIR/campaign.py" allocate-manifests --result-root "$RESULT_ROOT")
     ;;

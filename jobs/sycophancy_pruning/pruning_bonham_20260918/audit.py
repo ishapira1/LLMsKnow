@@ -912,6 +912,7 @@ def final_audit(args: argparse.Namespace) -> None:
                 f"Missing state registry {model_key}/{state_id}",
             )
         exact_supplement_sha256 = None
+        exact_source_supplement_sha256 = None
         if model_key == "gemma4_12b":
             supplement_path = (
                 root
@@ -934,6 +935,35 @@ def final_audit(args: argparse.Namespace) -> None:
                 "Gemma used a balance amendment despite the exact-quota supplement",
             )
             exact_supplement_sha256 = sha256_file(supplement_path)
+            source_supplement_path = (
+                root
+                / "inputs"
+                / "source_screen_model_supplement_shards"
+                / model_key
+                / "COMPLETE"
+            )
+            source_supplement = read_json(source_supplement_path)
+            source_candidate_path = (
+                root
+                / "inputs"
+                / "source_screen_model_supplement_candidates"
+                / f"{model_key}.jsonl"
+            )
+            _require(
+                source_supplement.get("status") == "complete"
+                and source_supplement.get("relaxes_quota") is False
+                and source_supplement.get("relaxes_behavior_qualification") is False
+                and source_supplement.get("supplement_id")
+                == campaign.GEMMA_SOURCE_SUPPLEMENT_ID
+                and source_supplement.get("cell")
+                == campaign.GEMMA_SOURCE_SUPPLEMENT_CELL,
+                "Gemma exact source-quota supplement is missing or changed",
+            )
+            _authenticated(
+                source_candidate_path,
+                str(source_supplement.get("candidate_sha256", "")),
+            )
+            exact_source_supplement_sha256 = sha256_file(source_supplement_path)
         model_audits[model_key] = {
             "model_id": specification["model_id"],
             "revision": specification["revision"],
@@ -941,6 +971,7 @@ def final_audit(args: argparse.Namespace) -> None:
             "score_roles": score_roles,
             "mask_hashes": masks,
             "exact_n1_supplement_sha256": exact_supplement_sha256,
+            "exact_source_supplement_sha256": exact_source_supplement_sha256,
         }
     evaluation_complete = read_json(root / "evaluations" / "results" / "COMPLETE.json")
     _require(evaluation_complete.get("status") == "complete", "Evaluations are incomplete")

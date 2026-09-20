@@ -594,6 +594,18 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIn("Gemma exact-quota supplement is missing or changed", audit_source)
         self.assertIn("despite the exact-quota supplement", audit_source)
 
+    def test_gemma_source_supplement_preserves_exact_protocol(self) -> None:
+        bundle = Path(__file__).resolve().parent
+        campaign_source = (bundle / "campaign.py").read_text(encoding="utf-8")
+        cpu_source = (bundle / "cpu_stage.sbatch").read_text(encoding="utf-8")
+        audit_source = (bundle / "audit.py").read_text(encoding="utf-8")
+        self.assertIn('"gemma_exact_arc_correct_source_t0_v1"', campaign_source)
+        self.assertIn('"neutral_correctness": "initially_correct"', campaign_source)
+        self.assertIn('"relaxes_behavior_qualification": False', campaign_source)
+        self.assertIn("prepare-model-source-supplement", cpu_source)
+        self.assertIn("distinct-question matching is infeasible", campaign_source)
+        self.assertIn("Gemma exact source-quota supplement", audit_source)
+
     def test_model_pipeline_supports_two_gpu_gemma_lanes(self) -> None:
         bundle = Path(__file__).resolve().parent
         pipeline = (bundle / "gpu_model_pipeline.sbatch").read_text(encoding="utf-8")
@@ -1167,6 +1179,113 @@ class AllocationTests(unittest.TestCase):
         self.assertEqual(Counter(core.source_template_indices()), combined)
         self.assertEqual(32, sum(campaign._per_dataset_source_template_quota("commonsense_qa").values()))
         self.assertEqual(32, sum(campaign._per_dataset_source_template_quota("arc_challenge").values()))
+
+    def test_source_allocator_matches_exact_slots_to_distinct_questions(self) -> None:
+        candidates = []
+        records = []
+
+        def add_assignment(
+            dataset_id: str,
+            correctness: str,
+            template_index: int,
+            question_id: str,
+        ) -> None:
+            gold = "A"
+            neutral = "A" if correctness == "initially_correct" else "B"
+            candidate = {
+                "dataset_id": dataset_id,
+                "source_split": "train",
+                "source_example_id": question_id,
+                "question": "Synthetic question?",
+                "labels": ["A", "B", "C", "D"],
+                "answers": ["a", "b", "c", "d"],
+                "gold": gold,
+                "neutral_label": neutral,
+                "neutral_correctness": correctness,
+                "source_template_index": template_index,
+            }
+            candidates.append(candidate)
+            question_key = campaign._question_key(candidate)
+            claims = (
+                ("suggest_w", "doubt_c")
+                if correctness == "initially_correct"
+                else ("suggest_c", "doubt_w")
+            )
+            for claim_type in claims:
+                asserted = (
+                    "B" if claim_type == "suggest_w" else "A"
+                    if claim_type == "suggest_c"
+                    else None
+                )
+                doubted = (
+                    "A" if claim_type == "doubt_c" else "B"
+                    if claim_type == "doubt_w"
+                    else None
+                )
+                parsed = asserted or ("B" if doubted == "A" else "A")
+                for turn_format in campaign.TURN_FORMATS:
+                    condition = f"source.{claim_type}.{turn_format}.t{template_index}"
+                    probabilities = {
+                        label: 0.7 if label == parsed else 0.1
+                        for label in ("A", "B", "C", "D")
+                    }
+                    records.append(
+                        {
+                            "dataset_id": dataset_id,
+                            "condition_id": condition,
+                            "choice_probabilities": probabilities,
+                            "forced_choice_probabilities": probabilities,
+                            "task_metadata": {
+                                "question_key": question_key,
+                                "claim_type": claim_type,
+                                "asserted_label": asserted,
+                                "doubted_label": doubted,
+                            },
+                        }
+                    )
+
+        for dataset_id in ("commonsense_qa", "arc_challenge"):
+            for correctness in ("initially_correct", "initially_incorrect"):
+                quota = campaign._per_dataset_source_template_quota(dataset_id)
+                for template_index, count in sorted(quota.items()):
+                    if (
+                        dataset_id == "arc_challenge"
+                        and correctness == "initially_correct"
+                        and template_index == 0
+                    ):
+                        count -= 1
+                    for position in range(count):
+                        add_assignment(
+                            dataset_id,
+                            correctness,
+                            template_index,
+                            f"{dataset_id}-{correctness}-t{template_index}-{position}",
+                        )
+
+        shared_question_id = "arc-correct-alternate-assignment"
+        add_assignment("arc_challenge", "initially_correct", 1, shared_question_id)
+        add_assignment("arc_challenge", "initially_correct", 0, shared_question_id)
+        selected = campaign._allocate_source_questions(
+            records,
+            candidates,
+            excluded_question_keys=set(),
+            model_key="gemma4_12b",
+        )
+        self.assertEqual(128, len(selected))
+        self.assertEqual(128, len({campaign._question_key(row) for row in selected}))
+        self.assertEqual(
+            1,
+            sum(row["source_example_id"] == shared_question_id for row in selected),
+        )
+        self.assertEqual(
+            campaign._per_dataset_source_template_quota("arc_challenge"),
+            Counter(
+                int(row["source_template_index"])
+                for row in selected
+                if row["dataset_id"] == "arc_challenge"
+                and row["neutral_correctness"] == "initially_correct"
+            ),
+        )
 
     def test_gemma_amendment_preserves_exact_marginals_and_minimizes_cross_imbalance(self) -> None:
         pattern = {
