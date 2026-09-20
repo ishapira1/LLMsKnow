@@ -986,7 +986,9 @@ class RuntimeIsolationTests(unittest.TestCase):
         ):
             self.assertIn(stage, cpu_source)
             self.assertIn(stage, supervisor)
-        self.assertIn("0-127%40", supervisor)
+        self.assertIn("evalplus_missing_tasks", supervisor)
+        self.assertIn('"${missing_tasks}%40"', supervisor)
+        self.assertIn("evalplus_qwen_llama_shards_complete=128", supervisor)
         self.assertIn("wait_for_capabilities", supervisor)
         self.assertIn("qwen_llama_complete/COMPLETE.json", supervisor)
 

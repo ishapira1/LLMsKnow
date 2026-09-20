@@ -89,6 +89,36 @@ wait_for_weight_analysis() {
   log 'qwen_llama_weight_analysis_complete=1'
 }
 
+evalplus_missing_tasks() {
+  local task state_index within model state benchmark shard receipt
+  local -a states=(
+    unpruned n1_mechanism n2_selective random_n1
+    random_n2 weak_prompt strong_prompt prompt_only_meandiff
+  )
+  local -a missing=()
+  for task in $(seq 0 127); do
+    state_index="$((task / 8))"
+    within="$((task % 8))"
+    if ((state_index < 8)); then
+      model=llama31_8b
+    else
+      model=qwen25_7b
+    fi
+    state="${states[$((state_index % 8))]}"
+    if ((within < 4)); then
+      benchmark=humaneval
+      shard="$within"
+    else
+      benchmark=mbpp
+      shard="$((within - 4))"
+    fi
+    receipt="$RESULT_ROOT/evalplus/shards/$model/$state/$benchmark/$(printf 'shard_%04d' "$shard")/COMPLETE.json"
+    [[ -f "$receipt" ]] || missing+=("$task")
+  done
+  local IFS=,
+  printf '%s' "${missing[*]}"
+}
+
 submit_cpu_job() {
   local name="$1" stage="$2" time_limit="$3" memory="$4" array_spec="${5:-}"
   local existing state raw job_id
@@ -130,9 +160,26 @@ wait_for_capabilities
 prepare_job="$(submit_cpu_job bonh_ql_eprep evalplus_prepare_qwen_llama 01:00:00 96G)"
 wait_job evalplus_prepare_qwen_llama "$prepare_job"
 
-# cpu_stage maps array tasks 0--63 to Llama and 64--127 to Qwen.
-run_job="$(submit_cpu_job bonh_ql_eprun evalplus_run 03:00:00 24G '0-127%40')"
-wait_job evalplus_run_qwen_llama "$run_job"
+# cpu_stage maps array tasks 0--63 to Llama and 64--127 to Qwen.  Resume
+# from authenticated shard receipts so a transient array failure never reruns
+# successful code executions or leaves the tail permanently blocked.
+attempt=0
+while missing_tasks="$(evalplus_missing_tasks)" && [[ -n "$missing_tasks" ]]; do
+  attempt="$((attempt + 1))"
+  if ((attempt > 5)); then
+    log "evalplus_recovery_exhausted missing_tasks=$missing_tasks"
+    exit 1
+  fi
+  run_job="$(submit_cpu_job "bonh_ql_eprun_r${attempt}" evalplus_run 03:00:00 24G "${missing_tasks}%40")"
+  if ! wait_job evalplus_run_qwen_llama "$run_job"; then
+    log "evalplus_retry_required attempt=$attempt job_id=$run_job"
+  fi
+done
+[[ -z "$(evalplus_missing_tasks)" ]] || {
+  log 'evalplus_shard_inventory_incomplete=1'
+  exit 1
+}
+log 'evalplus_qwen_llama_shards_complete=128'
 
 aggregate_job="$(submit_cpu_job bonh_ql_epagg evalplus_aggregate_qwen_llama 01:00:00 96G)"
 wait_job evalplus_aggregate_qwen_llama "$aggregate_job"
