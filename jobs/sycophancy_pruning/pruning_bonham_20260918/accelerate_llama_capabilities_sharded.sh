@@ -11,6 +11,7 @@ GPU_GRES="${BONHAM_GPU_TEST_GRES:-gpu:nvidia_a100_3g.20gb}"
 USER_NAME="${USER:-ishapira}"
 ACCOUNTING_START="${BONHAM_ACCOUNTING_START:-2026-09-19}"
 MAX_MEMORY_GIB="${LLAMA_DEVICE_MAX_MEMORY_GIB:-12}"
+CAPABILITY_BATCH_SIZE="${LLAMA_CAPABILITY_BATCH_SIZE:-1}"
 QWEN_JOBS="${QWEN_CAPABILITY_JOBS:-47309712:47310851}"
 REGULAR_LLAMA_JOBS="${REGULAR_LLAMA_CAPABILITY_JOBS:-47311014:47306875}"
 
@@ -20,6 +21,10 @@ REGULAR_LLAMA_JOBS="${REGULAR_LLAMA_CAPABILITY_JOBS:-47311014:47306875}"
 }
 [[ "$MAX_MEMORY_GIB" =~ ^[1-9][0-9]*$ ]] || {
   printf 'LLAMA_DEVICE_MAX_MEMORY_GIB must be a positive integer\n' >&2
+  exit 2
+}
+[[ "$CAPABILITY_BATCH_SIZE" =~ ^[1-9][0-9]*$ ]] || {
+  printf 'LLAMA_CAPABILITY_BATCH_SIZE must be a positive integer\n' >&2
   exit 2
 }
 
@@ -119,7 +124,7 @@ submit_pair() {
     --account="$ACCOUNT" --partition="$GPU_PARTITION" --job-name="$name" \
     --nodes=1 --ntasks=2 --cpus-per-task=4 --mem=192G --time=12:00:00 \
     --gres="$GPU_GRES:4" \
-    --export="ALL,BONHAM_BUNDLE_DIR=$BUNDLE_DIR,MODEL_KEY=llama31_8b,STATE_INDICES=$pair,STATE_COUNT=2,GPUS_PER_STATE=2,CPUS_PER_STATE=4,MEM_PER_STATE=96G,EVALUATION_FAMILY_SET=capabilities,CAPABILITY_EVALUATION_BATCH_SIZE=4,LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB=$MAX_MEMORY_GIB" \
+    --export="ALL,BONHAM_BUNDLE_DIR=$BUNDLE_DIR,MODEL_KEY=llama31_8b,STATE_INDICES=$pair,STATE_COUNT=2,GPUS_PER_STATE=2,CPUS_PER_STATE=4,MEM_PER_STATE=96G,EVALUATION_FAMILY_SET=capabilities,CAPABILITY_EVALUATION_BATCH_SIZE=$CAPABILITY_BATCH_SIZE,LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB=$MAX_MEMORY_GIB" \
     --output="$LOG_ROOT/slurm/gpu_eval_states/%x_%j.out" \
     --error="$LOG_ROOT/slurm/gpu_eval_states/%x_%j.err" \
     "$BUNDLE_DIR/gpu_eval_states.sbatch")"
@@ -128,7 +133,7 @@ submit_pair() {
     printf 'Unexpected sbatch response for %s: %s\n' "$name" "$raw" >&2
     return 2
   }
-  log "submitted_job name=$name job_id=$job_id pair=$pair max_memory_gib=$MAX_MEMORY_GIB"
+  log "submitted_job name=$name job_id=$job_id pair=$pair max_memory_gib=$MAX_MEMORY_GIB batch_size=$CAPABILITY_BATCH_SIZE"
   printf '%s\n' "$job_id"
 }
 

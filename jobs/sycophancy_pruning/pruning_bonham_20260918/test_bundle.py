@@ -335,6 +335,8 @@ class RuntimeIsolationTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("GPUS_PER_STATE=2", script)
         self.assertIn("LLMSSYCOPH_DEVICE_MAX_MEMORY_GIB=$MAX_MEMORY_GIB", script)
+        self.assertIn("CAPABILITY_EVALUATION_BATCH_SIZE=$CAPABILITY_BATCH_SIZE", script)
+        self.assertIn('LLAMA_CAPABILITY_BATCH_SIZE:-1', script)
         self.assertIn("STATE_INDICES=$pair", script)
         self.assertIn("scontrol hold", script)
         self.assertIn("if (( active < 2 ))", script)
