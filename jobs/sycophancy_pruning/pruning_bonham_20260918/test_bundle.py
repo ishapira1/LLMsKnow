@@ -285,6 +285,40 @@ class EvalPlusScopeTests(unittest.TestCase):
         self.assertEqual(campaign.MODEL_KEYS, evalplus._selected_models(full_args))
         self.assertEqual("", evalplus._scope_suffix(campaign.MODEL_KEYS))
 
+    def test_reporting_authenticates_the_exact_evalplus_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model_keys = ("qwen25_7b", "llama31_8b")
+            path = (
+                root
+                / "evalplus"
+                / "results"
+                / "COMPLETE_qwen25_7b_llama31_8b.json"
+            )
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "status": "complete",
+                        "model_keys": list(model_keys),
+                        "publication_count": 16,
+                        "image_sha256": "1" * 64,
+                        "publications_sha256": "2" * 64,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                core.sha256_file(path),
+                reporting._authenticated_evalplus_scope(root, model_keys),
+            )
+            payload = core.read_json(path)
+            payload["publication_count"] = 15
+            path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            with self.assertRaises(reporting.ReportingError):
+                reporting._authenticated_evalplus_scope(root, model_keys)
+
 
 class FrozenQuestionNormalizationTests(unittest.TestCase):
     def test_openbookqa_question_stem_is_normalized(self) -> None:
@@ -2096,15 +2130,20 @@ class EvaluationDesignTests(unittest.TestCase):
                 with mock.patch.object(
                     reporting, "_capability_rows", return_value=[]
                 ) as capabilities:
-                    with mock.patch.object(reporting, "_figures", return_value=[]):
-                        with mock.patch("builtins.print"):
-                            reporting.report(
-                                SimpleNamespace(
-                                    result_root=root,
-                                    early_qwen_llama=False,
-                                    qwen_llama_complete=True,
+                    with mock.patch.object(
+                        reporting,
+                        "_authenticated_evalplus_scope",
+                        return_value="1" * 64,
+                    ) as evalplus_scope:
+                        with mock.patch.object(reporting, "_figures", return_value=[]):
+                            with mock.patch("builtins.print"):
+                                reporting.report(
+                                    SimpleNamespace(
+                                        result_root=root,
+                                        early_qwen_llama=False,
+                                        qwen_llama_complete=True,
+                                    )
                                 )
-                            )
             receipt_path = (
                 root / "reports" / "qwen_llama_complete" / "COMPLETE.json"
             )
@@ -2114,6 +2153,10 @@ class EvaluationDesignTests(unittest.TestCase):
             )
             self.assertEqual("qwen_llama_complete", receipt["scope"])
             self.assertTrue(receipt["includes_capabilities"])
+            self.assertEqual("1" * 64, receipt["evalplus_complete_sha256"])
+            evalplus_scope.assert_called_once_with(
+                root, ("qwen25_7b", "llama31_8b")
+            )
             capabilities.assert_called_once_with(
                 root, model_keys=("qwen25_7b", "llama31_8b")
             )

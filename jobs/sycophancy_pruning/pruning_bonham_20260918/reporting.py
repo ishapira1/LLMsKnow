@@ -589,6 +589,26 @@ def _latex_escape(value: Any) -> str:
     return str(value).replace("\\", "\\textbackslash{}").replace("_", "\\_")
 
 
+def _authenticated_evalplus_scope(
+    root: Path,
+    model_keys: Sequence[str],
+) -> str:
+    selected = tuple(model_keys)
+    suffix = "" if selected == campaign.MODEL_KEYS else "_" + "_".join(selected)
+    path = root / "evalplus" / "results" / f"COMPLETE{suffix}.json"
+    receipt = read_json(path)
+    expected_publications = len(selected) * len(campaign.PRIMARY_STATE_IDS)
+    if (
+        receipt.get("status") != "complete"
+        or tuple(receipt.get("model_keys", ())) != selected
+        or int(receipt.get("publication_count", -1)) != expected_publications
+        or not str(receipt.get("image_sha256", ""))
+        or not str(receipt.get("publications_sha256", ""))
+    ):
+        raise ReportingError(f"EvalPlus aggregate receipt is incomplete or mismatched: {path}")
+    return sha256_file(path)
+
+
 def _capability_rows(
     root: Path,
     model_keys: Sequence[str] = campaign.MODEL_KEYS,
@@ -689,30 +709,33 @@ def _capability_rows(
                 }
             )
             evalplus_complete = root / "evalplus" / "results" / model_key / state_id / "COMPLETE.json"
-            if evalplus_complete.is_file():
-                receipt = read_json(evalplus_complete)
-                evalplus_results = root / "evalplus" / "results" / model_key / state_id / "results.jsonl"
-                if receipt.get("results_sha256") != sha256_file(evalplus_results):
-                    raise ReportingError(f"Authenticated EvalPlus results changed: {evalplus_results}")
-                evalplus_counts = Counter(
-                    str(row["benchmark"]) for row in read_jsonl(evalplus_results)
+            if not evalplus_complete.is_file():
+                raise ReportingError(
+                    f"EvalPlus result receipt is missing for {model_key}/{state_id}"
                 )
-                for benchmark, value in receipt["pass_at_1"].items():
-                    if int(evalplus_counts[benchmark]) <= 0:
-                        raise ReportingError(
-                            f"EvalPlus denominator is empty for {model_key}/{state_id}/{benchmark}"
-                        )
-                    rows.append(
-                        {
-                            "model_key": model_key,
-                            "state_id": state_id,
-                            "evaluator_id": benchmark,
-                            "benchmark": benchmark,
-                            "metric": "plus_pass_at_1",
-                            "value": value,
-                            "denominator": int(evalplus_counts[benchmark]),
-                        }
+            receipt = read_json(evalplus_complete)
+            evalplus_results = root / "evalplus" / "results" / model_key / state_id / "results.jsonl"
+            if receipt.get("results_sha256") != sha256_file(evalplus_results):
+                raise ReportingError(f"Authenticated EvalPlus results changed: {evalplus_results}")
+            evalplus_counts = Counter(
+                str(row["benchmark"]) for row in read_jsonl(evalplus_results)
+            )
+            for benchmark, value in receipt["pass_at_1"].items():
+                if int(evalplus_counts[benchmark]) <= 0:
+                    raise ReportingError(
+                        f"EvalPlus denominator is empty for {model_key}/{state_id}/{benchmark}"
                     )
+                rows.append(
+                    {
+                        "model_key": model_key,
+                        "state_id": state_id,
+                        "evaluator_id": benchmark,
+                        "benchmark": benchmark,
+                        "metric": "plus_pass_at_1",
+                        "value": value,
+                        "denominator": int(evalplus_counts[benchmark]),
+                    }
+                )
     return rows
 
 
@@ -1217,9 +1240,12 @@ def report(args: argparse.Namespace) -> None:
         ),
         USEFUL_METRICS,
     )
-    capabilities = (
-        [] if early_qwen_llama else _capability_rows(root, model_keys=model_keys)
-    )
+    evalplus_complete_sha256 = None
+    if early_qwen_llama:
+        capabilities = []
+    else:
+        evalplus_complete_sha256 = _authenticated_evalplus_scope(root, model_keys)
+        capabilities = _capability_rows(root, model_keys=model_keys)
     artifacts = {
         "generalization_cells.csv": general_cells,
         "generalization_template_families.csv": general_families,
@@ -1303,6 +1329,7 @@ def report(args: argparse.Namespace) -> None:
         ),
         "model_keys": list(model_keys),
         "includes_capabilities": not early_qwen_llama,
+        "evalplus_complete_sha256": evalplus_complete_sha256,
         "bootstrap_replicates": BOOTSTRAP_REPLICATES,
         "csv_files": {
             filename: sha256_file(output / filename) for filename in sorted(artifacts)
