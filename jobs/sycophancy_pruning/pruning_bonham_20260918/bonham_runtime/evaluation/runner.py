@@ -545,12 +545,17 @@ def _generate_one(
 ) -> Any:
     hook = nullcontext()
     if steering_layer is not None:
+        import torch
+
         from ..interventions.activations import residual_generation_addition_hook
 
         hook = residual_generation_addition_hook(
             llm.model,
             residual_layer=int(steering_layer),
-            addition_vector=steering_addition,
+            # State artifacts are loaded as NumPy arrays.  The intervention
+            # hook operates on model tensors, so normalize the scalar
+            # generation path exactly as the batched path already does.
+            addition_vector=torch.as_tensor(steering_addition, dtype=torch.float32),
             mode="final_prompt_only",
         )
     with hook:

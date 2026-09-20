@@ -1083,6 +1083,44 @@ class RuntimeIsolationTests(unittest.TestCase):
         self.assertIs(expected, observed)
         generate.assert_called_once()
 
+    def test_scalar_generation_converts_nontensor_steering_vector(self) -> None:
+        task = RuntimeEvaluationTask(
+            example_id="scalar-steering-generation",
+            evaluator_id="bonham_capabilities_v1",
+            display_name="Scalar steering generation regression",
+            dataset_id="humaneval_plus",
+            dataset_revision="0" * 40,
+            split="test",
+            condition_id="utility.code.humaneval_plus",
+            messages=({"role": "user", "content": "Complete the function."},),
+            output_mode="generation",
+            max_new_tokens=8,
+            metadata={},
+        )
+        llm = campaign._LLM(object(), object(), "test/model")
+        expected = GenerationResult(response_raw="pass")
+        with patch(
+            "bonham_runtime.interventions.activations.residual_generation_addition_hook",
+            return_value=mock.MagicMock(
+                __enter__=mock.Mock(return_value=None),
+                __exit__=mock.Mock(return_value=False),
+            ),
+        ) as steering_hook, patch.object(
+            HuggingFaceLLM, "generate", return_value=[expected]
+        ):
+            observed = _generate_one(
+                llm,
+                task,
+                task.messages,
+                steering_layer=3,
+                steering_addition=[1.0, 1.0, 1.0, 1.0],
+            )
+        self.assertIs(expected, observed)
+        vector = steering_hook.call_args.kwargs["addition_vector"]
+        self.assertIsInstance(vector, torch.Tensor)
+        self.assertEqual(torch.float32, vector.dtype)
+        self.assertTrue(torch.equal(torch.ones(4), vector))
+
     def test_balanced_evaluation_assignment(self) -> None:
         assignments = core.balanced_template_assignments(
             [f"q-{index}" for index in range(500)], 24, "bonham-test"
