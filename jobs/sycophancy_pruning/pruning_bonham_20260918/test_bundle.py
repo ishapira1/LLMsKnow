@@ -923,12 +923,18 @@ class RuntimeIsolationTests(unittest.TestCase):
             self.assertIn("123", body)
             self.assertIn(core.sha256_file(audit_path), body)
 
-    def test_completion_email_reauthenticates_report_receipt(self) -> None:
+    def test_completion_email_reauthenticates_every_final_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            report_path = root / "reports" / "COMPLETE.json"
-            report_path.parent.mkdir(parents=True)
-            report_path.write_text('{"status":"complete"}\n', encoding="utf-8")
+            receipt_hashes = {}
+            for field, relative_path in completion_email.AUDITED_RECEIPTS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps({"status": "complete", "field": field}) + "\n",
+                    encoding="utf-8",
+                )
+                receipt_hashes[field] = core.sha256_file(path)
             audit_path = root / "audit" / "COMPLETE.json"
             audit_path.parent.mkdir(parents=True)
             audit_path.write_text(
@@ -936,7 +942,7 @@ class RuntimeIsolationTests(unittest.TestCase):
                     {
                         "status": "complete",
                         "experiment": campaign.EXPERIMENT,
-                        "report_complete_sha256": core.sha256_file(report_path),
+                        **receipt_hashes,
                     }
                 )
                 + "\n",
@@ -946,9 +952,13 @@ class RuntimeIsolationTests(unittest.TestCase):
                 root, "itaishapira@g.harvard.edu"
             )
             self.assertEqual(
-                core.sha256_file(report_path), identity["report_complete_sha256"]
+                receipt_hashes,
+                identity["authenticated_receipts"],
             )
-            report_path.write_text('{"status":"changed"}\n', encoding="utf-8")
+            changed_path = root / completion_email.AUDITED_RECEIPTS[
+                "evaluation_complete_sha256"
+            ]
+            changed_path.write_text('{"status":"changed"}\n', encoding="utf-8")
             with self.assertRaises(completion_email.CompletionEmailError):
                 completion_email._identity(root, "itaishapira@g.harvard.edu")
 
