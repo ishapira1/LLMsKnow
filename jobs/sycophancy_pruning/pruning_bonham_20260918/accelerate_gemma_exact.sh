@@ -14,6 +14,8 @@ CAPABILITY_PRIORITY_MARKER="$RESULT_ROOT/control/PRIORITIZE_QWEN_LLAMA_CAPABILIT
 MODEL_KEY=gemma4_12b
 SUPPLEMENT_FIRST=191
 SUPPLEMENT_LAST=205
+SOURCE_SUPPLEMENT_FIRST=37
+SOURCE_SUPPLEMENT_LAST=43
 
 mkdir -p \
   "$LOG_ROOT/submit" \
@@ -96,6 +98,18 @@ supplement_receipts_complete() {
   done
 }
 
+source_supplement_receipts_complete() {
+  local index stem root
+  root="$RESULT_ROOT/source_screen/$MODEL_KEY"
+  for ((index = SOURCE_SUPPLEMENT_FIRST; index <= SOURCE_SUPPLEMENT_LAST; index++)); do
+    stem="$(printf 'shard_%04d' "$index")"
+    if [[ -f "$root/$stem/COMPLETE" ]]; then
+      continue
+    fi
+    compgen -G "$root/$stem.partial.*/COMPLETE" >/dev/null || return 1
+  done
+}
+
 score_receipts_complete() {
   [[ $(find "$RESULT_ROOT/scores/$MODEL_KEY" -mindepth 2 -maxdepth 2 \
       -type f -name COMPLETE.json 2>/dev/null | wc -l | tr -d ' ') == 7 ]]
@@ -133,6 +147,18 @@ submit_screen_test() {
   printf '%s\n' "${raw%%;*}"
 }
 
+submit_source_screen_test() {
+  local raw
+  raw="$(sbatch --parsable --account="$ACCOUNT" --partition="$GPU_TEST_PARTITION" \
+    --job-name=bonh_gem_srcsupp --nodes=1 --ntasks=2 --cpus-per-task=4 \
+    --mem=192G --time=01:00:00 --gres="$GPU_TEST_GRES:4" \
+    --export="ALL,BONHAM_BUNDLE_DIR=$BUNDLE_DIR,STAGE=source_screen,MODEL_KEY=$MODEL_KEY,PACK_START=$SOURCE_SUPPLEMENT_FIRST,PACK_END=$SOURCE_SUPPLEMENT_LAST,LANES=2,GPUS_PER_LANE=2,CPUS_PER_LANE=4,MEM_PER_LANE=96G,SCREEN_BATCH_SIZE=4,SCREEN_INPUT_DIR=$RESULT_ROOT/inputs/source_screen_model_supplement_shards/$MODEL_KEY" \
+    --output="$LOG_ROOT/slurm/gpu_multilane/%x_%j.out" \
+    --error="$LOG_ROOT/slurm/gpu_multilane/%x_%j.err" \
+    "$BUNDLE_DIR/gpu_multilane.sbatch")"
+  printf '%s\n' "${raw%%;*}"
+}
+
 wait_or_promote_supplement() {
   local job_id state partition
   while ! supplement_receipts_complete; do
@@ -161,6 +187,35 @@ wait_or_promote_supplement() {
     sleep "$POLL_SECONDS"
   done
   log "supplement_receipts_complete=1"
+}
+
+wait_or_recover_source_supplement() {
+  local job_id state
+  while ! source_supplement_receipts_complete; do
+    job_id="$(job_id_by_name bonh_gem_srcsupp)"
+    state="$(job_state "$job_id")"
+    case "$state" in
+      PENDING|RUNNING|CONFIGURING|COMPLETING|REQUEUED|RESIZING|SUSPENDED)
+        ;;
+      COMPLETED)
+        log "source_supplement_job_completed_without_all_receipts job_id=$job_id"
+        return 1
+        ;;
+      *)
+        # This four-slice screen may share gpu_test with one other four-slice
+        # recovery. It does not displace the full-memory capability jobs,
+        # which cannot run on the 20 GB MIG slices.
+        if (( $(gpu_test_job_count) < 2 )) && (( $(gpu_test_requested_gpus) <= 4 )); then
+          job_id="$(submit_source_screen_test)"
+          log "submitted_source_supplement_test job_id=$job_id prior_state=$state"
+        else
+          log "waiting_to_recover_source_supplement prior_state=$state"
+        fi
+        ;;
+    esac
+    sleep "$POLL_SECONDS"
+  done
+  log "source_supplement_receipts_complete=1"
 }
 
 submit_score() {
@@ -279,6 +334,17 @@ wait_or_promote_pipeline() {
 
 log "gemma_exact_supervisor_start commit=$(git -C "$REPO_DIR" rev-parse --short HEAD)"
 wait_or_promote_supplement
+
+source_supplement_input_receipt="$RESULT_ROOT/inputs/source_screen_model_supplement_shards/$MODEL_KEY/COMPLETE"
+if [[ ! -f "$source_supplement_input_receipt" ]]; then
+  source_prepare_job="$(submit_cpu bonh_gem_srcprep prepare_model_source_supplement 16G 00:10:00)"
+  wait_job gemma_source_supplement_prepare "$source_prepare_job"
+fi
+[[ -f "$source_supplement_input_receipt" ]] || {
+  log "missing_source_supplement_input_receipt=1"
+  exit 1
+}
+wait_or_recover_source_supplement
 
 manifest_receipt="$RESULT_ROOT/manifests/$MODEL_KEY/MANIFESTS_COMPLETE.json"
 if [[ ! -f "$manifest_receipt" ]]; then
