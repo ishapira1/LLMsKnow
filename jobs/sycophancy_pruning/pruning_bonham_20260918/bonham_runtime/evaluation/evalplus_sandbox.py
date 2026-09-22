@@ -376,7 +376,11 @@ def build_singularity_command(
         "--pwd",
         "/work",
         "--env",
-        "HF_HUB_OFFLINE=1,TRANSFORMERS_OFFLINE=1,NO_PROXY=*",
+        (
+            "HF_HUB_OFFLINE=1,TRANSFORMERS_OFFLINE=1,NO_PROXY=*,"
+            "OPENBLAS_NUM_THREADS=1,OMP_NUM_THREADS=1,MKL_NUM_THREADS=1,"
+            "NUMEXPR_NUM_THREADS=1"
+        ),
         str(spec.image_path),
         "python3",
         f"/work/{EVALPLUS_SUBSET_RUNNER_NAME}",
@@ -473,4 +477,3 @@ __all__ = [
     "sha256_file",
     "validate_evalplus_results",
 ]
-
