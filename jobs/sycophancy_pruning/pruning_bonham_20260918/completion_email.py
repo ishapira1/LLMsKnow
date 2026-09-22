@@ -8,10 +8,11 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
-from typing import Any, Mapping
+from typing import Any, List, Mapping, Optional, Tuple
 
 from core import atomic_json, atomic_text, read_json, sha256_file
 
@@ -133,34 +134,132 @@ def _send_direct_mail(
     return {"delivery": "direct_mail", "mailer": mail_binary}
 
 
+def _recover_completed_slurm_notification(
+    *, root: Path, body: str, sbatch_binary: str, sacct_binary: str
+) -> Optional[Mapping[str, Any]]:
+    """Recover a completed END notification after a local receipt crash.
+
+    The notification job's stdout is the exact authenticated message body.  A
+    matching output file plus a COMPLETED Slurm accounting state proves that
+    the END event was emitted, so a retry can finalize the immutable receipt
+    without sending the user a duplicate email.
+    """
+
+    notification_dir = root / "notifications"
+    body_path = notification_dir / "FINAL_EMAIL_BODY.txt"
+    if not body_path.is_file() or body_path.read_text(encoding="utf-8") != body:
+        return None
+    candidates: List[Tuple[int, Path]] = []
+    for output_path in notification_dir.glob("final_email_slurm_*.out"):
+        match = re.fullmatch(r"final_email_slurm_([0-9]+)\.out", output_path.name)
+        if match is not None:
+            candidates.append((int(match.group(1)), output_path))
+    for job_id, output_path in sorted(candidates, reverse=True):
+        if output_path.read_text(encoding="utf-8") != body:
+            continue
+        completed = subprocess.run(
+            [
+                sacct_binary,
+                "-X",
+                "-n",
+                "-j",
+                str(job_id),
+                "--parsable2",
+                "--format=State",
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        state = completed.stdout.strip().split("|", 1)[0].split()[0]
+        if state == "COMPLETED":
+            sent_at = datetime.fromtimestamp(
+                output_path.stat().st_mtime, tz=timezone.utc
+            ).isoformat()
+            return {
+                "delivery": "slurm_end_notification",
+                "mailer": sbatch_binary,
+                "slurm_notification_job_id": str(job_id),
+                "notification_body_path": str(body_path.resolve()),
+                "recovered_from_sending_receipt": True,
+                "sent_at": sent_at,
+            }
+    return None
+
+
 def send_completion_email(args: argparse.Namespace) -> None:
     root = Path(args.result_root).resolve()
     identity = _identity(root, str(args.recipient))
-    ledger = root / "notifications" / "FINAL_EMAIL.json"
-    if ledger.is_file():
-        existing = read_json(ledger)
-        existing_identity = dict(existing.get("identity", {}))
-        if existing.get("status") == "sent" and existing_identity == dict(identity):
+    notification_dir = root / "notifications"
+    legacy_ledger = notification_dir / "FINAL_EMAIL.json"
+    pending_receipt = notification_dir / "PENDING.json"
+    complete_receipt = notification_dir / "COMPLETE.json"
+    subject = str(args.subject)
+    body = build_body(root, identity)
+    sbatch_binary = shutil.which("sbatch")
+    sacct_binary = shutil.which("sacct")
+    mail_binary = shutil.which("mail") or shutil.which("mailx")
+    if sbatch_binary is None and mail_binary is None:
+        raise CompletionEmailError("Neither sbatch nor mail/mailx is available")
+
+    if complete_receipt.is_file():
+        existing = read_json(complete_receipt)
+        if (
+            existing.get("status") == "sent"
+            and dict(existing.get("identity", {})) == dict(identity)
+        ):
             print(json.dumps(existing, indent=2, sort_keys=True))
             return
+        raise CompletionEmailError(
+            "Completion-email receipt belongs to a different authenticated audit"
+        )
+
+    for record_path in (legacy_ledger, pending_receipt):
+        if not record_path.is_file():
+            continue
+        existing = read_json(record_path)
+        existing_identity = dict(existing.get("identity", {}))
         if existing_identity != dict(identity):
             raise CompletionEmailError(
                 "Completion-email ledger belongs to a different authenticated audit"
             )
+        if existing.get("status") == "sent":
+            atomic_json(complete_receipt, existing)
+            print(json.dumps(existing, indent=2, sort_keys=True))
+            return
+        if (
+            existing.get("status") == "sending"
+            and sbatch_binary is not None
+            and sacct_binary is not None
+        ):
+            recovered = _recover_completed_slurm_notification(
+                root=root,
+                body=body,
+                sbatch_binary=str(sbatch_binary),
+                sacct_binary=str(sacct_binary),
+            )
+            if recovered is not None:
+                complete = {
+                    **existing,
+                    **recovered,
+                    "status": "sent",
+                    "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                }
+                atomic_json(complete_receipt, complete)
+                print(json.dumps(complete, indent=2, sort_keys=True))
+                return
+        raise CompletionEmailError(
+            "An immutable sending receipt exists without a completed notification; "
+            "refusing to risk a duplicate email"
+        )
 
-    subject = str(args.subject)
-    body = build_body(root, identity)
-    sbatch_binary = shutil.which("sbatch")
-    mail_binary = shutil.which("mail") or shutil.which("mailx")
-    if sbatch_binary is None and mail_binary is None:
-        raise CompletionEmailError("Neither sbatch nor mail/mailx is available")
     pending = {
         "status": "sending",
         "identity": dict(identity),
         "subject": subject,
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
-    atomic_json(ledger, pending)
+    atomic_json(pending_receipt, pending)
     try:
         if sbatch_binary is not None:
             delivery = _send_slurm_notification(
@@ -178,8 +277,9 @@ def send_completion_email(args: argparse.Namespace) -> None:
                 mail_binary=str(mail_binary),
             )
     except Exception as error:
+        failure_name = datetime.now(timezone.utc).strftime("FAILED_%Y%m%dT%H%M%S%fZ.json")
         atomic_json(
-            ledger,
+            notification_dir / failure_name,
             {
                 **pending,
                 "status": "failed",
@@ -195,7 +295,7 @@ def send_completion_email(args: argparse.Namespace) -> None:
         "sent_at": datetime.now(timezone.utc).isoformat(),
         "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
     }
-    atomic_json(ledger, complete)
+    atomic_json(complete_receipt, complete)
     print(json.dumps(complete, indent=2, sort_keys=True))
 
 

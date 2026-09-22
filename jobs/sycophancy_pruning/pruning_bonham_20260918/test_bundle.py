@@ -1090,6 +1090,35 @@ class RuntimeIsolationTests(unittest.TestCase):
                 ),
             )
 
+    def test_completion_email_recovers_completed_slurm_notification(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            notification_dir = root / "notifications"
+            notification_dir.mkdir(parents=True)
+            body = "Bonham passed.\n"
+            (notification_dir / "FINAL_EMAIL_BODY.txt").write_text(
+                body, encoding="utf-8"
+            )
+            (notification_dir / "final_email_slurm_47778001.out").write_text(
+                body, encoding="utf-8"
+            )
+            with mock.patch.object(
+                completion_email.subprocess,
+                "run",
+                return_value=mock.Mock(stdout="COMPLETED|\n"),
+            ) as run:
+                recovered = completion_email._recover_completed_slurm_notification(
+                    root=root,
+                    body=body,
+                    sbatch_binary="/usr/bin/sbatch",
+                    sacct_binary="/usr/bin/sacct",
+                )
+            self.assertIsNotNone(recovered)
+            assert recovered is not None
+            self.assertEqual("47778001", recovered["slurm_notification_job_id"])
+            self.assertTrue(recovered["recovered_from_sending_receipt"])
+            self.assertIn("--format=State", run.call_args.args[0])
+
     def test_bonham_triviaqa_uses_registered_exact_match_parser(self) -> None:
         task = RuntimeEvaluationTask(
             example_id="triviaqa:q-1",
