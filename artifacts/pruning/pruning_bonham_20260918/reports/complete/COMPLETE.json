@@ -1,0 +1,68 @@
+{
+  "bootstrap_replicates": 2000,
+  "csv_files": {
+    "general_capabilities.csv": "7410a19250814dea5d2a605d8c833473345b881996e9a9b977627901f8eeb600",
+    "generalization_cells.csv": "0a5053e76d176e7ad496ad3ca2145b56987075c3dc5c52aee4ee50c1c604a056",
+    "generalization_macro.csv": "9c4c7cc92209587de5d0582ba03d90e0943550b82a22fef6648addf36bd08ebc",
+    "generalization_template_families.csv": "fe6f6a3d45c4dd9a9c8c016bb148efef3a713f229c9925ec85653232c0d0975d",
+    "native_tool_advantage.csv": "7befd769230e2bfe9c412da9c0ab06d70ce2dc6d28e70b248ad12a8978de9f14",
+    "native_tool_transfer.csv": "19ab2346f04541f738377d3dc047b628097fae0d65bf01ad54235440695b31da",
+    "pruning_effect.csv": "611e36f401a629015c0b6d0a5f6b42aae3601578e696a208dfd8bd30c93f1339",
+    "reliable_source_advantage.csv": "a379f122224c406f7c1054c33a5eb012fb80ba62c1b58edd46e09bea5c528dd5",
+    "source_attribution_cells.csv": "ae1746170fa9764fae956ecd308261257bc04800d3f7ef78b3663f5b8fd18290",
+    "source_attribution_pruning_effect.csv": "5a3141f66e7502ffbde178ec16012a47152685f25f66340c0b6ed72fff65c740",
+    "source_family_advantage.csv": "ee0182a80e75c3d8aff232b9072494de9c6dc0609a3968638954a15ba4ed8029",
+    "source_family_pruning_effect.csv": "715f7768584dac87350b435e8aae27f6cb1f2ac29d42bdeccfd88b9178c9ae44",
+    "source_form_advantage.csv": "58317055e2b71b58e267211adf3f2a80200f1db299a188895a7d035e0672c69a",
+    "source_overall_advantage.csv": "1fd0a0247036583cd96f50fe4919de4cc8b9dd7b9056ba03050dafdc29ef8859",
+    "source_overall_pruning_effect.csv": "1717b8856e3a495041ba43ab90237273f4f51f4aa9bcc2d506947998da9885e7",
+    "stress_tests.csv": "545dd83e6d8ea1a992c4200a472800e6e50fdd126248b16c3396020b94b303c9",
+    "useful_assertion_cells.csv": "821833e13c31fdcda09451ce9463388415cedcbc67a65b3abb1920ddd7dbde28"
+  },
+  "evalplus_complete_sha256": "6d52e9186d13f4c059c166358735b3b551bc19dcb85c57ccafb0364ce4958a96",
+  "experiment": "pruning_bonham_20260918",
+  "figures": [
+    {
+      "path": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/pruning_bonham_20260918/reports/generalization_movement.png",
+      "sha256": "f8412520191abc18d22f1044ee167285bf1642ce28ad87fbfc0c10a4d5709700"
+    },
+    {
+      "path": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/pruning_bonham_20260918/reports/generalization_movement.pdf",
+      "sha256": "9d090b23621571f83371ba7453a430182028d2adbff73fedd472270416c44fcc"
+    },
+    {
+      "path": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/pruning_bonham_20260918/reports/reliable_source_advantage.png",
+      "sha256": "fcd559e76dd4e812ef6270fa519fa7b4a99852e23ed68e64a9d6eaf8c168abe2"
+    },
+    {
+      "path": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/pruning_bonham_20260918/reports/reliable_source_advantage.pdf",
+      "sha256": "a084fbe1f2e1c28e24bfb24cc5f28bcf36a19e2556d4ae2484b7c7bf27e4561d"
+    },
+    {
+      "path": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/pruning_bonham_20260918/reports/source_family_advantage.png",
+      "sha256": "2127aef5f2e7cacc4d8e1313af950e855eb9557de7f4fd52dd0f9009d505d43d"
+    },
+    {
+      "path": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/pruning_bonham_20260918/reports/source_family_advantage.pdf",
+      "sha256": "36f7d4da2e60fa954a3890a3fc705a8796afa78bb127b957f503baa290934713"
+    },
+    {
+      "path": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/pruning_bonham_20260918/reports/source_attribution_pruning_effect.png",
+      "sha256": "facc77e43c4683f2d8283de9c54b6af7226c8e30c34c3da4d9585eff7782a818"
+    },
+    {
+      "path": "/n/holystore01/LABS/barak_lab/Users/ishapira/LLMsKnow_results/pruning_bonham_20260918/reports/source_attribution_pruning_effect.pdf",
+      "sha256": "8be966b5b5a3820688127daa4cc4d2ab018497daf3f1260791719b0892813281"
+    }
+  ],
+  "includes_capabilities": true,
+  "json_sha256": "4c87dbd45bdf90640c766fd841a1f5fe9eee2d7edb14cacc2d94d4ad2c3cf8cc",
+  "latex_sha256": "bdc23454f8fe330a0e66e4489e66346e3d177ccfbb6f55f73bd13fd44f48c88a",
+  "model_keys": [
+    "llama31_8b",
+    "qwen25_7b",
+    "gemma4_12b"
+  ],
+  "scope": "complete_campaign",
+  "status": "complete"
+}

@@ -1,0 +1,442 @@
+{
+  "aggregation": "argmax(choice_probabilities) == gold_choice",
+  "authenticated_shard_count": 2160,
+  "experiment": "pruning_bonham_20260918",
+  "rows": [
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "unpruned",
+      "value": 0.698
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "unpruned",
+      "value": 0.768
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "unpruned",
+      "value": 0.776
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "n1_mechanism",
+      "value": 0.638
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "n1_mechanism",
+      "value": 0.756
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "n1_mechanism",
+      "value": 0.744
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "random_n1",
+      "value": 0.708
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "random_n1",
+      "value": 0.764
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "random_n1",
+      "value": 0.774
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "weak_prompt",
+      "value": 0.564
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "weak_prompt",
+      "value": 0.688
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "weak_prompt",
+      "value": 0.656
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "strong_prompt",
+      "value": 0.69
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "strong_prompt",
+      "value": 0.764
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "strong_prompt",
+      "value": 0.73
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.668
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.734
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "llama31_8b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.76
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "unpruned",
+      "value": 0.808
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "unpruned",
+      "value": 0.864
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "unpruned",
+      "value": 0.848
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "n1_mechanism",
+      "value": 0.802
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "n1_mechanism",
+      "value": 0.856
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "n1_mechanism",
+      "value": 0.84
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "random_n1",
+      "value": 0.808
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "random_n1",
+      "value": 0.858
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "random_n1",
+      "value": 0.85
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "weak_prompt",
+      "value": 0.792
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "weak_prompt",
+      "value": 0.868
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "weak_prompt",
+      "value": 0.812
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "strong_prompt",
+      "value": 0.772
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "strong_prompt",
+      "value": 0.854
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "strong_prompt",
+      "value": 0.808
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.81
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.864
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "qwen25_7b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.84
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "unpruned",
+      "value": 0.546
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "unpruned",
+      "value": 0.366
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "unpruned",
+      "value": 0.698
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "n1_mechanism",
+      "value": 0.328
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "n1_mechanism",
+      "value": 0.262
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "n1_mechanism",
+      "value": 0.53
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "random_n1",
+      "value": 0.544
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "random_n1",
+      "value": 0.368
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "random_n1",
+      "value": 0.694
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "weak_prompt",
+      "value": 0.496
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "weak_prompt",
+      "value": 0.518
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "weak_prompt",
+      "value": 0.716
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "strong_prompt",
+      "value": 0.474
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "strong_prompt",
+      "value": 0.518
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "strong_prompt",
+      "value": 0.712
+    },
+    {
+      "dataset_id": "commonsense_qa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.5
+    },
+    {
+      "dataset_id": "arc_challenge",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.442
+    },
+    {
+      "dataset_id": "openbookqa",
+      "denominator": 500,
+      "metric": "argmax_choice_probability_accuracy",
+      "model_key": "gemma4_12b",
+      "state_id": "prompt_only_meandiff",
+      "value": 0.63
+    }
+  ],
+  "source_audit_complete_sha256": "69bbe19a88cdbcb7814ec7295435b021688aa586574a11d41b8705454b4c8c8d",
+  "source_report_complete_sha256": "b3fe0e3521c7bd5f1d64ad63933cb4a4cb0dbfd5ddcd5fcdbc14f753e6ef5613",
+  "status": "complete"
+}

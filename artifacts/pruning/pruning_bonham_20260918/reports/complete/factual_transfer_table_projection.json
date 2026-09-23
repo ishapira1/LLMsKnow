@@ -1,0 +1,1002 @@
+{
+  "experiment": "pruning_bonham_20260918",
+  "method_state_order": [
+    "unpruned",
+    "n1_mechanism",
+    "random_n1",
+    "weak_prompt",
+    "strong_prompt",
+    "prompt_only_meandiff"
+  ],
+  "models": {
+    "gemma4_12b": [
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Held-out CommonsenseQA and ARC questions",
+        "estimates": {
+          "n1_mechanism": 0.001,
+          "prompt_only_meandiff": 0.009,
+          "random_n1": 0.053,
+          "strong_prompt": 0.006,
+          "unpruned": 0.054,
+          "weak_prompt": 0.008
+        },
+        "kind": "generalization",
+        "label": "Held-out items",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Close paraphrases on held-out CommonsenseQA and ARC questions",
+        "estimates": {
+          "n1_mechanism": 0.0,
+          "prompt_only_meandiff": 0.005,
+          "random_n1": 0.034,
+          "strong_prompt": 0.004,
+          "unpruned": 0.035,
+          "weak_prompt": 0.008
+        },
+        "kind": "generalization",
+        "label": "Unseen phrasing",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "close_paraphrase",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Generic conflicting rationale in a follow-up turn",
+        "estimates": {
+          "n1_mechanism": 0.001,
+          "prompt_only_meandiff": 0.027,
+          "random_n1": 0.263,
+          "strong_prompt": 0.008,
+          "unpruned": 0.259,
+          "weak_prompt": 0.054
+        },
+        "kind": "stress",
+        "label": "Reason-backed disagreement",
+        "source": "stress_tests.csv"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Seen suggestion wording in a follow-up turn",
+        "estimates": {
+          "n1_mechanism": 0.001,
+          "prompt_only_meandiff": 0.098,
+          "random_n1": 0.331,
+          "strong_prompt": 0.074,
+          "unpruned": 0.328,
+          "weak_prompt": 0.104
+        },
+        "kind": "generalization",
+        "label": "Multi-turn pressure",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "multi_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Entirely held-out QA dataset",
+        "estimates": {
+          "n1_mechanism": 0.0,
+          "prompt_only_meandiff": 0.002,
+          "random_n1": 0.056,
+          "strong_prompt": 0.008,
+          "unpruned": 0.058,
+          "weak_prompt": 0.01
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and close-paraphrase transfer",
+        "estimates": {
+          "n1_mechanism": 0.0,
+          "prompt_only_meandiff": 0.0,
+          "random_n1": 0.05,
+          "strong_prompt": 0.014,
+          "unpruned": 0.05,
+          "weak_prompt": 0.014
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + unseen phrasing",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "close_paraphrase",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and rationale-framed follow-up transfer",
+        "estimates": {
+          "n1_mechanism": 0.0,
+          "prompt_only_meandiff": 0.046,
+          "random_n1": 0.358,
+          "strong_prompt": 0.03,
+          "unpruned": 0.354,
+          "weak_prompt": 0.152
+        },
+        "kind": "stress",
+        "label": "OpenBookQA + reasoning",
+        "source": "stress_tests.csv"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and conversational transfer",
+        "estimates": {
+          "n1_mechanism": 0.004,
+          "prompt_only_meandiff": 0.094,
+          "random_n1": 0.356,
+          "strong_prompt": 0.148,
+          "unpruned": 0.36,
+          "weak_prompt": 0.254
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + multi-turn",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "multi_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Parser-valid correct-to-wrong change",
+        "estimates": {
+          "n1_mechanism": 0.0,
+          "prompt_only_meandiff": 0.0,
+          "random_n1": 0.014,
+          "strong_prompt": 0.001,
+          "unpruned": 0.014,
+          "weak_prompt": 0.002
+        },
+        "kind": "generalization",
+        "label": "Unsupported doubt: valid flip",
+        "metric": "correct_to_wrong_flip",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Malformed, refused, or out-of-range response",
+        "estimates": {
+          "n1_mechanism": 1.0,
+          "prompt_only_meandiff": 1.0,
+          "random_n1": 0.919,
+          "strong_prompt": 0.981,
+          "unpruned": 0.912,
+          "weak_prompt": 0.991
+        },
+        "kind": "generalization",
+        "label": "Unsupported doubt: invalid",
+        "metric": "invalid",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Valid correct-to-wrong transfer to the held-out dataset",
+        "estimates": {
+          "n1_mechanism": 0.0,
+          "prompt_only_meandiff": 0.0,
+          "random_n1": 0.026,
+          "strong_prompt": 0.0,
+          "unpruned": 0.024,
+          "weak_prompt": 0.002
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + doubt: valid flip",
+        "metric": "correct_to_wrong_flip",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Invalid-response transfer to the held-out dataset",
+        "estimates": {
+          "n1_mechanism": 1.0,
+          "prompt_only_meandiff": 0.996,
+          "random_n1": 0.728,
+          "strong_prompt": 0.914,
+          "unpruned": 0.728,
+          "weak_prompt": 0.974
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + doubt: invalid",
+        "metric": "invalid",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "accuracy",
+        "dataset": "commonsense_qa",
+        "denominator_per_state": 500,
+        "description": "Commonsense multiple-choice QA",
+        "estimates": {
+          "n1_mechanism": 0.328,
+          "prompt_only_meandiff": 0.5,
+          "random_n1": 0.544,
+          "strong_prompt": 0.474,
+          "unpruned": 0.546,
+          "weak_prompt": 0.496
+        },
+        "kind": "neutral",
+        "label": "CommonsenseQA",
+        "source": "neutral_factual_accuracy.json"
+      },
+      {
+        "category": "accuracy",
+        "dataset": "arc_challenge",
+        "denominator_per_state": 500,
+        "description": "Grade-school science questions",
+        "estimates": {
+          "n1_mechanism": 0.262,
+          "prompt_only_meandiff": 0.442,
+          "random_n1": 0.368,
+          "strong_prompt": 0.518,
+          "unpruned": 0.366,
+          "weak_prompt": 0.518
+        },
+        "kind": "neutral",
+        "label": "ARC Challenge",
+        "source": "neutral_factual_accuracy.json"
+      },
+      {
+        "benchmark": "OpenBookQA",
+        "category": "accuracy",
+        "denominator_per_state": 500,
+        "description": "Open-book science questions",
+        "estimates": {
+          "n1_mechanism": 0.53,
+          "prompt_only_meandiff": 0.63,
+          "random_n1": 0.694,
+          "strong_prompt": 0.712,
+          "unpruned": 0.698,
+          "weak_prompt": 0.716
+        },
+        "kind": "capability",
+        "label": "OpenBookQA",
+        "source": "general_capabilities.csv"
+      }
+    ],
+    "llama31_8b": [
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Held-out CommonsenseQA and ARC questions",
+        "estimates": {
+          "n1_mechanism": 0.211,
+          "prompt_only_meandiff": 0.244,
+          "random_n1": 0.339,
+          "strong_prompt": 0.158,
+          "unpruned": 0.342,
+          "weak_prompt": 0.042
+        },
+        "kind": "generalization",
+        "label": "Held-out items",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Close paraphrases on held-out CommonsenseQA and ARC questions",
+        "estimates": {
+          "n1_mechanism": 0.236,
+          "prompt_only_meandiff": 0.26,
+          "random_n1": 0.378,
+          "strong_prompt": 0.193,
+          "unpruned": 0.384,
+          "weak_prompt": 0.08
+        },
+        "kind": "generalization",
+        "label": "Unseen phrasing",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "close_paraphrase",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Generic conflicting rationale in a follow-up turn",
+        "estimates": {
+          "n1_mechanism": 0.554,
+          "prompt_only_meandiff": 0.853,
+          "random_n1": 0.893,
+          "strong_prompt": 0.895,
+          "unpruned": 0.897,
+          "weak_prompt": 0.792
+        },
+        "kind": "stress",
+        "label": "Reason-backed disagreement",
+        "source": "stress_tests.csv"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Seen suggestion wording in a follow-up turn",
+        "estimates": {
+          "n1_mechanism": 0.599,
+          "prompt_only_meandiff": 0.869,
+          "random_n1": 0.849,
+          "strong_prompt": 0.558,
+          "unpruned": 0.849,
+          "weak_prompt": 0.358
+        },
+        "kind": "generalization",
+        "label": "Multi-turn pressure",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "multi_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Entirely held-out QA dataset",
+        "estimates": {
+          "n1_mechanism": 0.234,
+          "prompt_only_meandiff": 0.262,
+          "random_n1": 0.398,
+          "strong_prompt": 0.17,
+          "unpruned": 0.396,
+          "weak_prompt": 0.064
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and close-paraphrase transfer",
+        "estimates": {
+          "n1_mechanism": 0.264,
+          "prompt_only_meandiff": 0.282,
+          "random_n1": 0.426,
+          "strong_prompt": 0.206,
+          "unpruned": 0.43,
+          "weak_prompt": 0.074
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + unseen phrasing",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "close_paraphrase",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and rationale-framed follow-up transfer",
+        "estimates": {
+          "n1_mechanism": 0.588,
+          "prompt_only_meandiff": 0.882,
+          "random_n1": 0.9,
+          "strong_prompt": 0.896,
+          "unpruned": 0.896,
+          "weak_prompt": 0.798
+        },
+        "kind": "stress",
+        "label": "OpenBookQA + reasoning",
+        "source": "stress_tests.csv"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and conversational transfer",
+        "estimates": {
+          "n1_mechanism": 0.602,
+          "prompt_only_meandiff": 0.86,
+          "random_n1": 0.844,
+          "strong_prompt": 0.412,
+          "unpruned": 0.848,
+          "weak_prompt": 0.234
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + multi-turn",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "multi_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Parser-valid correct-to-wrong change",
+        "estimates": {
+          "n1_mechanism": 0.032,
+          "prompt_only_meandiff": 0.095,
+          "random_n1": 0.135,
+          "strong_prompt": 0.152,
+          "unpruned": 0.13,
+          "weak_prompt": 0.014
+        },
+        "kind": "generalization",
+        "label": "Unsupported doubt: valid flip",
+        "metric": "correct_to_wrong_flip",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Malformed, refused, or out-of-range response",
+        "estimates": {
+          "n1_mechanism": 0.555,
+          "prompt_only_meandiff": 0.183,
+          "random_n1": 0.147,
+          "strong_prompt": 0.163,
+          "unpruned": 0.144,
+          "weak_prompt": 0.929
+        },
+        "kind": "generalization",
+        "label": "Unsupported doubt: invalid",
+        "metric": "invalid",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Valid correct-to-wrong transfer to the held-out dataset",
+        "estimates": {
+          "n1_mechanism": 0.076,
+          "prompt_only_meandiff": 0.114,
+          "random_n1": 0.21,
+          "strong_prompt": 0.224,
+          "unpruned": 0.204,
+          "weak_prompt": 0.004
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + doubt: valid flip",
+        "metric": "correct_to_wrong_flip",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Invalid-response transfer to the held-out dataset",
+        "estimates": {
+          "n1_mechanism": 0.488,
+          "prompt_only_meandiff": 0.122,
+          "random_n1": 0.106,
+          "strong_prompt": 0.118,
+          "unpruned": 0.094,
+          "weak_prompt": 0.952
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + doubt: invalid",
+        "metric": "invalid",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "accuracy",
+        "dataset": "commonsense_qa",
+        "denominator_per_state": 500,
+        "description": "Commonsense multiple-choice QA",
+        "estimates": {
+          "n1_mechanism": 0.638,
+          "prompt_only_meandiff": 0.668,
+          "random_n1": 0.708,
+          "strong_prompt": 0.69,
+          "unpruned": 0.698,
+          "weak_prompt": 0.564
+        },
+        "kind": "neutral",
+        "label": "CommonsenseQA",
+        "source": "neutral_factual_accuracy.json"
+      },
+      {
+        "category": "accuracy",
+        "dataset": "arc_challenge",
+        "denominator_per_state": 500,
+        "description": "Grade-school science questions",
+        "estimates": {
+          "n1_mechanism": 0.756,
+          "prompt_only_meandiff": 0.734,
+          "random_n1": 0.764,
+          "strong_prompt": 0.764,
+          "unpruned": 0.768,
+          "weak_prompt": 0.688
+        },
+        "kind": "neutral",
+        "label": "ARC Challenge",
+        "source": "neutral_factual_accuracy.json"
+      },
+      {
+        "benchmark": "OpenBookQA",
+        "category": "accuracy",
+        "denominator_per_state": 500,
+        "description": "Open-book science questions",
+        "estimates": {
+          "n1_mechanism": 0.744,
+          "prompt_only_meandiff": 0.76,
+          "random_n1": 0.774,
+          "strong_prompt": 0.73,
+          "unpruned": 0.776,
+          "weak_prompt": 0.656
+        },
+        "kind": "capability",
+        "label": "OpenBookQA",
+        "source": "general_capabilities.csv"
+      }
+    ],
+    "qwen25_7b": [
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Held-out CommonsenseQA and ARC questions",
+        "estimates": {
+          "n1_mechanism": 0.124,
+          "prompt_only_meandiff": 0.241,
+          "random_n1": 0.315,
+          "strong_prompt": 0.231,
+          "unpruned": 0.326,
+          "weak_prompt": 0.29
+        },
+        "kind": "generalization",
+        "label": "Held-out items",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Close paraphrases on held-out CommonsenseQA and ARC questions",
+        "estimates": {
+          "n1_mechanism": 0.119,
+          "prompt_only_meandiff": 0.216,
+          "random_n1": 0.284,
+          "strong_prompt": 0.203,
+          "unpruned": 0.282,
+          "weak_prompt": 0.257
+        },
+        "kind": "generalization",
+        "label": "Unseen phrasing",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "close_paraphrase",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Generic conflicting rationale in a follow-up turn",
+        "estimates": {
+          "n1_mechanism": 0.455,
+          "prompt_only_meandiff": 0.664,
+          "random_n1": 0.726,
+          "strong_prompt": 0.75,
+          "unpruned": 0.721,
+          "weak_prompt": 0.701
+        },
+        "kind": "stress",
+        "label": "Reason-backed disagreement",
+        "source": "stress_tests.csv"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Seen suggestion wording in a follow-up turn",
+        "estimates": {
+          "n1_mechanism": 0.412,
+          "prompt_only_meandiff": 0.734,
+          "random_n1": 0.773,
+          "strong_prompt": 0.656,
+          "unpruned": 0.769,
+          "weak_prompt": 0.675
+        },
+        "kind": "generalization",
+        "label": "Multi-turn pressure",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "multi_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Entirely held-out QA dataset",
+        "estimates": {
+          "n1_mechanism": 0.196,
+          "prompt_only_meandiff": 0.348,
+          "random_n1": 0.428,
+          "strong_prompt": 0.312,
+          "unpruned": 0.434,
+          "weak_prompt": 0.374
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and close-paraphrase transfer",
+        "estimates": {
+          "n1_mechanism": 0.172,
+          "prompt_only_meandiff": 0.324,
+          "random_n1": 0.398,
+          "strong_prompt": 0.298,
+          "unpruned": 0.4,
+          "weak_prompt": 0.39
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + unseen phrasing",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "close_paraphrase",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and rationale-framed follow-up transfer",
+        "estimates": {
+          "n1_mechanism": 0.47,
+          "prompt_only_meandiff": 0.71,
+          "random_n1": 0.772,
+          "strong_prompt": 0.774,
+          "unpruned": 0.768,
+          "weak_prompt": 0.706
+        },
+        "kind": "stress",
+        "label": "OpenBookQA + reasoning",
+        "source": "stress_tests.csv"
+      },
+      {
+        "bias_type": "incorrect_suggestion",
+        "category": "wrong_adoption",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Dataset and conversational transfer",
+        "estimates": {
+          "n1_mechanism": 0.446,
+          "prompt_only_meandiff": 0.706,
+          "random_n1": 0.736,
+          "strong_prompt": 0.656,
+          "unpruned": 0.732,
+          "weak_prompt": 0.688
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + multi-turn",
+        "metric": "adoption_or_rejection",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "multi_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Parser-valid correct-to-wrong change",
+        "estimates": {
+          "n1_mechanism": 0.052,
+          "prompt_only_meandiff": 0.2,
+          "random_n1": 0.156,
+          "strong_prompt": 0.103,
+          "unpruned": 0.16,
+          "weak_prompt": 0.132
+        },
+        "kind": "generalization",
+        "label": "Unsupported doubt: valid flip",
+        "metric": "correct_to_wrong_flip",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "commonsense_qa",
+          "arc_challenge"
+        ],
+        "denominator_per_state": 1000,
+        "description": "Malformed, refused, or out-of-range response",
+        "estimates": {
+          "n1_mechanism": 0.037,
+          "prompt_only_meandiff": 0.033,
+          "random_n1": 0.007,
+          "strong_prompt": 0.095,
+          "unpruned": 0.008,
+          "weak_prompt": 0.027
+        },
+        "kind": "generalization",
+        "label": "Unsupported doubt: invalid",
+        "metric": "invalid",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Valid correct-to-wrong transfer to the held-out dataset",
+        "estimates": {
+          "n1_mechanism": 0.058,
+          "prompt_only_meandiff": 0.22,
+          "random_n1": 0.174,
+          "strong_prompt": 0.122,
+          "unpruned": 0.172,
+          "weak_prompt": 0.168
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + doubt: valid flip",
+        "metric": "correct_to_wrong_flip",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "bias_type": "doubt_correct",
+        "category": "doubt",
+        "datasets": [
+          "openbookqa"
+        ],
+        "denominator_per_state": 500,
+        "description": "Invalid-response transfer to the held-out dataset",
+        "estimates": {
+          "n1_mechanism": 0.022,
+          "prompt_only_meandiff": 0.01,
+          "random_n1": 0.0,
+          "strong_prompt": 0.146,
+          "unpruned": 0.0,
+          "weak_prompt": 0.01
+        },
+        "kind": "generalization",
+        "label": "OpenBookQA + doubt: invalid",
+        "metric": "invalid",
+        "prompt_regime": "seen",
+        "source": "generalization_cells.csv",
+        "turn_format": "single_turn"
+      },
+      {
+        "category": "accuracy",
+        "dataset": "commonsense_qa",
+        "denominator_per_state": 500,
+        "description": "Commonsense multiple-choice QA",
+        "estimates": {
+          "n1_mechanism": 0.802,
+          "prompt_only_meandiff": 0.81,
+          "random_n1": 0.808,
+          "strong_prompt": 0.772,
+          "unpruned": 0.808,
+          "weak_prompt": 0.792
+        },
+        "kind": "neutral",
+        "label": "CommonsenseQA",
+        "source": "neutral_factual_accuracy.json"
+      },
+      {
+        "category": "accuracy",
+        "dataset": "arc_challenge",
+        "denominator_per_state": 500,
+        "description": "Grade-school science questions",
+        "estimates": {
+          "n1_mechanism": 0.856,
+          "prompt_only_meandiff": 0.864,
+          "random_n1": 0.858,
+          "strong_prompt": 0.854,
+          "unpruned": 0.864,
+          "weak_prompt": 0.868
+        },
+        "kind": "neutral",
+        "label": "ARC Challenge",
+        "source": "neutral_factual_accuracy.json"
+      },
+      {
+        "benchmark": "OpenBookQA",
+        "category": "accuracy",
+        "denominator_per_state": 500,
+        "description": "Open-book science questions",
+        "estimates": {
+          "n1_mechanism": 0.84,
+          "prompt_only_meandiff": 0.84,
+          "random_n1": 0.85,
+          "strong_prompt": 0.808,
+          "unpruned": 0.848,
+          "weak_prompt": 0.812
+        },
+        "kind": "capability",
+        "label": "OpenBookQA",
+        "source": "general_capabilities.csv"
+      }
+    ]
+  },
+  "neutral_accuracy_sha256": "1be7c63028823bd1245dcd7e00aed825fb8c2dd1ef3e78603f9675ac59bcec4f",
+  "report_complete_sha256": "b3fe0e3521c7bd5f1d64ad63933cb4a4cb0dbfd5ddcd5fcdbc14f753e6ef5613",
+  "report_csv_sha256": {
+    "general_capabilities.csv": "7410a19250814dea5d2a605d8c833473345b881996e9a9b977627901f8eeb600",
+    "generalization_cells.csv": "0a5053e76d176e7ad496ad3ca2145b56987075c3dc5c52aee4ee50c1c604a056",
+    "stress_tests.csv": "545dd83e6d8ea1a992c4200a472800e6e50fdd126248b16c3396020b94b303c9"
+  },
+  "status": "complete"
+}

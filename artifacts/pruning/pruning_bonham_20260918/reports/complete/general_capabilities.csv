@@ -1,0 +1,289 @@
+benchmark,denominator,evaluator_id,metric,model_key,state_id,value
+BoolQ,500,bonham_boolq,accuracy,llama31_8b,unpruned,0.85
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,llama31_8b,unpruned,0.742
+RTE,277,bonham_rte,accuracy,llama31_8b,unpruned,0.5306859205776173
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,llama31_8b,unpruned,0.624
+WinoGrande,500,bonham_winogrande,accuracy,llama31_8b,unpruned,0.662
+MMLU,57,mmlu_full,macro_accuracy,llama31_8b,unpruned,0.5703892867674032
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,llama31_8b,unpruned,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,unpruned,0.42
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,unpruned,0.9
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,llama31_8b,unpruned,0.776
+HumanEval+,164,HumanEval+,plus_pass_at_1,llama31_8b,unpruned,0.6402439024390244
+MBPP+,378,MBPP+,plus_pass_at_1,llama31_8b,unpruned,0.5978835978835979
+BoolQ,500,bonham_boolq,accuracy,llama31_8b,n1_mechanism,0.844
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,llama31_8b,n1_mechanism,0.734
+RTE,277,bonham_rte,accuracy,llama31_8b,n1_mechanism,0.5306859205776173
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,llama31_8b,n1_mechanism,0.616
+WinoGrande,500,bonham_winogrande,accuracy,llama31_8b,n1_mechanism,0.666
+MMLU,57,mmlu_full,macro_accuracy,llama31_8b,n1_mechanism,0.5772112992680859
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,llama31_8b,n1_mechanism,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,n1_mechanism,0.43
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,n1_mechanism,0.88
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,llama31_8b,n1_mechanism,0.744
+HumanEval+,164,HumanEval+,plus_pass_at_1,llama31_8b,n1_mechanism,0.6463414634146342
+MBPP+,378,MBPP+,plus_pass_at_1,llama31_8b,n1_mechanism,0.5873015873015873
+BoolQ,500,bonham_boolq,accuracy,llama31_8b,n2_selective,0.842
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,llama31_8b,n2_selective,0.738
+RTE,277,bonham_rte,accuracy,llama31_8b,n2_selective,0.5306859205776173
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,llama31_8b,n2_selective,0.62
+WinoGrande,500,bonham_winogrande,accuracy,llama31_8b,n2_selective,0.668
+MMLU,57,mmlu_full,macro_accuracy,llama31_8b,n2_selective,0.5743385871848475
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,llama31_8b,n2_selective,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,n2_selective,0.45
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,n2_selective,0.9
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,llama31_8b,n2_selective,0.754
+HumanEval+,164,HumanEval+,plus_pass_at_1,llama31_8b,n2_selective,0.6402439024390244
+MBPP+,378,MBPP+,plus_pass_at_1,llama31_8b,n2_selective,0.6058201058201058
+BoolQ,500,bonham_boolq,accuracy,llama31_8b,random_n1,0.85
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,llama31_8b,random_n1,0.744
+RTE,277,bonham_rte,accuracy,llama31_8b,random_n1,0.5306859205776173
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,llama31_8b,random_n1,0.632
+WinoGrande,500,bonham_winogrande,accuracy,llama31_8b,random_n1,0.672
+MMLU,57,mmlu_full,macro_accuracy,llama31_8b,random_n1,0.5713468241515333
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,llama31_8b,random_n1,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,random_n1,0.44
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,random_n1,0.9
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,llama31_8b,random_n1,0.774
+HumanEval+,164,HumanEval+,plus_pass_at_1,llama31_8b,random_n1,0.6158536585365854
+MBPP+,378,MBPP+,plus_pass_at_1,llama31_8b,random_n1,0.6031746031746031
+BoolQ,500,bonham_boolq,accuracy,llama31_8b,random_n2,0.848
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,llama31_8b,random_n2,0.742
+RTE,277,bonham_rte,accuracy,llama31_8b,random_n2,0.5306859205776173
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,llama31_8b,random_n2,0.622
+WinoGrande,500,bonham_winogrande,accuracy,llama31_8b,random_n2,0.67
+MMLU,57,mmlu_full,macro_accuracy,llama31_8b,random_n2,0.5761517991088628
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,llama31_8b,random_n2,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,random_n2,0.44
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,random_n2,0.89
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,llama31_8b,random_n2,0.778
+HumanEval+,164,HumanEval+,plus_pass_at_1,llama31_8b,random_n2,0.6402439024390244
+MBPP+,378,MBPP+,plus_pass_at_1,llama31_8b,random_n2,0.5925925925925926
+BoolQ,500,bonham_boolq,accuracy,llama31_8b,weak_prompt,0.746
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,llama31_8b,weak_prompt,0.71
+RTE,277,bonham_rte,accuracy,llama31_8b,weak_prompt,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,llama31_8b,weak_prompt,0.372
+WinoGrande,500,bonham_winogrande,accuracy,llama31_8b,weak_prompt,0.638
+MMLU,57,mmlu_full,macro_accuracy,llama31_8b,weak_prompt,0.35933543603211193
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,llama31_8b,weak_prompt,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,weak_prompt,0.29
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,weak_prompt,0.83
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,llama31_8b,weak_prompt,0.656
+HumanEval+,164,HumanEval+,plus_pass_at_1,llama31_8b,weak_prompt,0.5914634146341463
+MBPP+,378,MBPP+,plus_pass_at_1,llama31_8b,weak_prompt,0.5925925925925926
+BoolQ,500,bonham_boolq,accuracy,llama31_8b,strong_prompt,0.802
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,llama31_8b,strong_prompt,0.734
+RTE,277,bonham_rte,accuracy,llama31_8b,strong_prompt,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,llama31_8b,strong_prompt,0.536
+WinoGrande,500,bonham_winogrande,accuracy,llama31_8b,strong_prompt,0.652
+MMLU,57,mmlu_full,macro_accuracy,llama31_8b,strong_prompt,0.5461894279415056
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,llama31_8b,strong_prompt,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,strong_prompt,0.45
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,strong_prompt,0.9
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,llama31_8b,strong_prompt,0.73
+HumanEval+,164,HumanEval+,plus_pass_at_1,llama31_8b,strong_prompt,0.6219512195121951
+MBPP+,378,MBPP+,plus_pass_at_1,llama31_8b,strong_prompt,0.5978835978835979
+BoolQ,500,bonham_boolq,accuracy,llama31_8b,prompt_only_meandiff,0.794
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,llama31_8b,prompt_only_meandiff,0.738
+RTE,277,bonham_rte,accuracy,llama31_8b,prompt_only_meandiff,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,llama31_8b,prompt_only_meandiff,0.216
+WinoGrande,500,bonham_winogrande,accuracy,llama31_8b,prompt_only_meandiff,0.622
+MMLU,57,mmlu_full,macro_accuracy,llama31_8b,prompt_only_meandiff,0.45016985169339746
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,llama31_8b,prompt_only_meandiff,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,prompt_only_meandiff,0.4
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,llama31_8b,prompt_only_meandiff,0.67
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,llama31_8b,prompt_only_meandiff,0.76
+HumanEval+,164,HumanEval+,plus_pass_at_1,llama31_8b,prompt_only_meandiff,0.6280487804878049
+MBPP+,378,MBPP+,plus_pass_at_1,llama31_8b,prompt_only_meandiff,0.5978835978835979
+BoolQ,500,bonham_boolq,accuracy,qwen25_7b,unpruned,0.822
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,qwen25_7b,unpruned,0.724
+RTE,277,bonham_rte,accuracy,qwen25_7b,unpruned,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,qwen25_7b,unpruned,0.396
+WinoGrande,500,bonham_winogrande,accuracy,qwen25_7b,unpruned,0.588
+MMLU,57,mmlu_full,macro_accuracy,qwen25_7b,unpruned,0.6787211506048071
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,qwen25_7b,unpruned,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,unpruned,0.35
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,unpruned,0.62
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,qwen25_7b,unpruned,0.848
+HumanEval+,164,HumanEval+,plus_pass_at_1,qwen25_7b,unpruned,0.40853658536585363
+MBPP+,378,MBPP+,plus_pass_at_1,qwen25_7b,unpruned,0.46825396825396826
+BoolQ,500,bonham_boolq,accuracy,qwen25_7b,n1_mechanism,0.826
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,qwen25_7b,n1_mechanism,0.732
+RTE,277,bonham_rte,accuracy,qwen25_7b,n1_mechanism,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,qwen25_7b,n1_mechanism,0.402
+WinoGrande,500,bonham_winogrande,accuracy,qwen25_7b,n1_mechanism,0.582
+MMLU,57,mmlu_full,macro_accuracy,qwen25_7b,n1_mechanism,0.6431254110616992
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,qwen25_7b,n1_mechanism,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,n1_mechanism,0.39
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,n1_mechanism,0.68
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,qwen25_7b,n1_mechanism,0.84
+HumanEval+,164,HumanEval+,plus_pass_at_1,qwen25_7b,n1_mechanism,0.3719512195121951
+MBPP+,378,MBPP+,plus_pass_at_1,qwen25_7b,n1_mechanism,0.4497354497354497
+BoolQ,500,bonham_boolq,accuracy,qwen25_7b,n2_selective,0.826
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,qwen25_7b,n2_selective,0.732
+RTE,277,bonham_rte,accuracy,qwen25_7b,n2_selective,0.5306859205776173
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,qwen25_7b,n2_selective,0.378
+WinoGrande,500,bonham_winogrande,accuracy,qwen25_7b,n2_selective,0.582
+MMLU,57,mmlu_full,macro_accuracy,qwen25_7b,n2_selective,0.6659957181425327
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,qwen25_7b,n2_selective,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,n2_selective,0.35
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,n2_selective,0.72
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,qwen25_7b,n2_selective,0.838
+HumanEval+,164,HumanEval+,plus_pass_at_1,qwen25_7b,n2_selective,0.42073170731707316
+MBPP+,378,MBPP+,plus_pass_at_1,qwen25_7b,n2_selective,0.4603174603174603
+BoolQ,500,bonham_boolq,accuracy,qwen25_7b,random_n1,0.828
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,qwen25_7b,random_n1,0.73
+RTE,277,bonham_rte,accuracy,qwen25_7b,random_n1,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,qwen25_7b,random_n1,0.4
+WinoGrande,500,bonham_winogrande,accuracy,qwen25_7b,random_n1,0.582
+MMLU,57,mmlu_full,macro_accuracy,qwen25_7b,random_n1,0.6750174469011034
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,qwen25_7b,random_n1,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,random_n1,0.35
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,random_n1,0.63
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,qwen25_7b,random_n1,0.85
+HumanEval+,164,HumanEval+,plus_pass_at_1,qwen25_7b,random_n1,0.4146341463414634
+MBPP+,378,MBPP+,plus_pass_at_1,qwen25_7b,random_n1,0.4656084656084656
+BoolQ,500,bonham_boolq,accuracy,qwen25_7b,random_n2,0.812
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,qwen25_7b,random_n2,0.734
+RTE,277,bonham_rte,accuracy,qwen25_7b,random_n2,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,qwen25_7b,random_n2,0.4
+WinoGrande,500,bonham_winogrande,accuracy,qwen25_7b,random_n2,0.59
+MMLU,57,mmlu_full,macro_accuracy,qwen25_7b,random_n2,0.6853964562932707
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,qwen25_7b,random_n2,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,random_n2,0.37
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,random_n2,0.65
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,qwen25_7b,random_n2,0.846
+HumanEval+,164,HumanEval+,plus_pass_at_1,qwen25_7b,random_n2,0.42073170731707316
+MBPP+,378,MBPP+,plus_pass_at_1,qwen25_7b,random_n2,0.4603174603174603
+BoolQ,500,bonham_boolq,accuracy,qwen25_7b,weak_prompt,0.784
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,qwen25_7b,weak_prompt,0.738
+RTE,277,bonham_rte,accuracy,qwen25_7b,weak_prompt,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,qwen25_7b,weak_prompt,0.224
+WinoGrande,500,bonham_winogrande,accuracy,qwen25_7b,weak_prompt,0.592
+MMLU,57,mmlu_full,macro_accuracy,qwen25_7b,weak_prompt,0.5771540651561428
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,qwen25_7b,weak_prompt,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,weak_prompt,0.39
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,weak_prompt,0.72
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,qwen25_7b,weak_prompt,0.812
+HumanEval+,164,HumanEval+,plus_pass_at_1,qwen25_7b,weak_prompt,0.3780487804878049
+MBPP+,378,MBPP+,plus_pass_at_1,qwen25_7b,weak_prompt,0.3888888888888889
+BoolQ,500,bonham_boolq,accuracy,qwen25_7b,strong_prompt,0.774
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,qwen25_7b,strong_prompt,0.71
+RTE,277,bonham_rte,accuracy,qwen25_7b,strong_prompt,0.5487364620938628
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,qwen25_7b,strong_prompt,0.204
+WinoGrande,500,bonham_winogrande,accuracy,qwen25_7b,strong_prompt,0.584
+MMLU,57,mmlu_full,macro_accuracy,qwen25_7b,strong_prompt,0.5236907034690969
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,qwen25_7b,strong_prompt,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,strong_prompt,0.33
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,strong_prompt,0.61
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,qwen25_7b,strong_prompt,0.808
+HumanEval+,164,HumanEval+,plus_pass_at_1,qwen25_7b,strong_prompt,0.3902439024390244
+MBPP+,378,MBPP+,plus_pass_at_1,qwen25_7b,strong_prompt,0.3968253968253968
+BoolQ,500,bonham_boolq,accuracy,qwen25_7b,prompt_only_meandiff,0.822
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,qwen25_7b,prompt_only_meandiff,0.71
+RTE,277,bonham_rte,accuracy,qwen25_7b,prompt_only_meandiff,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,qwen25_7b,prompt_only_meandiff,0.362
+WinoGrande,500,bonham_winogrande,accuracy,qwen25_7b,prompt_only_meandiff,0.564
+MMLU,57,mmlu_full,macro_accuracy,qwen25_7b,prompt_only_meandiff,0.6606226798747574
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,qwen25_7b,prompt_only_meandiff,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,prompt_only_meandiff,0.36
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,qwen25_7b,prompt_only_meandiff,0.68
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,qwen25_7b,prompt_only_meandiff,0.84
+HumanEval+,164,HumanEval+,plus_pass_at_1,qwen25_7b,prompt_only_meandiff,0.4329268292682927
+MBPP+,378,MBPP+,plus_pass_at_1,qwen25_7b,prompt_only_meandiff,0.4417989417989418
+BoolQ,500,bonham_boolq,accuracy,gemma4_12b,unpruned,0.908
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,gemma4_12b,unpruned,0.61
+RTE,277,bonham_rte,accuracy,gemma4_12b,unpruned,0.5342960288808665
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,gemma4_12b,unpruned,0.55
+WinoGrande,500,bonham_winogrande,accuracy,gemma4_12b,unpruned,0.58
+MMLU,57,mmlu_full,macro_accuracy,gemma4_12b,unpruned,0.7879636746499628
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,gemma4_12b,unpruned,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,unpruned,0.68
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,unpruned,0.93
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,gemma4_12b,unpruned,0.698
+HumanEval+,164,HumanEval+,plus_pass_at_1,gemma4_12b,unpruned,0.774390243902439
+MBPP+,378,MBPP+,plus_pass_at_1,gemma4_12b,unpruned,0.6904761904761905
+BoolQ,500,bonham_boolq,accuracy,gemma4_12b,n1_mechanism,0.906
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,gemma4_12b,n1_mechanism,0.612
+RTE,277,bonham_rte,accuracy,gemma4_12b,n1_mechanism,0.5379061371841155
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,gemma4_12b,n1_mechanism,0.546
+WinoGrande,500,bonham_winogrande,accuracy,gemma4_12b,n1_mechanism,0.576
+MMLU,57,mmlu_full,macro_accuracy,gemma4_12b,n1_mechanism,0.7902867171045842
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,gemma4_12b,n1_mechanism,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,n1_mechanism,0.68
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,n1_mechanism,0.93
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,gemma4_12b,n1_mechanism,0.53
+HumanEval+,164,HumanEval+,plus_pass_at_1,gemma4_12b,n1_mechanism,0.7804878048780488
+MBPP+,378,MBPP+,plus_pass_at_1,gemma4_12b,n1_mechanism,0.701058201058201
+BoolQ,500,bonham_boolq,accuracy,gemma4_12b,n2_selective,0.906
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,gemma4_12b,n2_selective,0.618
+RTE,277,bonham_rte,accuracy,gemma4_12b,n2_selective,0.5342960288808665
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,gemma4_12b,n2_selective,0.538
+WinoGrande,500,bonham_winogrande,accuracy,gemma4_12b,n2_selective,0.578
+MMLU,57,mmlu_full,macro_accuracy,gemma4_12b,n2_selective,0.7892395917153535
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,gemma4_12b,n2_selective,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,n2_selective,0.68
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,n2_selective,0.93
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,gemma4_12b,n2_selective,0.516
+HumanEval+,164,HumanEval+,plus_pass_at_1,gemma4_12b,n2_selective,0.774390243902439
+MBPP+,378,MBPP+,plus_pass_at_1,gemma4_12b,n2_selective,0.6931216931216931
+BoolQ,500,bonham_boolq,accuracy,gemma4_12b,random_n1,0.908
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,gemma4_12b,random_n1,0.612
+RTE,277,bonham_rte,accuracy,gemma4_12b,random_n1,0.5342960288808665
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,gemma4_12b,random_n1,0.554
+WinoGrande,500,bonham_winogrande,accuracy,gemma4_12b,random_n1,0.572
+MMLU,57,mmlu_full,macro_accuracy,gemma4_12b,random_n1,0.7921037597111005
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,gemma4_12b,random_n1,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,random_n1,0.68
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,random_n1,0.93
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,gemma4_12b,random_n1,0.694
+HumanEval+,164,HumanEval+,plus_pass_at_1,gemma4_12b,random_n1,0.7804878048780488
+MBPP+,378,MBPP+,plus_pass_at_1,gemma4_12b,random_n1,0.6957671957671958
+BoolQ,500,bonham_boolq,accuracy,gemma4_12b,random_n2,0.908
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,gemma4_12b,random_n2,0.618
+RTE,277,bonham_rte,accuracy,gemma4_12b,random_n2,0.5342960288808665
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,gemma4_12b,random_n2,0.544
+WinoGrande,500,bonham_winogrande,accuracy,gemma4_12b,random_n2,0.572
+MMLU,57,mmlu_full,macro_accuracy,gemma4_12b,random_n2,0.7850131164362466
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,gemma4_12b,random_n2,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,random_n2,0.68
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,random_n2,0.93
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,gemma4_12b,random_n2,0.698
+HumanEval+,164,HumanEval+,plus_pass_at_1,gemma4_12b,random_n2,0.7804878048780488
+MBPP+,378,MBPP+,plus_pass_at_1,gemma4_12b,random_n2,0.7063492063492064
+BoolQ,500,bonham_boolq,accuracy,gemma4_12b,weak_prompt,0.756
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,gemma4_12b,weak_prompt,0.61
+RTE,277,bonham_rte,accuracy,gemma4_12b,weak_prompt,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,gemma4_12b,weak_prompt,0.45
+WinoGrande,500,bonham_winogrande,accuracy,gemma4_12b,weak_prompt,0.56
+MMLU,57,mmlu_full,macro_accuracy,gemma4_12b,weak_prompt,0.7086615984815431
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,gemma4_12b,weak_prompt,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,weak_prompt,0.66
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,weak_prompt,0.91
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,gemma4_12b,weak_prompt,0.716
+HumanEval+,164,HumanEval+,plus_pass_at_1,gemma4_12b,weak_prompt,0.7682926829268293
+MBPP+,378,MBPP+,plus_pass_at_1,gemma4_12b,weak_prompt,0.6798941798941799
+BoolQ,500,bonham_boolq,accuracy,gemma4_12b,strong_prompt,0.782
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,gemma4_12b,strong_prompt,0.62
+RTE,277,bonham_rte,accuracy,gemma4_12b,strong_prompt,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,gemma4_12b,strong_prompt,0.514
+WinoGrande,500,bonham_winogrande,accuracy,gemma4_12b,strong_prompt,0.564
+MMLU,57,mmlu_full,macro_accuracy,gemma4_12b,strong_prompt,0.7477080815204085
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,gemma4_12b,strong_prompt,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,strong_prompt,0.65
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,strong_prompt,0.9
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,gemma4_12b,strong_prompt,0.712
+HumanEval+,164,HumanEval+,plus_pass_at_1,gemma4_12b,strong_prompt,0.7378048780487805
+MBPP+,378,MBPP+,plus_pass_at_1,gemma4_12b,strong_prompt,0.6243386243386243
+BoolQ,500,bonham_boolq,accuracy,gemma4_12b,prompt_only_meandiff,0.898
+HellaSwag,500,bonham_hellaswag_acc_norm,accuracy,gemma4_12b,prompt_only_meandiff,0.614
+RTE,277,bonham_rte,accuracy,gemma4_12b,prompt_only_meandiff,0.5270758122743683
+TriviaQA-Wiki,500,bonham_triviaqa_wiki,accuracy,gemma4_12b,prompt_only_meandiff,0.03
+WinoGrande,500,bonham_winogrande,accuracy,gemma4_12b,prompt_only_meandiff,0.574
+MMLU,57,mmlu_full,macro_accuracy,gemma4_12b,prompt_only_meandiff,0.7590631737965533
+MMLU-Pro,14,mmlu_pro_full,macro_accuracy,gemma4_12b,prompt_only_meandiff,0.0
+AG News arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,prompt_only_meandiff,0.68
+SST-2 arbitrary-label ICL,100,symbolic_icl_200,accuracy,gemma4_12b,prompt_only_meandiff,0.93
+OpenBookQA,500,bonham_openbookqa_reuse,accuracy,gemma4_12b,prompt_only_meandiff,0.63
+HumanEval+,164,HumanEval+,plus_pass_at_1,gemma4_12b,prompt_only_meandiff,0.7682926829268293
+MBPP+,378,MBPP+,plus_pass_at_1,gemma4_12b,prompt_only_meandiff,0.6984126984126984
